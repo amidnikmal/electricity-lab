@@ -19,7 +19,11 @@ private:
 class InspectorPanel {
 public:
     void render(Circuit& circuit, const CircuitSolution* solution,
-                int selNode, int selComp);
+                int selNode, int selComp,
+                const DistributedWireParameters& distributedWire,
+                float wireThickness,
+                float animationSpeed,
+                bool electronFlowEnabled);
 
     LogPanel& log() { return m_log; }
 
