@@ -189,6 +189,33 @@ TEST(Circuit, MultipleAddsAndRemoves) {
     EXPECT_LT(c.components.size(), 9u);
 }
 
+TEST(Circuit, AddNodeAfterRemovalKeepsUniqueId) {
+    Circuit c;
+    c.addNode({0, 0});
+    c.addNode({1, 0});
+    c.addNode({2, 0});
+    c.removeNode(1);
+
+    int newId = c.addNode({3, 0});
+    EXPECT_EQ(newId, 3);
+    EXPECT_NE(c.findNode(2), nullptr);
+    EXPECT_NE(c.findNode(3), nullptr);
+}
+
+TEST(Circuit, AddComponentAfterRemovalKeepsUniqueId) {
+    Circuit c;
+    int n0 = c.addNode({0, 0});
+    int n1 = c.addNode({1, 0});
+    c.addComponent(ComponentType::Wire, n0, n1);
+    c.addComponent(ComponentType::Resistor, n0, n1, 10.0);
+    c.removeComponent(0);
+
+    int newId = c.addComponent(ComponentType::VoltageSource, n1, n0, 5.0);
+    EXPECT_EQ(newId, 2);
+    EXPECT_NE(c.findComponent(1), nullptr);
+    EXPECT_NE(c.findComponent(2), nullptr);
+}
+
 // ─── toDistributed ──────────────────────────────────────────────
 
 TEST(Circuit, DistributedEmptyCircuit) {
@@ -294,4 +321,20 @@ TEST(Circuit, DistributedSegments1IsNoOp) {
     EXPECT_EQ(d.nodes.size(), 2u);
     EXPECT_EQ(d.components.size(), 1u);
     EXPECT_EQ(d.components[0].type, ComponentType::Wire);
+}
+
+TEST(Circuit, DistributedPreservesOriginalNodeIdsAcrossGaps) {
+    Circuit c;
+    int n0 = c.addNode({0, 0});
+    c.addNode({50, 0});
+    int n2 = c.addNode({100, 0});
+    c.removeNode(1);
+    int wireId = c.addComponent(ComponentType::Wire, n0, n2);
+
+    Circuit d = c.toDistributed(4);
+    EXPECT_NE(d.findNode(n0), nullptr);
+    EXPECT_NE(d.findNode(n2), nullptr);
+    ASSERT_EQ(d.distributedSource.size(), 4u);
+    for (int sourceId : d.distributedSource)
+        EXPECT_EQ(sourceId, wireId);
 }

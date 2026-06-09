@@ -1,0 +1,132 @@
+#pragma once
+
+#include "math/Vec2.h"
+#include "physics/PhysicalUnits.h"
+#include <algorithm>
+#include <cmath>
+#include <vector>
+
+namespace current_lab::physics {
+
+struct DriftParticleState {
+    Vec2 position;
+    double axialT = 0.0;
+    double lateralOffset = 0.0;
+};
+
+struct DriftSamplingConfig {
+    double wireThickness = 8.0;
+    double cameraScale = 1.0;
+    double time = 0.0;
+    double visualSpeedMultiplier = kDefaultVisualDriftSpeedMultiplier;
+    int componentId = 0;
+    bool electronFlowVisualization = false;
+};
+
+struct DriftVisualizationInfo {
+    Vec2 conventionalCurrentDirection;
+    Vec2 electronDriftDirection;
+    Vec2 visualDirection;
+    double computedCurrent = 0.0;
+    double visualSpeedMultiplier = kDefaultVisualDriftSpeedMultiplier;
+    bool hasThermalMotion = true;
+};
+
+inline int driftParticleCount(double length, double wireThickness) {
+    double volume = length * wireThickness * wireThickness;
+    return std::max(12, std::min(1200, static_cast<int>(volume / 40.0)));
+}
+
+inline Vec2 conventionalCurrentDirection(Vec2 a, Vec2 b, double current) {
+    Vec2 ab = b - a;
+    double len = ab.length();
+    if (len <= kMinimumPhysicalLength || std::abs(current) <= 1e-12)
+        return Vec2();
+    Vec2 unit = ab / len;
+    return current >= 0.0 ? unit : (unit * -1.0);
+}
+
+inline DriftVisualizationInfo driftVisualizationInfo(Vec2 a,
+                                                     Vec2 b,
+                                                     double current,
+                                                     bool electronFlowVisualization,
+                                                     double visualSpeedMultiplier =
+                                                         kDefaultVisualDriftSpeedMultiplier) {
+    DriftVisualizationInfo info;
+    info.computedCurrent = current;
+    info.visualSpeedMultiplier = visualSpeedMultiplier;
+    info.conventionalCurrentDirection = conventionalCurrentDirection(a, b, current);
+    info.electronDriftDirection = info.conventionalCurrentDirection * -1.0;
+    info.visualDirection = electronFlowVisualization
+        ? info.electronDriftDirection
+        : info.conventionalCurrentDirection;
+    return info;
+}
+
+inline std::vector<DriftParticleState> sampleDriftParticles(Vec2 a,
+                                                            Vec2 b,
+                                                            double current,
+                                                            const DriftSamplingConfig& config) {
+    std::vector<DriftParticleState> particles;
+
+    double absI = std::abs(current);
+    Vec2 dir = b - a;
+    double len = dir.length();
+    if (absI <= 1e-12 || len <= 1.0)
+        return particles;
+
+    Vec2 unit = dir / len;
+    Vec2 perp(-unit.y, unit.x);
+
+    double visualSign = (current < 0.0) ? -1.0 : 1.0;
+    if (config.electronFlowVisualization)
+        visualSign = -visualSign;
+
+    double driftSpeed = (0.06 + absI * 0.25) * std::max(0.0, config.visualSpeedMultiplier);
+    double phase = std::fmod(config.time * driftSpeed, 1.0);
+
+    double halfW = config.wireThickness * 0.5;
+    double screenR = std::min(14.0, 2.0 + 2.0 * config.cameraScale);
+    double maxOff = std::max(0.0, halfW - screenR / std::max(0.05, config.cameraScale) - 0.3);
+
+    int count = driftParticleCount(len, config.wireThickness);
+    particles.reserve(count);
+
+    for (int i = 0; i < count; ++i) {
+        double seed = static_cast<double>(i) * 2.718281828 +
+                      static_cast<double>(config.componentId) * 1.618033989;
+        double baseT = std::fmod(seed * 0.127, 1.0);
+        double y0 = std::fmod(seed * 0.371, 1.0) * 2.0 * maxOff - maxOff;
+
+        double t = baseT + visualSign * phase;
+        if (t > 1.0) t -= 1.0;
+        if (t < 0.0) t += 1.0;
+
+        double thx = std::sin(config.time * 117.3 + seed * 7.1) * 2.8
+                   + std::cos(config.time * 89.7 + seed * 11.3) * 2.2
+                   + std::sin(config.time * 143.1 + seed * 3.7) * 1.5;
+        double thy = std::cos(config.time * 103.7 + seed * 13.1) * 2.8
+                   + std::sin(config.time * 127.9 + seed * 5.3) * 2.2
+                   + std::cos(config.time * 77.1 + seed * 17.3) * 1.5;
+
+        double thermalX = thx / std::max(0.05, config.cameraScale);
+        double thermalY = thy / std::max(0.05, config.cameraScale);
+
+        double oy = y0 + thermalY;
+        if (oy > maxOff) oy = maxOff - (oy - maxOff) * 0.3;
+        if (oy < -maxOff) oy = -maxOff + (-maxOff - oy) * 0.3;
+
+        double tx = t + thermalX / len;
+        tx = std::clamp(tx, 0.0, 1.0);
+
+        particles.push_back(DriftParticleState{
+            a + dir * tx + perp * oy,
+            tx,
+            oy,
+        });
+    }
+
+    return particles;
+}
+
+} // namespace current_lab::physics

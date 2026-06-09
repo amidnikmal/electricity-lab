@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <cmath>
+#include "physics/WirePhysics.h"
 #include "solver/CircuitSolver.h"
 
 static constexpr double kEps = 1e-9;
@@ -344,6 +345,17 @@ TEST(Solver, PowerSignSourceSupplies) {
     EXPECT_GT(w->power, 0.0);
 }
 
+TEST(Solver, SeriesCircuitResistorPowerIs25mW) {
+    Circuit c = makeSeriesRCircuit();
+    CircuitSolver solver;
+    auto sol = solver.solve(c);
+
+    auto* r = findBranch(sol, 1);
+    ASSERT_NE(r, nullptr);
+    EXPECT_NEAR(r->current, 0.005, 1e-7);
+    EXPECT_NEAR(r->power, 0.025, 1e-7);
+}
+
 TEST(Solver, NearZeroOhmResistorBehavesLikeWire) {
     Circuit c;
     c.addNode({0, 0});
@@ -399,6 +411,42 @@ TEST(Solver, ParallelVoltageSourcesProducesFiniteResults) {
     EXPECT_NEAR(findPotential(sol, 1), 5.0, kEps);
     for (const auto& br : sol.branches)
         EXPECT_TRUE(std::isfinite(br.current));
+}
+
+TEST(Solver, NonContiguousNodeIdsAreSolvedCorrectly) {
+    Circuit c;
+    int gnd = c.addNode({0, 0});
+    c.addNode({25, 0}); // removed to create a gap in ids
+    int src = c.addNode({100, 0});
+    int load = c.addNode({200, 0});
+    c.removeNode(1);
+    c.groundNodeId = gnd;
+
+    c.addComponent(ComponentType::VoltageSource, src, gnd, 5.0);
+    c.addComponent(ComponentType::Resistor, src, load, 1000.0);
+    c.addComponent(ComponentType::Wire, load, gnd);
+
+    CircuitSolver solver;
+    auto sol = solver.solve(c);
+    EXPECT_NEAR(findPotential(sol, gnd), 0.0, kEps);
+    EXPECT_NEAR(findPotential(sol, src), 5.0, kEps);
+    EXPECT_NEAR(std::abs(findPotential(sol, load)), 0.0, 1e-5);
+
+    auto* r = findBranch(sol, 1);
+    ASSERT_NE(r, nullptr);
+    EXPECT_NEAR(r->current, 0.005, 1e-7);
+}
+
+TEST(Solver, WireResistanceScalesWithLength) {
+    double r100 = current_lab::physics::wireResistance(100.0);
+    double r200 = current_lab::physics::wireResistance(200.0);
+    EXPECT_NEAR(r200, r100 * 2.0, kEps);
+}
+
+TEST(Solver, SegmentCountDoesNotChangeTotalWireResistance) {
+    double r4 = current_lab::physics::segmentResistance(120.0, 4) * 4.0;
+    double r12 = current_lab::physics::segmentResistance(120.0, 12) * 12.0;
+    EXPECT_NEAR(r4, r12, kEps);
 }
 
 TEST(Solver, DistributedWireHasNonZeroVoltageDrop) {
@@ -458,5 +506,28 @@ TEST(Solver, DistributedWireGradientMonotonic) {
         double vi = findPotential(sol, (int)i);
         EXPECT_GE(vi, prev - 1e-12);  // monotonic non-decreasing
         prev = vi;
+    }
+}
+
+TEST(Solver, DistributedWireSegmentsCarrySameSeriesCurrent) {
+    Circuit c;
+    c.addNode({0, 0});
+    c.addNode({100, 0});
+    c.addNode({200, 0});
+    c.groundNodeId = 0;
+    c.addComponent(ComponentType::VoltageSource, 1, 0, 5.0);
+    c.addComponent(ComponentType::Resistor, 1, 2, 1000.0);
+    int wireId = c.addComponent(ComponentType::Wire, 0, 2);
+
+    Circuit d = c.toDistributed(8);
+    CircuitSolver solver;
+    auto sol = solver.solve(d);
+
+    double firstCurrent = std::nan("");
+    for (size_t i = 0; i < sol.branches.size(); ++i) {
+        if (d.distributedSource[i] != wireId) continue;
+        if (!std::isfinite(firstCurrent))
+            firstCurrent = sol.branches[i].current;
+        EXPECT_NEAR(sol.branches[i].current, firstCurrent, 1e-7);
     }
 }

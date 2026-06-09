@@ -1,0 +1,79 @@
+#pragma once
+
+#include "math/Vec2.h"
+#include "physics/PhysicalUnits.h"
+#include <algorithm>
+#include <cmath>
+#include <vector>
+
+namespace current_lab::physics {
+
+struct SurfaceChargeSample {
+    Vec2 topPosition;
+    Vec2 bottomPosition;
+    double signedStrength = 0.0;
+    double displayStrength = 0.0;
+};
+
+struct SurfaceChargeSamplingConfig {
+    double wireThickness = 8.0;
+    double cameraScale = 1.0;
+};
+
+inline std::vector<SurfaceChargeSample> sampleSurfaceCharges(Vec2 a,
+                                                             Vec2 b,
+                                                             double vA,
+                                                             double vB,
+                                                             double vMin,
+                                                             double vMax,
+                                                             const SurfaceChargeSamplingConfig& config) {
+    std::vector<SurfaceChargeSample> samples;
+
+    Vec2 ab = b - a;
+    double len = ab.length();
+    if (len <= 1.0 || config.wireThickness * config.cameraScale < 1.0)
+        return samples;
+
+    Vec2 unit = ab / len;
+    Vec2 perp(-unit.y, unit.x);
+
+    double dV = vB - vA;
+    double vAvg = (vA + vB) * 0.5;
+    double vSwing = std::max(std::abs(dV), 1e-9);
+    double globalRange = std::max(vMax - vMin, 1e-9);
+    (void)globalRange;
+
+    double edgeOffset = config.wireThickness * 0.5 * 0.92;
+    int count = std::max(8, std::min(200, static_cast<int>(len * config.cameraScale / 4.0)));
+    double segmentLen = len / count;
+
+    for (int i = 0; i <= count; ++i) {
+        double t = static_cast<double>(i) / count;
+        double v = linearPotentialAt(vA, vB, t);
+        double sigma = (v - vAvg) / vSwing;
+        double absSigma = std::abs(sigma);
+        if (absSigma < 0.05) continue;
+
+        double laplacian = 0.0;
+        if (i >= 1 && i <= count - 1) {
+            double vm1 = linearPotentialAt(vA, vB, static_cast<double>(i - 1) / count);
+            double vp1 = linearPotentialAt(vA, vB, static_cast<double>(i + 1) / count);
+            laplacian = (vp1 - 2.0 * v + vm1) / (segmentLen * segmentLen);
+        }
+
+        double junctionStrength = std::tanh(std::abs(laplacian) * 5000.0);
+        double totalStrength = std::min(1.0, absSigma * 1.2 + junctionStrength * 0.6);
+        Vec2 center = a + unit * (len * t);
+
+        samples.push_back(SurfaceChargeSample{
+            center + perp * edgeOffset,
+            center - perp * edgeOffset,
+            sigma,
+            totalStrength,
+        });
+    }
+
+    return samples;
+}
+
+} // namespace current_lab::physics

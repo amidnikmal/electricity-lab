@@ -44,21 +44,40 @@ struct Component {
         : id(id_), type(t), nodeA(a), nodeB(b), value(val) {}
 };
 
+struct DistributedWireParameters {
+    int segmentsPerWire = 8;
+    double resistancePerUnit = 0.5; // Ohm / world unit in the current pedagogical model
+};
+
 struct Circuit {
     std::vector<Node> nodes;
     std::vector<Component> components;
     int groundNodeId = -1;
 
     std::vector<int> distributedSource;
+    int nextNodeId = 0;
+    int nextComponentId = 0;
 
     int addNode(Vec2 pos, std::string label = "") {
-        int id = static_cast<int>(nodes.size());
+        int id = nextNodeId++;
+        nodes.emplace_back(id, pos, std::move(label));
+        return id;
+    }
+
+    int addNodeWithId(int id, Vec2 pos, std::string label = "") {
+        nextNodeId = std::max(nextNodeId, id + 1);
         nodes.emplace_back(id, pos, std::move(label));
         return id;
     }
 
     int addComponent(ComponentType type, int nodeA, int nodeB, double value = 0.0) {
-        int id = static_cast<int>(components.size());
+        int id = nextComponentId++;
+        components.emplace_back(id, type, nodeA, nodeB, value);
+        return id;
+    }
+
+    int addComponentWithId(int id, ComponentType type, int nodeA, int nodeB, double value = 0.0) {
+        nextComponentId = std::max(nextComponentId, id + 1);
         components.emplace_back(id, type, nodeA, nodeB, value);
         return id;
     }
@@ -84,54 +103,83 @@ struct Circuit {
         return nullptr;
     }
 
+    const Component* findComponent(int id) const {
+        for (const auto& c : components) if (c.id == id) return &c;
+        return nullptr;
+    }
+
     Node* findNode(int id) {
         for (auto& n : nodes) if (n.id == id) return &n;
         return nullptr;
     }
 
-    Circuit toDistributed(int segmentsPerWire = 8) const {
+    const Node* findNode(int id) const {
+        for (const auto& n : nodes) if (n.id == id) return &n;
+        return nullptr;
+    }
+
+    int nodeIndex(int id) const {
+        for (int i = 0; i < static_cast<int>(nodes.size()); ++i) {
+            if (nodes[i].id == id) return i;
+        }
+        return -1;
+    }
+
+    int componentIndex(int id) const {
+        for (int i = 0; i < static_cast<int>(components.size()); ++i) {
+            if (components[i].id == id) return i;
+        }
+        return -1;
+    }
+
+    Circuit toDistributed(const DistributedWireParameters& params) const {
         Circuit result;
 
         for (const auto& n : nodes)
-            result.addNode(n.position, n.label);
+            result.addNodeWithId(n.id, n.position, n.label);
 
         result.groundNodeId = groundNodeId;
 
-        const double R_PER_UNIT = 0.5;
-
-        for (int ci = 0; ci < (int)components.size(); ++ci) {
-            const auto& c = components[ci];
-            if (c.type != ComponentType::Wire || segmentsPerWire <= 1) {
-                result.addComponent(c.type, c.nodeA, c.nodeB, c.value);
-                result.distributedSource.push_back(ci);
+        for (const auto& c : components) {
+            if (c.type != ComponentType::Wire || params.segmentsPerWire <= 1) {
+                result.addComponentWithId(c.id, c.type, c.nodeA, c.nodeB, c.value);
+                result.distributedSource.push_back(c.id);
                 continue;
             }
 
-            if (c.nodeA >= (int)nodes.size() || c.nodeB >= (int)nodes.size()) {
-                result.addComponent(c.type, c.nodeA, c.nodeB, c.value);
-                result.distributedSource.push_back(ci);
+            const Node* nodeA = findNode(c.nodeA);
+            const Node* nodeB = findNode(c.nodeB);
+            if (!nodeA || !nodeB) {
+                result.addComponentWithId(c.id, c.type, c.nodeA, c.nodeB, c.value);
+                result.distributedSource.push_back(c.id);
                 continue;
             }
 
-            Vec2 a = nodes[c.nodeA].position;
-            Vec2 b = nodes[c.nodeB].position;
+            Vec2 a = nodeA->position;
+            Vec2 b = nodeB->position;
             double wireLen = (b - a).length();
-            double totalR = R_PER_UNIT * wireLen;
-            double rPerSeg = totalR / segmentsPerWire;
+            double totalR = params.resistancePerUnit * wireLen;
+            double rPerSeg = totalR / params.segmentsPerWire;
 
             int prevNode = c.nodeA;
-            for (int i = 1; i < segmentsPerWire; ++i) {
-                double t = (double)i / segmentsPerWire;
+            for (int i = 1; i < params.segmentsPerWire; ++i) {
+                double t = static_cast<double>(i) / params.segmentsPerWire;
                 Vec2 pos(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t);
                 int newNode = result.addNode(pos);
                 result.addComponent(ComponentType::Resistor, prevNode, newNode, rPerSeg);
-                result.distributedSource.push_back(ci);
+                result.distributedSource.push_back(c.id);
                 prevNode = newNode;
             }
             result.addComponent(ComponentType::Resistor, prevNode, c.nodeB, rPerSeg);
-            result.distributedSource.push_back(ci);
+            result.distributedSource.push_back(c.id);
         }
 
         return result;
+    }
+
+    Circuit toDistributed(int segmentsPerWire = 8) const {
+        DistributedWireParameters params;
+        params.segmentsPerWire = segmentsPerWire;
+        return toDistributed(params);
     }
 };
