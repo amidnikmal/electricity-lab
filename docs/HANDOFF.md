@@ -5,7 +5,7 @@
 Интерактивное приложение для построения и анализа электрических схем с
 физически-корректной визуализацией полей и дрейфа электронов внутри проводов.
 
-**Текущее состояние**: приложение запускается, умеет редактировать схему (узлы, провода, резисторы, источник напряжения, земля), решать MNA (Modified Nodal Analysis) **с всегда включённой распределённой моделью провода** (каждый Wire → 8 резисторных сегментов), визуализировать потенциал, ток, E-поле, дрейф электронов, поверхностные заряды, магнитное поле, тепловыделение и мощность. Провода — физические 2D-объекты с толщиной в мировых единицах (по умолчанию 8 wu), масштабируемой с zoom'ом. Градиент потенциала заполняет всё сечение провода (как цветовая карта в CFD/тепловых симуляциях).
+**Текущее состояние**: приложение запускается, умеет редактировать схему (узлы, провода, резисторы, источник напряжения, земля), решать MNA (Modified Nodal Analysis) с конфигурируемой распределённой моделью провода (`segments`, `R / unit`), визуализировать потенциал, ток, E-поле, дрейф электронов, поверхностные заряды, магнитное поле, тепловыделение и мощность. Во втором инженерном проходе вычисления E-field / drift / surface charge / magnetic field вынесены в чистые header-only модели в `src/physics/`, а `node/component` ID больше не обязаны совпадать с индексом в `vector`.
 
 ## Quick commands
 
@@ -44,11 +44,20 @@ current-lab/
 │   ├── math/
 │   │   ├── Vec2.h          # 2D vector (double), operator overloads
 │   │   └── LinearSystem.h  # Gauss-Jordan elimination
+│   ├── physics/
+│   │   ├── PhysicalUnits.h
+│   │   ├── WirePhysics.h
+│   │   ├── FieldModel.h
+│   │   ├── DriftModel.h
+│   │   ├── SurfaceChargeModel.h
+│   │   ├── MagneticFieldModel.h
+│   │   └── PowerModel.h
+│   ├── visualization/
+│   │   └── VisualizationStatus.h
 │   ├── ui/
 │   │   ├── MainWindow.h/cpp    # Top-level layout (3-column: toolbar | canvas | inspector), toolbar with checkboxes
-│   │   ├── CircuitCanvas.h/cpp # Canvas rendering: draws nodes, components, fields, particles
-│   │   │                       # 898 lines — the core rendering module
-│   │   ├── InspectorPanel.h/cpp # Properties panel + log window
+│   │   ├── CircuitCanvas.h/cpp # Input + rendering coordinator; consumes physics samples
+│   │   ├── InspectorPanel.h/cpp # Properties panel + physical probe readout
 │   │   └── Format.h            # milliamps(), milliwatts() formatting
 │   └── render/ simulation/     # Empty — placeholders for future modules
 ├── tests/
@@ -67,13 +76,14 @@ current-lab/
 
 ```
 MainWindow.render()
-  ├── canvas.setMode/show/... (sync toolbar state)
+  ├── circuit.toDistributed(...)
+  ├── CircuitSolver.solve(...)
+  ├── canvas.setMode/show/... (sync toolbar + presets + animation state)
   ├── canvas.render(circuit, solution)
-  │     └── for each component:
-  │           drawWire / drawResistor / drawVoltageSource / drawGround
-  │           drawEFieldArrows / drawMagneticField / drawCurrentArrows
-  │           drawDriftParticles / drawSurfaceCharge / drawPotentialLegend
-  ├── inspector.render(circuit, solution)
+  │     └── physics/* sample generation
+  │           -> drawWire / drawResistor / drawVoltageSource / drawGround
+  │           -> drawEField / drawMagnetic / drawCurrent / drawDrift / drawSurfaceCharge
+  ├── inspector.render(circuit, solution, distributedWireParams, ...)
   └── renderLog()
 ```
 
@@ -103,18 +113,18 @@ MainWindow.render()
 - [x] Branch results: current, voltage drop, power for each component
 - [x] Solver idempotency verified by tests
 
-### Physics visualization (all on CircuitCanvas)
+### Physics visualization (drawn on CircuitCanvas, computed in `src/physics/`)
 | Feature | Toggle | Default | Description |
 |---|---|---|---|
-| Current arrows | Show Current | ON | Animated green→red arrows (size ∝ current) |
-| Electron flow | Electron Flow | OFF | Reverses arrow/particle direction |
-| Potential gradient | Show Potential | ON | Full cross-section HSV color map (rainbow: blue=low, red=high) — wire as filled quad with N gradient strips |
-| Drift particles | Show Drift | ON | Orange/blue particles with thermal motion + drift velocity, count ∝ wire volume (volume/40, max 1200) |
-| E-field arrows | Show E-field | ON | Green arrows on centerline, **spread across cross-section at high zoom** (≤5 rows, CFD-style vector field) |
-| Heat map | Show Heat | ON | Glow line along resistors (width ∝ power dissipation) |
-| Power display | Show Power | ON | P=…mW text labels on components |
-| Magnetic field | Show Magnetic | OFF | Concentric rings (⊗/⊙) around current-carrying wires (radii ∝ wire width, intensity ∝ current) |
-| Surface charges | Surface Charge | ON | Red/blue dots at wire edges (σ ∝ V − V_avg), visible at any zoom |
+| Current arrows | Show Current | ON | Solver current with animated visual speed |
+| Electron flow | Electron Flow | OFF | Switches visual convention to electron direction |
+| Potential gradient | Show Potential | ON | Full cross-section scalar field with calmer multi-stop palette |
+| Drift particles | Show Drift | ON | Amplified pedagogical drift + qualitative thermal motion |
+| E-field arrows | Show E-field | ON | `E ~= -dV/dx` sample arrows, multi-row at high zoom |
+| Heat map | Show Heat | ON | Glow from dissipated power only |
+| Power display | Show Power | ON | P=…mW labels with sign convention from solver |
+| Magnetic field | Show Magnetic | OFF | Local `B ~ I/r` page-normal glyphs, qualitative quasi-static layer |
+| Surface charges | Surface Charge | ON | Heuristic edge samples `sigma ~ (V − V_avg)` |
 
 ### Wire as physical conductor
 - Default thickness: 8.0 wu (world units), slider range [2.0, 50.0] wu
@@ -131,7 +141,7 @@ MainWindow.render()
 - Combined effect: pill-shaped (rounded rectangle) wire appearance at junctions
 - **No AddCircleFilled** — these were removed after causing visible dark semicircular "cut-outs" beyond the gradient quads
 
-### Tests: 138 tests, 10 suites, all pass
+### Tests
 - `CanvasModeSwitch` (5 tests): mode-clears-drag/place behavior
 - `CanvasVisualization` (38 tests): toggle defaults, wire thickness, wire screen width, surface charge geometry, particle radius, no-dead-zone verification
 - `CanvasCamera` (4): world↔screen roundtrip, zoom clamp, pan accumulation
@@ -142,6 +152,7 @@ MainWindow.render()
 - `LinearSystem` (3): Gauss-Jordan basics
 - `Solver` (12): KCL, Ohm's law, potential distribution, power
 - `Circuit` (60): add/remove nodes and components, graph operations
+- Second-pass source updates add tests for ID gaps, distributed source mapping and pure visualization models; a fresh rebuild is still required to execute them in this environment
 
 ## Key design decisions
 
@@ -182,16 +193,16 @@ MainWindow.render()
 
 ## Known limitations / caveats
 
-1. **README.md is outdated** — describes only Milestone 1 features, doesn't mention any of the physics visualization work (potential gradient, E-field, drift, surface charge, etc.)
+1. **README.md was updated in second pass** — prefer it over older milestone notes
 2. **No circuit save/load** — no serialization of any kind
 3. **Only one ground node** — MNA solver expects exactly one
 4. **No capacitor/inductor** — DC steady-state only, no transient simulation
 5. **Surface charge model is heuristic** — V-based sigma is a visual approximation, not a physical surface charge calculation from Maxwell's equations
 6. **Particle thermal motion is deterministic** — uses sine/cosine combos, not actual random noise. Looks good but particles always follow the same path for the same configuration.
-7. **Magnetic field is decorative** — ring count/spacing is proportional to current, not computed from Biot-Savart law
+7. **Magnetic field is still qualitative** — sign follows right-hand rule and magnitude follows `B ~ I/r`, but this is not a full 3D solve
 8. **No energy conservation tracking** — only shows instantaneous power
 9. **Resistor body width in screen pixels**: `(wireW * 2.8) / m_camera.scale` — this formula couples resistor appearance to wire thickness but is a bit unphysical.
-10. **`distributedWire` mode is partially broken** — the `m_readOnly` flag freezes editing when checked, but the distributed circuit rendering may have visual artifacts.
+10. **`CircuitCanvas` is still large** — physics is extracted, but input/render orchestration still lives in one file
 
 ## Build system notes
 
@@ -224,7 +235,7 @@ MainWindow.render()
 
 ## Questions for the next agent
 
-1. **Distributed wire model**: the `toDistributed(N)` function splits a wire into N resistor segments. When `m_distributedWire` is checked, it switches rendering to the distributed circuit. But `m_readOnly` is set to true — should editing work on distributed circuits? Currently the solver uses either `m_circuit` or `m_distributedCircuit` but the canvas receives only one at a time. Is this the intended behavior or should distributed wire always be the underlying model?
+1. **Distributed wire ownership**: `toDistributed(...)` is still created from `Circuit` directly. Should the next pass introduce a dedicated `DistributedWireBuilder` / validator module so the transform is no longer a responsibility of the circuit container?
 
 2. **Resistor body width**: `rectH = (wireW * 2.8) / m_camera.scale` — this makes resistor body width scale inversely with zoom (wider at low zoom, narrower at high zoom). Was this intentional (to keep the resistor visible at overview) or should it be a fixed world-unit size like the wire?
 

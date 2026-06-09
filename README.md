@@ -1,146 +1,138 @@
 # Current Lab
 
-Интерактивное приложение для построения, анализа и визуализации электрических схем
-с физически-корректным отображением полей, зарядов и дрейфа электронов внутри
-проводников.
+Интерактивное C++ / OpenGL / Dear ImGui приложение для изучения тока, потенциала,
+напряжённости поля, дрейфа электронов и рассеяния энергии в простых цепях.
 
-**Цель** — инструмент для глубокого понимания физики электричества, на уровне
-MIT TEAL / Matter & Interactions: проводник как физическое тело, градиент
-потенциала, электрическое поле, поверхностные заряды, дрейф электронов с
-тепловым движением, картина магнитного поля.
+Проект ориентирован на учебную физическую честность:
 
-## Быстрый старт
+- solver даёт схемное DC-решение через MNA;
+- distributed wire даёт 1D-приближение конечного сопротивления провода;
+- визуальные слои помечены как `exact-sign`, `approximation`, `educational`,
+  `heuristic` или `qualitative quasi-static`;
+- renderer больше не придумывает E-field / drift / surface charge / B-field
+  прямо внутри UI-логики: эти слои вынесены в чистые модели в `src/physics/`.
+
+## Quick Start
 
 ```bash
 cd current-lab
 cmake -S . -B build
 cmake --build build -j$(nproc)
-
-# Тесты (138 тестов, 10 suites)
 ./build/current-lab-tests
-
-# Запуск (XWayland)
 DISPLAY=:0 ./build/current-lab
 ```
 
-### Зависимости (Ubuntu 24.04)
+## Current Scope
 
-```bash
-sudo apt install build-essential cmake git pkg-config libgl-dev libx11-dev \
-  libxi-dev libxrandr-dev libxinerama-dev libxxf86vm-dev libwayland-dev libxkbcommon-dev
-```
+- Circuit editor: node, wire, resistor, voltage source, ground
+- DC steady-state solver: modified nodal analysis
+- Distributed wire mode: configurable `segments` and `R / unit`
+- Potential gradient on conductors
+- Current arrows with sign-correct branch current
+- E-field layer with `E ~= -dV/dx` along wires
+- Drift particles with explicit note that visual speed is amplified
+- Surface charge layer explicitly marked as heuristic
+- Magnetic field layer updated to `B ~ I/r` page-normal glyphs, marked qualitative
+- Heat and power layers with dissipation vs supply sign convention
+- Inspector with `Va`, `Vb`, `dV`, `I`, `P`, `Length`, distributed `R`, `E`
+- Visual presets:
+  - Circuit view
+  - Potential view
+  - E-field view
+  - Electron drift view
+  - Power/heat view
+  - Surface charge view
+  - Full educational overlay
+- Animation controls:
+  - pause
+  - speed slider
+  - reset time
 
-GLFW 3.4, GLM 1.0.1, Dear ImGui v1.91.7-docking, Google Test v1.14.0 — через CMake FetchContent.
+## Physical Status Of Layers
 
-## Редактирование схем
-
-| Инструмент | Действие |
-|---|---|
-| Select | Клик по узлу или компоненту — выделение, Drag — перемещение узла |
-| Place Node | ЛКМ — создать узел |
-| Place Wire | Клик по первому узлу, затем по второму — провести провод |
-| Place Resistor | Клик по двум узлам — добавить резистор (1 kΩ по умолчанию) |
-| Place V Source | Клик по двум узлам — добавить источник напряжения (5 V) |
-| Place Ground | Клик по узлу — назначить землёй |
-| Del | Удалить выделенный компонент или узел |
-| Middle-drag | Панорамирование |
-| Scroll | Масштабирование (0.05× – 50×) |
-
-## Визуализация физики
-
-Все слои включаются/выключаются в левой панели (Toolbar).
-
-| Слой | Описание | По умолчанию |
+| Layer | Status | Notes |
 |---|---|---|
-| **Потенциал** (Potential) | Полная цветовая карта внутри провода: синий = низкий V, зелёный = средний, красный = высокий. Заполняет всё сечение проводника (как CFD/тепловая симуляция) | ON |
-| **Ток** (Current) | Анимированные стрелки: зелёный → красный при росте тока. Размер стрелок пропорционален |I| | ON |
-| **Поток электронов** (Electron flow) | Обратное направление стрелок и частиц (физическое: электроны против поля E) | OFF |
-| **Дрейф электронов** (Drift) | Оранжевые/синие частицы с тепловым броуновским движением + малый дрейф вдоль тока. Количество ∝ объёму провода (volume/40, до 1200) | ON |
-| **Электрическое поле** (E-field) | Зелёные стрелки вдоль провода. При большом увеличении (>24px толщина) — многорядное поле (CFD-стиль, до 5 рядов) | ON |
-| **Поверхностные заряды** (Surface charge) | Красные (σ > 0) / синие (σ < 0) точки на поверхности провода. Модель: σ ∝ V − V_avg | ON |
-| **Тепловыделение** (Heat) | Оранжевое свечение вдоль резистора, интенсивность ∝ P = I²R | ON |
-| **Мощность** (Power) | Текстовые метки P=…mW на компонентах | ON |
-| **Магнитное поле** (Magnetic) | Концентрические кольца ⊗/⊙ вокруг проводников с током, радиус ∝ толщине провода | OFF |
+| Solver current / voltage / power signs | `exact-sign` | From MNA solution |
+| Potential | `approximation` | Interpolated along distributed 1D wire model |
+| Electric field | `approximation` | `E ~= -dV/dx` along each conductor |
+| Drift | `educational` | Direction logic preserved, speed amplified for visibility |
+| Surface charge | `heuristic` | `sigma ~ (V - Vavg)` with junction-strength boost |
+| Magnetic field | `qualitative quasi-static` | `B ~ I/r`, right-hand-rule page glyphs |
+| Heat | `approximation` | Dissipated power only |
 
-### Провод как физическое тело
+## Architecture
 
-- Толщина в **мировых единицах** (wu), по умолчанию **8.0 wu**
-- Слайдер "Wire Width": диапазон 2.0 – 50.0 wu
-- Ширина на экране = `толщина × camera.scale` — масштабируется с zoom
-- Концы проводов скруглены (pill shape) для непрерывного визуального соединения в узлах
+Current data flow:
 
-## Физическая модель
-
-### Решатель (MNA — Modified Nodal Analysis)
-
-- Постоянный ток (DC steady-state)
-- Распределённая модель провода (всегда включена): каждый Wire разбивается на 8 резисторных сегментов с сопротивлением 0.5 Ω/единицу длины
-- Решение через метод Гаусса-Жордана с частичным выбором ведущего элемента
-- Расчёт: потенциалы узлов, ток в ветвях, падение напряжения, мощность
-
-### Физические приближения
-
-1. **Распределённый провод** — провод не идеален, имеет конечное сопротивление (0.5 Ω / wu)
-2. **DC steady-state** — только постоянный ток
-3. **Линейные омические элементы** — R не зависит от I, V, T
-4. **Поверхностные заряды** — эвристическая модель (σ ∝ V − V_avg), не из уравнений Максвелла
-5. **Тепловое движение электронов** — детерминированные синус/косинус-комбинации (не физический random walk)
-
-## Структура проекта
-
-```
-current-lab/
-├── CMakeLists.txt
-├── README.md
-├── docs/
-│   ├── HANDOFF.md                 # Handoff для других агентов/разработчиков
-│   ├── electricity_model_notes.md
-│   └── model_assumptions.md
-├── src/
-│   ├── main.cpp                   # GLFW + OpenGL + ImGui init, главный цикл
-│   ├── gl_setup.h                 # OpenGL loader
-│   ├── app/                       # Жизненный цикл приложения
-│   ├── circuit/
-│   │   └── Circuit.h              # Node, Component, Circuit (header-only)
-│   │                              #   toDistributed(N) — split Wire into N resistors
-│   ├── solver/
-│   │   └── CircuitSolver.h/cpp    # MNA solver → CircuitSolution
-│   ├── math/
-│   │   ├── Vec2.h                 # 2D вектор (double)
-│   │   └── LinearSystem.h         # Gauss-Jordan elimination
-│   └── ui/
-│       ├── MainWindow.h/cpp       # Раскладка (toolbar | canvas | inspector)
-│       ├── CircuitCanvas.h/cpp    # Отрисовка схемы и всех физических слоёв (898 строк)
-│       ├── InspectorPanel.h/cpp   # Панель свойств + лог
-│       └── Format.h               # milliamps(), milliwatts()
-└── tests/
-    ├── test_canvas.cpp            # 530 строк — canvas state, camera, wire geometry
-    ├── test_circuit.cpp           # Node/component operations
-    ├── test_solver.cpp            # KCL, Ohm, potential distribution
-    ├── test_consistency.cpp       # Solver idempotency
-    └── test_linear_system.cpp     # Gauss-Jordan basics
+```text
+Circuit
+  -> Circuit::toDistributed(...)
+  -> CircuitSolver
+  -> physics/* pure visualization models
+  -> CircuitCanvas renderer
+  -> MainWindow / InspectorPanel
 ```
 
-## Roadmap
+Key files:
 
-### Реализовано ✓
-- [x] Редактирование схем (узлы, провода, резисторы, источник, земля)
-- [x] MNA-решатель с распределённой моделью провода
-- [x] Цветовая карта потенциала (full cross-section gradient)
-- [x] Анимированные стрелки тока + режим электронного потока
-- [x] Дрейф электронов с тепловым движением
-- [x] Стрелки электрического поля (CFD-стиль при большом увеличении)
-- [x] Визуализация поверхностных зарядов
-- [x] Тепловыделение и мощность
-- [x] Магнитное поле (кольца)
-- [x] Провод как физическое тело с регулируемой толщиной
-- [x] 138 автоматических тестов
+```text
+src/
+  circuit/Circuit.h
+  solver/CircuitSolver.h/.cpp
+  physics/
+    PhysicalUnits.h
+    WirePhysics.h
+    FieldModel.h
+    DriftModel.h
+    SurfaceChargeModel.h
+    MagneticFieldModel.h
+    PowerModel.h
+  visualization/VisualizationStatus.h
+  ui/
+    MainWindow.h/.cpp
+    CircuitCanvas.h/.cpp
+    InspectorPanel.h/.cpp
+```
 
-### В будущем
-- Сохранение / загрузка схемы
-- Undo / redo
-- Конденсатор и переходные процессы (RC)
-- Катушка индуктивности
-- Физическая модель поверхностных зарядов (из ∇·E)
-- Водная аналогия (educational overlay)
-- Несколько reference node / относительность напряжения
+Important second-pass changes:
+
+- non-contiguous `node.id` and `component.id` are handled explicitly instead of
+  assuming `id == vector index`;
+- distributed-wire source mapping uses original component IDs, not vector offsets;
+- `CircuitCanvas` now consumes pure model samples for field, drift, magnetic and
+  surface-charge layers;
+- inspector exposes model status and per-element physical quantities.
+
+## Tests
+
+The test suite covers:
+
+- circuit graph operations and ID stability
+- solver correctness, sign conventions and distributed wire behaviour
+- consistency checks (KCL / KVL / power balance / Tellegen)
+- canvas state and geometry
+- pure visualization model behaviour for field, drift, magnetic field and
+  surface charge
+
+## Known Limitations
+
+- No transient simulation, capacitance or inductance
+- No full Maxwell / Laplace / Poisson field solve
+- Surface charge remains heuristic
+- Magnetic field remains a local qualitative teaching overlay, not a full 3D solve
+- Potential is still referenced to the chosen ground; arbitrary reference switching
+  is not yet exposed in UI
+- Temperature evolution is not simulated; heat is power-based only
+- Save/load and undo/redo are still absent
+
+## Documentation
+
+- [docs/HANDOFF.md](docs/HANDOFF.md)
+- [docs/model_assumptions.md](docs/model_assumptions.md)
+- [docs/electricity_model_notes.md](docs/electricity_model_notes.md)
+- [docs/ARCHITECTURE_REVIEW.md](docs/ARCHITECTURE_REVIEW.md)
+- [docs/PHYSICS_AUDIT.md](docs/PHYSICS_AUDIT.md)
+- [docs/VISUALIZATION_MODEL.md](docs/VISUALIZATION_MODEL.md)
+- [docs/TEST_PLAN.md](docs/TEST_PLAN.md)
+- [docs/MIT_TEAL_RENDERING_PLAN.md](docs/MIT_TEAL_RENDERING_PLAN.md)
+- [docs/SECOND_PASS_REPORT.md](docs/SECOND_PASS_REPORT.md)
