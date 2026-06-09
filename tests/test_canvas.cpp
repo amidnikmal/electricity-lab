@@ -1,7 +1,14 @@
 #include <gtest/gtest.h>
+#include <cmath>
 #include "ui/CircuitCanvas.h"
 #include "circuit/Circuit.h"
 #include "math/Vec2.h"
+#include "physics/DriftModel.h"
+#include "physics/FieldModel.h"
+#include "physics/MagneticFieldModel.h"
+#include "physics/ResistiveElementModel.h"
+#include "physics/SurfaceChargeModel.h"
+#include "visualization/VisualizationPresets.h"
 
 static constexpr double kEps = 1e-9;
 
@@ -462,6 +469,7 @@ TEST(CanvasVisualization, WireScreenWidthAfterBothSet) {
     EXPECT_FLOAT_EQ(cv.wireScreenWidth(), 42.0f);
 }
 
+
 // ─── Particle screen radius ────────────────────────────────────────
 TEST(CanvasVisualization, ParticleRadiusAtHighZoomClampsMinimum) {
     float r = CircuitCanvas::particleScreenRadius(50.0f);
@@ -527,4 +535,159 @@ TEST(CanvasVisualization, WireGradientStripsCoverFullLength) {
     EXPECT_GE(stripCount, 2.0f);  // at least 2 strips
     // strips are evenly placed from 0..len, no gap
     SUCCEED();
+}
+
+// ─── Pure visualization / physics models ──────────────────────────
+TEST(CanvasPhysicsModels, FieldDirectionFollowsPotentialDrop) {
+    auto dir = current_lab::physics::fieldDirection(Vec2(0, 0), Vec2(10, 0), 5.0, 1.0);
+    EXPECT_NEAR(dir.x, 1.0, kEps);
+    EXPECT_NEAR(dir.y, 0.0, kEps);
+
+    auto reverse = current_lab::physics::fieldDirection(Vec2(0, 0), Vec2(10, 0), 1.0, 5.0);
+    EXPECT_NEAR(reverse.x, -1.0, kEps);
+    EXPECT_NEAR(reverse.y, 0.0, kEps);
+}
+
+TEST(CanvasPhysicsModels, FieldMagnitudeScalesWithVoltageAndLength) {
+    double e1 = current_lab::physics::electricFieldMagnitude(4.0, 2.0);
+    double e2 = current_lab::physics::electricFieldMagnitude(8.0, 2.0);
+    double e3 = current_lab::physics::electricFieldMagnitude(4.0, 4.0);
+    EXPECT_NEAR(e2, e1 * 2.0, kEps);
+    EXPECT_NEAR(e3, e1 * 0.5, kEps);
+}
+
+TEST(CanvasPhysicsModels, DriftInfoKeepsComputedCurrentWhenConventionChanges) {
+    auto conventional = current_lab::physics::driftVisualizationInfo(
+        Vec2(0, 0), Vec2(10, 0), 0.25, false, 12.0);
+    auto electron = current_lab::physics::driftVisualizationInfo(
+        Vec2(0, 0), Vec2(10, 0), 0.25, true, 12.0);
+
+    EXPECT_DOUBLE_EQ(conventional.computedCurrent, electron.computedCurrent);
+    EXPECT_NEAR(conventional.visualDirection.x, 1.0, kEps);
+    EXPECT_NEAR(electron.visualDirection.x, -1.0, kEps);
+}
+
+TEST(CanvasPhysicsModels, ZeroCurrentProducesNoDriftParticles) {
+    current_lab::physics::DriftSamplingConfig config;
+    auto particles = current_lab::physics::sampleDriftParticles(Vec2(0, 0), Vec2(10, 0), 0.0, config);
+    EXPECT_TRUE(particles.empty());
+}
+
+TEST(CanvasPhysicsModels, DriftParticlesRemainInsideWireCrossSection) {
+    current_lab::physics::DriftSamplingConfig config;
+    config.wireThickness = 8.0;
+    config.cameraScale = 2.0;
+    config.time = 0.5;
+    auto particles = current_lab::physics::sampleDriftParticles(Vec2(0, 0), Vec2(20, 0), 0.2, config);
+    ASSERT_FALSE(particles.empty());
+
+    double halfW = config.wireThickness * 0.5;
+    for (const auto& particle : particles)
+        EXPECT_LE(std::abs(particle.position.y), halfW + 1e-6);
+}
+
+
+TEST(CanvasPhysicsModels, ResistorPathConcentratesVoltageDropInBody) {
+    auto sections = current_lab::physics::resistorPathSections(Vec2(0, 0), Vec2(100, 0), 5.0, 1.0, 8.0);
+    ASSERT_EQ(sections.size(), 3u);
+    EXPECT_EQ(sections[0].material, current_lab::physics::VisualMaterial::ConductiveLead);
+    EXPECT_EQ(sections[1].material, current_lab::physics::VisualMaterial::ResistiveBody);
+    EXPECT_EQ(sections[2].material, current_lab::physics::VisualMaterial::ConductiveLead);
+    EXPECT_NEAR(sections[0].voltageStart, 5.0, kEps);
+    EXPECT_NEAR(sections[0].voltageEnd, 5.0, kEps);
+    EXPECT_NEAR(sections[1].voltageStart, 5.0, kEps);
+    EXPECT_NEAR(sections[1].voltageEnd, 1.0, kEps);
+    EXPECT_NEAR(sections[2].voltageStart, 1.0, kEps);
+    EXPECT_NEAR(sections[2].voltageEnd, 1.0, kEps);
+}
+
+TEST(CanvasPhysicsModels, ResistorBodyWidthSlowsDriftVisualization) {
+    double wireHalf = 4.0;
+    double bodyHalf = current_lab::physics::resistorBodyHalfWidth(8.0);
+    EXPECT_GT(bodyHalf, wireHalf);
+    EXPECT_LT(current_lab::physics::driftSpeedScaleFromHalfWidth(wireHalf, bodyHalf), 1.0);
+}
+
+TEST(CanvasPhysicsModels, ResistorBodyFieldUsesBodyLength) {
+    double fullLengthField = current_lab::physics::electricFieldMagnitude(4.0, 100.0);
+    double bodyField = current_lab::physics::resistorBodyElectricFieldMagnitude(Vec2(0, 0), Vec2(100, 0), 5.0, 1.0, 8.0);
+    EXPECT_GT(bodyField, fullLengthField);
+}
+
+TEST(CanvasPhysicsModels, MagneticFieldIncreasesWithCurrentAndDecreasesWithRadius) {
+    double b1 = current_lab::physics::magneticFieldMagnitude(1.0, 1.0);
+    double b2 = current_lab::physics::magneticFieldMagnitude(2.0, 1.0);
+    double b3 = current_lab::physics::magneticFieldMagnitude(1.0, 2.0);
+    EXPECT_GT(b2, b1);
+    EXPECT_LT(b3, b1);
+}
+
+TEST(CanvasPhysicsModels, MagneticFieldDirectionReversesWithCurrent) {
+    current_lab::physics::MagneticFieldSamplingConfig config;
+    auto positive = current_lab::physics::sampleMagneticField(Vec2(0, 0), Vec2(10, 0), 1.0, config);
+    auto negative = current_lab::physics::sampleMagneticField(Vec2(0, 0), Vec2(10, 0), -1.0, config);
+    ASSERT_FALSE(positive.empty());
+    ASSERT_EQ(positive.size(), negative.size());
+    EXPECT_NE(positive.front().direction, negative.front().direction);
+}
+
+TEST(CanvasPhysicsModels, SurfaceChargeChangesSignAlongPotentialGradient) {
+    current_lab::physics::SurfaceChargeSamplingConfig config;
+    config.wireThickness = 8.0;
+    config.cameraScale = 2.0;
+    auto samples = current_lab::physics::sampleSurfaceCharges(Vec2(0, 0), Vec2(10, 0), 5.0, 1.0, 1.0, 5.0, config);
+    ASSERT_FALSE(samples.empty());
+    EXPECT_GT(samples.front().signedStrength, 0.0);
+    EXPECT_LT(samples.back().signedStrength, 0.0);
+}
+
+
+
+// --- Visualization presets -------------------------------------------------
+TEST(VisualizationPresets, PotentialPresetIsLearnerClean) {
+    using current_lab::visualization::VisualizationPreset;
+    using current_lab::visualization::presetInfo;
+
+    auto info = presetInfo(VisualizationPreset::Potential);
+    EXPECT_TRUE(info.layers.potential);
+    EXPECT_FALSE(info.layers.drift);
+    EXPECT_FALSE(info.layers.magnetic);
+    EXPECT_FALSE(info.layers.surfaceCharge);
+    EXPECT_FALSE(info.layers.debugMarkers);
+    EXPECT_FALSE(info.layers.debugLog);
+}
+
+TEST(VisualizationPresets, ElectricFieldPresetAvoidsDebugClutter) {
+    using current_lab::visualization::VisualizationPreset;
+    using current_lab::visualization::presetInfo;
+
+    auto info = presetInfo(VisualizationPreset::ElectricField);
+    EXPECT_TRUE(info.layers.potential);
+    EXPECT_TRUE(info.layers.electricField);
+    EXPECT_FALSE(info.layers.magnetic);
+    EXPECT_FALSE(info.layers.surfaceCharge);
+    EXPECT_FALSE(info.layers.debugMarkers);
+}
+
+TEST(VisualizationPresets, DebugPresetEnablesDeveloperOverlays) {
+    using current_lab::visualization::VisualizationPreset;
+    using current_lab::visualization::presetInfo;
+
+    auto info = presetInfo(VisualizationPreset::Debug);
+    EXPECT_TRUE(info.layers.debugMarkers);
+    EXPECT_TRUE(info.layers.debugLog);
+    EXPECT_TRUE(info.layers.surfaceCharge);
+    EXPECT_TRUE(info.layers.magnetic);
+}
+
+TEST(VisualizationPresets, CircuitPresetHidesDebugMarkers) {
+    using current_lab::visualization::VisualizationPreset;
+    using current_lab::visualization::presetInfo;
+
+    auto info = presetInfo(VisualizationPreset::Circuit);
+    EXPECT_TRUE(info.layers.current);
+    EXPECT_TRUE(info.layers.power);
+    EXPECT_FALSE(info.layers.surfaceCharge);
+    EXPECT_FALSE(info.layers.magnetic);
+    EXPECT_FALSE(info.layers.debugMarkers);
 }

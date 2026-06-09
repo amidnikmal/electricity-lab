@@ -75,10 +75,20 @@ public:
     bool showMagnetic() const { return m_showMagnetic; }
     void setShowSurfaceCharge(bool v) { m_showSurfaceCharge = v; }
     bool showSurfaceCharge() const { return m_showSurfaceCharge; }
+    void setDebugView(bool v) { m_debugView = v; }
+    bool debugView() const { return m_debugView; }
+    void setShowCanvasReadouts(bool v) { m_showCanvasReadouts = v; }
+    bool showCanvasReadouts() const { return m_showCanvasReadouts; }
     void setWireThickness(float v) { m_wireThickness = std::max(2.0f, std::min(50.0f, v)); }
     float wireThickness() const { return m_wireThickness; }
     static float particleScreenRadius(float cameraScale) { return std::min(14.0f, 2.0f + 2.0f * cameraScale); }
     float wireScreenWidth() const { return m_wireThickness * m_camera.scale; }
+    void setAnimationPaused(bool v) { m_animationPaused = v; }
+    bool animationPaused() const { return m_animationPaused; }
+    void setAnimationSpeed(float v) { m_animationSpeed = std::max(0.0f, v); }
+    float animationSpeed() const { return m_animationSpeed; }
+    void resetAnimationTime() { m_animationTime = 0.0; }
+    double animationTime() const { return m_animationTime; }
 
     // test access
     int dragNode() const { return m_dragNode; }
@@ -104,19 +114,24 @@ private:
     void handlePlaceMode(Circuit& circuit);
 
     void drawGrid(ImDrawList* dl);
+    void drawElectricFieldBackdrop(ImDrawList* dl, const Circuit& circuit, const CircuitSolution* solution,
+                                   double vMin, double vMax);
     void drawNode(ImDrawList* dl, const Node& node, const CircuitSolution* solution);
-    void drawComponent(ImDrawList* dl, const Component& comp, const Circuit& circuit, const CircuitSolution* solution, double globalMaxI, double globalMaxE, double globalMaxP);
+    void drawComponent(ImDrawList* dl, const Component& comp, const Circuit& circuit, const CircuitSolution* solution,
+                       double vMin, double vMax, double globalMaxI, double globalMaxE, double globalMaxP);
+    void drawConductorJunctions(ImDrawList* dl, const Circuit& circuit, const CircuitSolution* solution,
+                                double vMin, double vMax);
     void drawVoltageSource(ImDrawList* dl, Vec2 a, Vec2 b, double value, double va, double vb, double vMin, double vMax);
     void drawResistor(ImDrawList* dl, Vec2 a, Vec2 b, double value, double va, double vb, double vMin, double vMax, double power = 0.0, double maxP = 0.0);
     void drawWire(ImDrawList* dl, Vec2 a, Vec2 b, double va, double vb, double vMin, double vMax);
     void drawGround(ImDrawList* dl, Vec2 pos);
-    void drawCurrentArrows(ImDrawList* dl, Vec2 a, Vec2 b, double current, double globalMaxI);
-    void drawEFieldArrows(ImDrawList* dl, Vec2 a, Vec2 b, double va, double vb, double maxE);
+    void drawCurrentArrows(ImDrawList* dl, Vec2 a, Vec2 b, double current, double globalMaxI, double conductorHalfWidth = -1.0);
+    void drawEFieldArrows(ImDrawList* dl, Vec2 a, Vec2 b, double va, double vb, double maxE, double conductorHalfWidth = -1.0);
     void drawArrowHead(ImDrawList* dl, Vec2 pos, Vec2 dir, float size, ImU32 color);
     void drawPotentialLegend(ImDrawList* dl, double vMin, double vMax);
-    void drawDriftParticles(ImDrawList* dl, Vec2 a, Vec2 b, double current, int compId);
+    void drawDriftParticles(ImDrawList* dl, Vec2 a, Vec2 b, double current, int compId, double visualThickness = -1.0, double driftSpeedScale = 1.0);
     void drawMagneticField(ImDrawList* dl, Vec2 a, Vec2 b, double current);
-    void drawSurfaceCharge(ImDrawList* dl, Vec2 a, Vec2 b, double va, double vb, double vMin, double vMax);
+    void drawSurfaceCharge(ImDrawList* dl, Vec2 a, Vec2 b, double va, double vb, double vMin, double vMax, double visualThickness = -1.0);
 
     CanvasCamera m_camera;
     EditorMode m_mode = EditorMode::Select;
@@ -138,6 +153,11 @@ private:
     bool m_showPower = true;
     bool m_showMagnetic = false;
     bool m_showSurfaceCharge = true;
+    bool m_debugView = false;
+    bool m_showCanvasReadouts = false;
     float m_wireThickness = 8.0f;
     bool m_readOnly = false;
+    bool m_animationPaused = false;
+    float m_animationSpeed = 1.0f;
+    double m_animationTime = 0.0;
 };
