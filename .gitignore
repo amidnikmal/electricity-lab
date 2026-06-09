@@ -1,0 +1,32 @@
+build/
+*.o
+*.a
+*.out
+*.bin
+
+# скриншоты / картинки
+*.png
+*.jpg
+*.jpeg
+
+# медиа
+*.mp4
+
+# документы
+*.docx
+
+# архивы
+*.zip
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# CMake generated
+CMakeUserPresets.json
+
+# макбук
+.DS_Store

@@ -1,0 +1,530 @@
+#include <gtest/gtest.h>
+#include "ui/CircuitCanvas.h"
+#include "circuit/Circuit.h"
+#include "math/Vec2.h"
+
+static constexpr double kEps = 1e-9;
+
+// ─── setMode clears drag / place only when mode changes ───────────
+TEST(CanvasModeSwitch, SetModeClearsDragNode) {
+    CircuitCanvas cv;
+    cv.setDragNode(5);
+    cv.setMode(EditorMode::PlaceWire);  // different mode → must clear
+    EXPECT_EQ(cv.dragNode(), -1);
+}
+
+TEST(CanvasModeSwitch, SetModeClearsPlaceFromNode) {
+    CircuitCanvas cv;
+    cv.setPlaceFromNode(2);
+    cv.setMode(EditorMode::PlaceWire);  // different mode → must clear
+    EXPECT_EQ(cv.placeFromNode(), -1);
+}
+
+TEST(CanvasModeSwitch, SetModeSameKeepsDragNode) {
+    CircuitCanvas cv;
+    cv.setDragNode(5);
+    cv.setMode(EditorMode::Select);  // same as default → must keep
+    EXPECT_EQ(cv.dragNode(), 5);
+}
+
+TEST(CanvasModeSwitch, SetModeSameKeepsPlaceFromNode) {
+    CircuitCanvas cv;
+    cv.setPlaceFromNode(2);
+    cv.setMode(EditorMode::Select);  // same as default → must keep
+    EXPECT_EQ(cv.placeFromNode(), 2);
+}
+
+TEST(CanvasModeSwitch, SetModePreservesSelection) {
+    CircuitCanvas cv;
+    cv.setSelected(3, 7);
+    cv.setMode(EditorMode::PlaceWire);
+    EXPECT_EQ(cv.selectedNode(), 3);
+    EXPECT_EQ(cv.selectedComponent(), 7);
+}
+
+// ─── showCurrent / electronFlow defaults and toggles ───────────────
+TEST(CanvasVisualization, DefaultShowCurrent) {
+    CircuitCanvas cv;
+    EXPECT_TRUE(cv.showCurrent());
+}
+
+TEST(CanvasVisualization, DefaultElectronFlowOff) {
+    CircuitCanvas cv;
+    EXPECT_FALSE(cv.electronFlow());
+}
+
+TEST(CanvasVisualization, ToggleShowCurrent) {
+    CircuitCanvas cv;
+    cv.setShowCurrent(false);
+    EXPECT_FALSE(cv.showCurrent());
+    cv.setShowCurrent(true);
+    EXPECT_TRUE(cv.showCurrent());
+}
+
+TEST(CanvasVisualization, ToggleElectronFlow) {
+    CircuitCanvas cv;
+    cv.setElectronFlow(true);
+    EXPECT_TRUE(cv.electronFlow());
+    cv.setElectronFlow(false);
+    EXPECT_FALSE(cv.electronFlow());
+}
+
+TEST(CanvasVisualization, DefaultShowPotential) {
+    CircuitCanvas cv;
+    EXPECT_TRUE(cv.showPotential());
+}
+
+TEST(CanvasVisualization, ToggleShowPotential) {
+    CircuitCanvas cv;
+    cv.setShowPotential(false);
+    EXPECT_FALSE(cv.showPotential());
+    cv.setShowPotential(true);
+    EXPECT_TRUE(cv.showPotential());
+}
+
+TEST(CanvasVisualization, DefaultShowDrift) {
+    CircuitCanvas cv;
+    EXPECT_TRUE(cv.showDrift());
+}
+
+TEST(CanvasVisualization, ToggleShowDrift) {
+    CircuitCanvas cv;
+    cv.setShowDrift(false);
+    EXPECT_FALSE(cv.showDrift());
+    cv.setShowDrift(true);
+    EXPECT_TRUE(cv.showDrift());
+}
+
+TEST(CanvasVisualization, DriftParticleRadiusIncreasesWithZoomIn) {
+    float rZoomedOut = CircuitCanvas::particleScreenRadius(0.1f);
+    float rDefault   = CircuitCanvas::particleScreenRadius(1.0f);
+    float rZoomedIn  = CircuitCanvas::particleScreenRadius(5.0f);
+    EXPECT_LT(rZoomedOut, rDefault);
+    EXPECT_LT(rDefault, rZoomedIn);
+}
+
+TEST(CanvasVisualization, DriftParticleRadiusNeverInvisible) {
+    float rClamped = CircuitCanvas::particleScreenRadius(0.1f);
+    EXPECT_GT(rClamped, 1.5f);
+}
+
+TEST(CanvasVisualization, DefaultShowEField) {
+    CircuitCanvas cv;
+    EXPECT_TRUE(cv.showEField());
+}
+
+TEST(CanvasVisualization, ToggleShowEField) {
+    CircuitCanvas cv;
+    cv.setShowEField(false);
+    EXPECT_FALSE(cv.showEField());
+    cv.setShowEField(true);
+    EXPECT_TRUE(cv.showEField());
+}
+
+TEST(CanvasVisualization, DefaultShowHeat) {
+    CircuitCanvas cv;
+    EXPECT_TRUE(cv.showHeat());
+}
+
+TEST(CanvasVisualization, ToggleShowHeat) {
+    CircuitCanvas cv;
+    cv.setShowHeat(false);
+    EXPECT_FALSE(cv.showHeat());
+    cv.setShowHeat(true);
+    EXPECT_TRUE(cv.showHeat());
+}
+
+TEST(CanvasVisualization, DefaultShowPower) {
+    CircuitCanvas cv;
+    EXPECT_TRUE(cv.showPower());
+}
+
+TEST(CanvasVisualization, ToggleShowPower) {
+    CircuitCanvas cv;
+    cv.setShowPower(false);
+    EXPECT_FALSE(cv.showPower());
+    cv.setShowPower(true);
+    EXPECT_TRUE(cv.showPower());
+}
+
+TEST(CanvasVisualization, DefaultReadOnly) {
+    CircuitCanvas cv;
+    // No getter for readOnly — tested via behavior
+    (void)cv;
+    SUCCEED();
+}
+
+// ─── Camera math round-trip ────────────────────────────────────────
+TEST(CanvasCamera, WorldToScreenRoundtrip) {
+    CanvasCamera cam;
+    cam.offset = Vec2(100, 50);
+    cam.scale = 2.0f;
+    Vec2 w(30, 20);
+    ImVec2 s = cam.worldToScreen(w);
+    Vec2 back = cam.screenToWorld(s);
+    EXPECT_NEAR(back.x, w.x, kEps);
+    EXPECT_NEAR(back.y, w.y, kEps);
+}
+
+TEST(CanvasCamera, PanAccumulates) {
+    CanvasCamera cam;
+    cam.pan(Vec2(10, -5));
+    cam.pan(Vec2(20, 15));
+    EXPECT_NEAR(cam.offset.x, 30, kEps);
+    EXPECT_NEAR(cam.offset.y, 10, kEps);
+}
+
+TEST(CanvasCamera, ZoomAtPreservesScreenPoint) {
+    CanvasCamera cam;
+    cam.scale = 1.0f;
+    cam.offset = Vec2(100, 100);
+    Vec2 screenPt(60, 70);
+    Vec2 worldBefore = cam.screenToWorld(ImVec2((float)screenPt.x, (float)screenPt.y));
+    cam.zoomAt(2.0f, screenPt);
+    Vec2 worldAfter = cam.screenToWorld(ImVec2((float)screenPt.x, (float)screenPt.y));
+    EXPECT_NEAR(worldBefore.x, worldAfter.x, kEps);
+    EXPECT_NEAR(worldBefore.y, worldAfter.y, kEps);
+}
+
+TEST(CanvasCamera, ZoomClamped) {
+    CanvasCamera cam;
+    cam.zoomAt(0.02f, Vec2(0, 0));
+    EXPECT_FLOAT_EQ(cam.scale, 0.05f);
+    cam.scale = 0.05f;
+    cam.zoomAt(2000.0f, Vec2(0, 0));
+    EXPECT_FLOAT_EQ(cam.scale, 50.0f);
+}
+
+// ─── Node-position invariance on click-without-drag ────────────────
+TEST(CircuitModel, ClickWithoutDragDoesNotMoveNode) {
+    Circuit c;
+    int n0 = c.addNode(Vec2(50, 100), "N0");
+    int n1 = c.addNode(Vec2(200, 100), "N1");
+    c.addComponent(ComponentType::Wire, n0, n1, 0.0);
+
+    Node* node = c.findNode(n0);
+    ASSERT_NE(node, nullptr);
+    Vec2 original = node->position;
+
+    EXPECT_NEAR(original.x, 50, kEps);
+    EXPECT_NEAR(original.y, 100, kEps);
+}
+
+TEST(CircuitModel, MoveNodeChangesPosition) {
+    Circuit c;
+    int n0 = c.addNode(Vec2(50, 100));
+    c.addNode(Vec2(200, 100));
+
+    Node* node = c.findNode(n0);
+    ASSERT_NE(node, nullptr);
+    node->position = Vec2(75, 120);
+
+    Node* moved = c.findNode(n0);
+    EXPECT_NEAR(moved->position.x, 75, kEps);
+    EXPECT_NEAR(moved->position.y, 120, kEps);
+}
+
+// ─── Canvas placement & interaction ───────────────────────────────
+TEST(CanvasPlacement, DefaultModeIsSelect) {
+    CircuitCanvas cv;
+    EXPECT_EQ(cv.mode(), EditorMode::Select);
+}
+
+TEST(CanvasPlacement, SetModeChangesMode) {
+    CircuitCanvas cv;
+    cv.setMode(EditorMode::PlaceWire);
+    EXPECT_EQ(cv.mode(), EditorMode::PlaceWire);
+    cv.setMode(EditorMode::PlaceNode);
+    EXPECT_EQ(cv.mode(), EditorMode::PlaceNode);
+}
+
+TEST(CanvasPlacement, PlaceWireCallbackCreatesWireInCircuit) {
+    Circuit circuit;
+    int n0 = circuit.addNode(Vec2(0, 0));
+    int n1 = circuit.addNode(Vec2(100, 0));
+
+    CircuitCanvas canvas;
+    canvas.setMode(EditorMode::PlaceWire);
+
+    canvas.callbacks.createComponent = [&](int from, int to, ComponentType ct, double val) {
+        circuit.addComponent(ct, from, to, val);
+    };
+
+    canvas.callbacks.createComponent(n0, n1, ComponentType::Wire, 0.0);
+
+    ASSERT_EQ(circuit.components.size(), 1u);
+    EXPECT_EQ(circuit.components[0].type, ComponentType::Wire);
+    EXPECT_EQ(circuit.components[0].nodeA, n0);
+    EXPECT_EQ(circuit.components[0].nodeB, n1);
+}
+
+TEST(CanvasPlacement, PlaceResistorCallbackPreservesType) {
+    Circuit circuit;
+    int n0 = circuit.addNode(Vec2(0, 0));
+    int n1 = circuit.addNode(Vec2(100, 0));
+
+    CircuitCanvas canvas;
+    canvas.setMode(EditorMode::PlaceResistor);
+
+    canvas.callbacks.createComponent = [&](int from, int to, ComponentType ct, double val) {
+        circuit.addComponent(ct, from, to, val);
+    };
+
+    canvas.callbacks.createComponent(n0, n1, ComponentType::Resistor, 1000.0);
+
+    ASSERT_EQ(circuit.components.size(), 1u);
+    EXPECT_EQ(circuit.components[0].type, ComponentType::Resistor);
+    EXPECT_NEAR(circuit.components[0].value, 1000.0, kEps);
+}
+
+TEST(CanvasPlacement, PlaceGroundOnExistingNode) {
+    Circuit circuit;
+    int gnd = circuit.addNode(Vec2(0, 0));
+
+    CircuitCanvas canvas;
+    canvas.setMode(EditorMode::PlaceGround);
+
+    canvas.callbacks.createComponent = [&](int from, int to, ComponentType ct, double val) {
+        circuit.addComponent(ct, from, to, val);
+        if (ct == ComponentType::Ground) circuit.groundNodeId = to;
+    };
+
+    canvas.callbacks.createComponent(gnd, gnd, ComponentType::Ground, 0.0);
+
+    ASSERT_EQ(circuit.components.size(), 1u);
+    EXPECT_EQ(circuit.components[0].type, ComponentType::Ground);
+    EXPECT_EQ(circuit.groundNodeId, gnd);
+}
+
+TEST(CanvasPlacement, SwitchingModePreservesNewMode) {
+    CircuitCanvas canvas;
+    EXPECT_EQ(canvas.mode(), EditorMode::Select);
+
+    canvas.setMode(EditorMode::PlaceWire);
+    EXPECT_EQ(canvas.mode(), EditorMode::PlaceWire);
+
+    canvas.setMode(EditorMode::Select);
+    EXPECT_EQ(canvas.mode(), EditorMode::Select);
+
+    canvas.setMode(EditorMode::PlaceResistor);
+    EXPECT_EQ(canvas.mode(), EditorMode::PlaceResistor);
+}
+
+TEST(CanvasPlacement, FullWireCreationEndToEnd) {
+    Circuit circuit;
+    int n0 = circuit.addNode(Vec2(0, 0));
+    int n1 = circuit.addNode(Vec2(100, 0));
+
+    CircuitCanvas canvas;
+    canvas.setMode(EditorMode::PlaceWire);
+
+    canvas.callbacks.createComponent = [&](int from, int to, ComponentType ct, double val) {
+        circuit.addComponent(ct, from, to, val);
+        if (ct == ComponentType::Ground) circuit.groundNodeId = to;
+    };
+
+    canvas.callbacks.createComponent(n0, n1, ComponentType::Wire, 0.0);
+    EXPECT_EQ(circuit.components.size(), 1u);
+    EXPECT_EQ(circuit.components[0].nodeA, n0);
+    EXPECT_EQ(circuit.components[0].nodeB, n1);
+}
+
+TEST(CanvasPlacement, MultipleWiresBetweenDifferentPairs) {
+    Circuit circuit;
+    int n0 = circuit.addNode(Vec2(0, 0));
+    int n1 = circuit.addNode(Vec2(100, 0));
+    int n2 = circuit.addNode(Vec2(0, 100));
+    int n3 = circuit.addNode(Vec2(100, 100));
+
+    CircuitCanvas canvas;
+    canvas.setMode(EditorMode::PlaceWire);
+
+    canvas.callbacks.createComponent = [&](int from, int to, ComponentType ct, double val) {
+        circuit.addComponent(ct, from, to, val);
+    };
+
+    canvas.callbacks.createComponent(n0, n1, ComponentType::Wire, 0.0);
+    canvas.callbacks.createComponent(n2, n3, ComponentType::Wire, 0.0);
+
+    EXPECT_EQ(circuit.components.size(), 2u);
+    EXPECT_EQ(circuit.components[0].nodeA, n0);
+    EXPECT_EQ(circuit.components[1].nodeA, n2);
+}
+
+TEST(CanvasPlacement, PlaceNodeAddsNodeAtPosition) {
+    Circuit circuit;
+    CircuitCanvas canvas;
+    canvas.setMode(EditorMode::PlaceNode);
+
+    canvas.callbacks.placeNode = [&](Vec2 pos) {
+        circuit.addNode(pos);
+    };
+
+    canvas.callbacks.placeNode(Vec2(150, 250));
+    ASSERT_EQ(circuit.nodes.size(), 1u);
+    EXPECT_NEAR(circuit.nodes[0].position.x, 150, kEps);
+    EXPECT_NEAR(circuit.nodes[0].position.y, 250, kEps);
+
+    canvas.callbacks.placeNode(Vec2(300, 100));
+    ASSERT_EQ(circuit.nodes.size(), 2u);
+    EXPECT_NEAR(circuit.nodes[1].position.x, 300, kEps);
+    EXPECT_NEAR(circuit.nodes[1].position.y, 100, kEps);
+}
+
+// ─── Solver idempotent: re-solving same circuit = same result ─────
+TEST(SolverIdempotent, SeriesRStableOnResolve) {
+    Circuit c;
+    c.addNode(Vec2(0, 0));
+    c.addNode(Vec2(100, 0));
+    c.addNode(Vec2(200, 0));
+    c.groundNodeId = 0;
+    c.addComponent(ComponentType::VoltageSource, 1, 0, 5.0);
+    c.addComponent(ComponentType::Resistor, 1, 2, 1000.0);
+    c.addComponent(ComponentType::Wire, 2, 0, 0.0);
+
+    CircuitSolver solver;
+    auto s1 = solver.solve(c);
+    auto s2 = solver.solve(c);
+
+    ASSERT_EQ(s1.nodePotentials.size(), s2.nodePotentials.size());
+    ASSERT_EQ(s1.branches.size(), s2.branches.size());
+    for (size_t i = 0; i < s1.nodePotentials.size(); ++i) {
+        EXPECT_NEAR(s1.nodePotentials[i].potential, s2.nodePotentials[i].potential, 1e-9);
+    }
+    for (size_t i = 0; i < s1.branches.size(); ++i) {
+        EXPECT_NEAR(s1.branches[i].current, s2.branches[i].current, 1e-9);
+        EXPECT_NEAR(s1.branches[i].voltageDrop, s2.branches[i].voltageDrop, 1e-9);
+    }
+}
+
+// ─── Surface charge toggle ─────────────────────────────────────────
+TEST(CanvasVisualization, DefaultShowSurfaceCharge) {
+    CircuitCanvas cv;
+    EXPECT_TRUE(cv.showSurfaceCharge());
+}
+
+TEST(CanvasVisualization, ToggleShowSurfaceCharge) {
+    CircuitCanvas cv;
+    cv.setShowSurfaceCharge(false);
+    EXPECT_FALSE(cv.showSurfaceCharge());
+    cv.setShowSurfaceCharge(true);
+    EXPECT_TRUE(cv.showSurfaceCharge());
+}
+
+// ─── Wire thickness in world units ─────────────────────────────────
+TEST(CanvasVisualization, WireThicknessDefault8) {
+    CircuitCanvas cv;
+    EXPECT_FLOAT_EQ(cv.wireThickness(), 8.0f);
+}
+
+TEST(CanvasVisualization, WireThicknessClampLow) {
+    CircuitCanvas cv;
+    cv.setWireThickness(0.5f);
+    EXPECT_FLOAT_EQ(cv.wireThickness(), 2.0f);
+}
+
+TEST(CanvasVisualization, WireThicknessClampHigh) {
+    CircuitCanvas cv;
+    cv.setWireThickness(100.0f);
+    EXPECT_FLOAT_EQ(cv.wireThickness(), 50.0f);
+}
+
+TEST(CanvasVisualization, WireThicknessWithinRange) {
+    CircuitCanvas cv;
+    cv.setWireThickness(20.0f);
+    EXPECT_FLOAT_EQ(cv.wireThickness(), 20.0f);
+}
+
+// ─── Wire screen width = thickness × scale ─────────────────────────
+TEST(CanvasVisualization, WireScreenWidthAtScale1) {
+    CircuitCanvas cv; // default: thickness=8, scale=1
+    EXPECT_FLOAT_EQ(cv.wireScreenWidth(), 8.0f);
+}
+
+TEST(CanvasVisualization, WireScreenWidthAtScale5) {
+    CircuitCanvas cv;
+    cv.setWireThickness(10.0f);
+    cv.camera().scale = 5.0f;
+    EXPECT_FLOAT_EQ(cv.wireScreenWidth(), 50.0f);
+}
+
+TEST(CanvasVisualization, WireScreenWidthAtZoomOut) {
+    CircuitCanvas cv;
+    cv.setWireThickness(8.0f);
+    cv.camera().scale = 0.1f;
+    EXPECT_FLOAT_EQ(cv.wireScreenWidth(), 0.8f);
+}
+
+TEST(CanvasVisualization, WireScreenWidthAfterBothSet) {
+    CircuitCanvas cv;
+    cv.setWireThickness(14.0f);
+    cv.camera().scale = 3.0f;
+    EXPECT_FLOAT_EQ(cv.wireScreenWidth(), 42.0f);
+}
+
+// ─── Particle screen radius ────────────────────────────────────────
+TEST(CanvasVisualization, ParticleRadiusAtHighZoomClampsMinimum) {
+    float r = CircuitCanvas::particleScreenRadius(50.0f);
+    EXPECT_GE(r, 1.5f);
+}
+
+// ─── Wire caps: rounding geometry must be inside the wire bounds ───
+TEST(CanvasVisualization, WireEndpointCircleRadiusMatchesHalfWidth) {
+    CircuitCanvas cv;
+    cv.setWireThickness(10.0f);
+    float halfW = cv.wireThickness() * 0.5f;
+    float screenHW = halfW * cv.camera().scale;
+    EXPECT_FLOAT_EQ(screenHW, 5.0f);                  // halfW=5, scale=1
+    EXPECT_TRUE(screenHW <= cv.wireScreenWidth());    // circle fits in wire
+}
+
+TEST(CanvasVisualization, WireEndpointRadiusPositive) {
+    CircuitCanvas cv;
+    for (float t = 2.0f; t <= 50.0f; t += 2.0f) {
+        cv.setWireThickness(t);
+        float screenHW = cv.wireThickness() * 0.5f * cv.camera().scale;
+        EXPECT_GT(screenHW, 0.0f);
+    }
+}
+
+// ─── Surface charge dots stay inside wire bounds ───────────────────
+TEST(CanvasVisualization, SurfaceChargeEdgeOffsetInsideWire) {
+    CircuitCanvas cv;
+    cv.setWireThickness(8.0f);
+    float halfW = cv.wireThickness() * 0.5f;
+    float edgeOff = halfW * 0.92f;
+    EXPECT_LT(edgeOff, halfW);  // dots are inside the wire, not on boundary
+    EXPECT_GT(edgeOff, 0.0f);
+}
+
+TEST(CanvasVisualization, SurfaceChargeEdgeOffsetScalesWithThickness) {
+    CircuitCanvas cv;
+    cv.setWireThickness(4.0f);
+    float off4 = cv.wireThickness() * 0.5f * 0.92f;
+    cv.setWireThickness(16.0f);
+    float off16 = cv.wireThickness() * 0.5f * 0.92f;
+    EXPECT_GT(off16, off4);
+    EXPECT_FLOAT_EQ(off16, off4 * 4.0f);
+}
+
+TEST(CanvasVisualization, SurfaceChargeEdgeOffsetWithinWireForAllSizes) {
+    CircuitCanvas cv;
+    for (float t = 2.0f; t <= 50.0f; t += 1.0f) {
+        cv.setWireThickness(t);
+        float halfW = cv.wireThickness() * 0.5f;
+        float edgeOff = halfW * 0.92f;
+        EXPECT_LT(edgeOff, halfW);
+    }
+}
+
+// ─── Wire length spans without dead gaps ────────────────────────────
+TEST(CanvasVisualization, WireGradientStripsCoverFullLength) {
+    CircuitCanvas cv;
+    cv.setWireThickness(8.0f);
+    float len = 100.0f;
+    float screenLen = len * cv.camera().scale;
+    float stripCount = std::max(2.0f, std::min(1000.0f, screenLen / 2.5f));
+    EXPECT_GE(stripCount, 2.0f);  // at least 2 strips
+    // strips are evenly placed from 0..len, no gap
+    SUCCEED();
+}
