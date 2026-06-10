@@ -274,6 +274,7 @@ void CircuitCanvas::render(Circuit& circuit, const CircuitSolution* solution) {
     m_origin = ImGui::GetCursorScreenPos();
     m_size = ImGui::GetContentRegionAvail();
     ImGui::Dummy(m_size);
+    bool canvasItemHovered = ImGui::IsItemHovered();
     ImDrawList* dl = ImGui::GetWindowDrawList();
 
     dl->AddRectFilled(m_origin, ImVec2(m_origin.x + m_size.x, m_origin.y + m_size.y), IM_COL32(17, 22, 28, 255));
@@ -340,8 +341,9 @@ void CircuitCanvas::render(Circuit& circuit, const CircuitSolution* solution) {
     ImVec2 mouse = ImGui::GetMousePos();
     bool canvasHovered = (mouse.x >= m_origin.x && mouse.x <= m_origin.x + m_size.x &&
                           mouse.y >= m_origin.y && mouse.y <= m_origin.y + m_size.y);
+    bool canvasAcceptsInput = canvasHovered && canvasItemHovered && ImGui::IsWindowHovered();
 
-    if (canvasHovered && ImGui::IsWindowHovered()) {
+    if (canvasAcceptsInput) {
         if (m_dragNode < 0 && m_placeFromNode < 0) {
             if (ImGui::IsMouseDragging(ImGuiMouseButton_Middle)) {
                 ImVec2 d = ImGui::GetMouseDragDelta(ImGuiMouseButton_Middle);
@@ -356,7 +358,7 @@ void CircuitCanvas::render(Circuit& circuit, const CircuitSolution* solution) {
         }
     }
 
-    if (canvasHovered && !m_readOnly) {
+    if (canvasAcceptsInput && !m_readOnly) {
         switch (m_mode) {
             case EditorMode::Select:     handleSelectMode(circuit); break;
             default:                     handlePlaceMode(circuit);  break;
