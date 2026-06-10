@@ -302,14 +302,24 @@ void MainWindow::render() {
     ImGui::SameLine();
 
     float remainingX = ImGui::GetContentRegionAvail().x;
-    float canvasWidth = std::max(260.0f, remainingX - m_rightWidth - ImGui::GetStyle().ItemSpacing.x);
-    renderDualCanvasArea(canvasWidth, availY);
+    float gap = ImGui::GetStyle().ItemSpacing.x;
+    auto layout = current_lab::ui::computeDualViewLayout(remainingX, m_rightWidth,
+                                                         m_showRightInspector, m_dualViewEnabled, gap);
+    renderDualCanvasArea(layout.canvasWidth, availY);
 
-    ImGui::SameLine();
-
-    ImGui::BeginChild("RightInspector", ImVec2(m_rightWidth, availY), ImGuiChildFlags_Border);
-    renderRightInspector(params);
-    ImGui::EndChild();
+    if (layout.showInspector) {
+        ImGui::SameLine();
+        ImGui::BeginChild("RightInspector", ImVec2(layout.inspectorWidth, availY), ImGuiChildFlags_Border);
+        renderRightInspector(params);
+        ImGui::EndChild();
+    } else if (m_showRightInspector) {
+        ImGui::SameLine();
+        ImGui::BeginChild("RightInspectorCollapsed", ImVec2(40, availY), ImGuiChildFlags_Border);
+        ImGui::TextDisabled("Inspector");
+        ImGui::TextDisabled("auto");
+        ImGui::TextDisabled("hidden");
+        ImGui::EndChild();
+    }
 
     renderBottomAnalysis(params);
     renderElementEditor(params);
@@ -373,11 +383,14 @@ void MainWindow::syncDualViewCamerasFrom(current_lab::ui::DualViewPane pane) {
 void MainWindow::renderDualCanvasArea(float width, float height) {
     const CircuitSolution* solution = m_solved ? &m_solution : nullptr;
 
+    ImGui::BeginChild("DualCanvasContainer", ImVec2(width, height), 0,
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+
     if (!m_dualViewEnabled) {
         configureCanvasForPhysicsView(m_canvas);
         m_canvas.camera() = m_dualView.circuitCamera;
         CanvasCamera before = m_canvas.camera();
-        ImGui::BeginChild("CanvasContainer", ImVec2(width, height), 0,
+        ImGui::BeginChild("CanvasContainer", ImVec2(0, 0), ImGuiChildFlags_Border,
             ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
         ImGui::TextDisabled("Physics View");
         m_canvas.render(m_circuit, solution);
@@ -389,11 +402,16 @@ void MainWindow::renderDualCanvasArea(float width, float height) {
         m_dualView.circuitCamera = m_canvas.camera();
         if (!current_lab::ui::cameraApproximatelyEqual(before, m_canvas.camera()))
             syncDualViewCamerasFrom(current_lab::ui::DualViewPane::Circuit);
+        ImGui::EndChild();
         return;
     }
 
     float gap = ImGui::GetStyle().ItemSpacing.x;
-    float paneWidth = std::max(180.0f, (width - gap) * 0.5f);
+    float innerWidth = ImGui::GetContentRegionAvail().x;
+    float innerHeight = ImGui::GetContentRegionAvail().y;
+    auto split = current_lab::ui::computeDualViewPaneSplit(innerWidth, gap);
+    float circuitWidth = split.circuitWidth;
+    float physicsWidth = split.physicsWidth;
 
     configureCanvasForCircuitView(m_canvas);
     configureCanvasForPhysicsView(m_physicsCanvas);
@@ -402,7 +420,7 @@ void MainWindow::renderDualCanvasArea(float width, float height) {
     m_physicsCanvas.camera() = m_dualView.physicsCamera;
 
     CanvasCamera beforeCircuit = m_canvas.camera();
-    ImGui::BeginChild("CircuitViewPane", ImVec2(paneWidth, height), ImGuiChildFlags_Border,
+    ImGui::BeginChild("CircuitViewPane", ImVec2(circuitWidth, innerHeight), ImGuiChildFlags_Border,
         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::TextDisabled("Circuit View");
     m_canvas.render(m_circuit, solution);
@@ -421,7 +439,7 @@ void MainWindow::renderDualCanvasArea(float width, float height) {
     ImGui::SameLine();
 
     CanvasCamera beforePhysics = m_physicsCanvas.camera();
-    ImGui::BeginChild("PhysicsViewPane", ImVec2(0, height), ImGuiChildFlags_Border,
+    ImGui::BeginChild("PhysicsViewPane", ImVec2(physicsWidth, innerHeight), ImGuiChildFlags_Border,
         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::TextDisabled("Physics View");
     m_physicsCanvas.render(m_circuit, solution);
@@ -435,6 +453,7 @@ void MainWindow::renderDualCanvasArea(float width, float height) {
         syncDualViewCamerasFrom(current_lab::ui::DualViewPane::Physics);
 
     m_fitDualViewsRequested = false;
+    ImGui::EndChild();
 }
 
 void MainWindow::openElementEditor(int componentId) {
@@ -480,6 +499,9 @@ void MainWindow::renderTopBar() {
 
     ImGui::SameLine();
     ImGui::Checkbox("Dual View", &m_dualViewEnabled);
+
+    ImGui::SameLine();
+    ImGui::Checkbox("Inspector", &m_showRightInspector);
 
     ImGui::SameLine();
     ImGui::Checkbox("Sync cameras", &m_dualView.syncCameras);

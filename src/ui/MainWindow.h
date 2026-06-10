@@ -67,6 +67,7 @@ private:
     bool m_showCanvasReadouts = false;
     bool m_showDebugLog = false;
     bool m_dualViewEnabled = true;
+    bool m_showRightInspector = true;
     bool m_fitDualViewsRequested = false;
     float m_wireThickness = 8.0f;
     int m_visualPreset = 2;

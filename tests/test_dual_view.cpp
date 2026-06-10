@@ -114,3 +114,28 @@ TEST(DualViewProjection, DeleteRemovesComponentFromBothProjections)
     EXPECT_FALSE(current_lab::ui::projectionHasComponent(afterProjection, resistorId));
     EXPECT_EQ(afterProjection.circuitElements.size(), afterProjection.physicsElements.size());
 }
+
+
+TEST(DualViewLayout, PhysicsPaneKeepsPositiveWidth)
+{
+    auto split = current_lab::ui::computeDualViewPaneSplit(700.0f, 8.0f);
+    EXPECT_GT(split.circuitWidth, 0.0f);
+    EXPECT_GT(split.physicsWidth, 0.0f);
+    EXPECT_NEAR(split.circuitWidth + split.physicsWidth + 8.0f, 700.0f, 1.0f);
+}
+
+TEST(DualViewLayout, InspectorCollapsesBeforeStealingDualViewSpace)
+{
+    auto layout = current_lab::ui::computeDualViewLayout(820.0f, 320.0f, true, true, 8.0f);
+    EXPECT_FALSE(layout.showInspector);
+    EXPECT_FLOAT_EQ(layout.collapsedInspectorWidth, 40.0f);
+    EXPECT_GT(layout.canvasWidth, 700.0f);
+}
+
+TEST(DualViewLayout, InspectorShowsWhenThereIsEnoughRoom)
+{
+    auto layout = current_lab::ui::computeDualViewLayout(1280.0f, 320.0f, true, true, 8.0f);
+    EXPECT_TRUE(layout.showInspector);
+    EXPECT_GT(layout.inspectorWidth, 0.0f);
+    EXPECT_GT(layout.canvasWidth, 620.0f);
+}

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ui/CircuitCanvas.h"
+#include <algorithm>
 #include <cmath>
 #include <optional>
 
@@ -56,6 +57,50 @@ struct DualViewState
             circuitCamera = physicsCamera;
     }
 };
+
+
+struct DualViewPaneSplit
+{
+    float circuitWidth = 0.0f;
+    float physicsWidth = 0.0f;
+};
+
+struct DualViewLayoutMetrics
+{
+    bool showInspector = false;
+    float inspectorWidth = 0.0f;
+    float collapsedInspectorWidth = 0.0f;
+    float canvasWidth = 0.0f;
+};
+
+inline DualViewPaneSplit computeDualViewPaneSplit(float availableWidth, float gap)
+{
+    DualViewPaneSplit split;
+    float usableWidth = std::max(1.0f, availableWidth);
+    split.circuitWidth = std::floor(std::max(120.0f, (usableWidth - gap) * 0.5f));
+    split.physicsWidth = std::max(120.0f, usableWidth - split.circuitWidth - gap);
+    return split;
+}
+
+inline DualViewLayoutMetrics computeDualViewLayout(float remainingWidth,
+                                                   float preferredInspectorWidth,
+                                                   bool inspectorRequested,
+                                                   bool dualViewEnabled,
+                                                   float gap)
+{
+    DualViewLayoutMetrics layout;
+    float minDualWidth = dualViewEnabled ? 620.0f : 360.0f;
+    layout.showInspector = inspectorRequested && remainingWidth >= minDualWidth + 240.0f + gap;
+    layout.inspectorWidth = layout.showInspector
+        ? std::min(preferredInspectorWidth, std::max(240.0f, remainingWidth * 0.26f))
+        : 0.0f;
+    layout.collapsedInspectorWidth = (!layout.showInspector && inspectorRequested) ? 40.0f : 0.0f;
+    float reservedInspectorWidth = layout.showInspector ? layout.inspectorWidth : layout.collapsedInspectorWidth;
+    layout.canvasWidth = reservedInspectorWidth > 0.0f
+        ? std::max(260.0f, remainingWidth - reservedInspectorWidth - gap)
+        : remainingWidth;
+    return layout;
+}
 
 struct ElementEditState
 {
