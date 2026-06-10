@@ -5,6 +5,7 @@
 #include "render/ColorMaps.h"
 #include "ui/I18n.h"
 #include "physics/ChainGeometry.h"
+#include "physics/ChannelSpecs.h"
 #include "physics/DriftModel.h"
 #include "physics/FieldModel.h"
 #include "physics/MagneticFieldModel.h"
@@ -1405,9 +1406,16 @@ void emitPump(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
     emitPipe(ctx, a, b, va, vb, pipeHalfWidth(ctx));
     emitWaterFlow(ctx, a, b, current, comp.id, pipeHalfWidth(ctx));
 
-    Vec2 mid((a.x + b.x) * 0.5, (a.y + b.y) * 0.5);
-    double r = 15.0;
-    ctx.out.circles.push_back({mid, r, packColor(140, 190, 255), 2.5, false, false});
+    // The impeller is drawn EXACTLY where the Box2D collider lives (offset
+    // toward the casing side, physics half-width) — what you see is what the
+    // water particles are pushed by.
+    double physHalf = ctx.p.wireThickness * 0.5;
+    Vec2 center = physics::pumpImpellerCenter(a, b, physHalf);
+    double r = physics::pumpImpellerRadius(physHalf);
+
+    // Casing pocket bulge on the offset side.
+    ctx.out.circles.push_back({center, r * 1.2, packColor(26, 36, 52, 255), 0.0, true, false});
+    ctx.out.circles.push_back({center, r * 1.2, packColor(140, 190, 255), 2.0, false, false});
 
     // Blades at the REAL Box2D impeller angle when the water world runs, so
     // what you see is exactly what the particles collide with.
@@ -1424,20 +1432,20 @@ void emitPump(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
     }
     if (!haveReal)
         angle0 = spinPhase(ctx, comp.id, hydraulic::flowFromCurrent(current), kVisualSpinRate);
-    for (int s = 0; s < 3; ++s) {
-        double angle = angle0 + s * (kPi * 2.0 / 3.0);
+    for (int s = 0; s < 4; ++s) {
+        double angle = angle0 + s * (kPi / 2.0);
         Vec2 dir(std::cos(angle), std::sin(angle));
-        Vec2 mid2 = mid + dir * (r * 0.45);
-        ctx.out.lines.push_back({mid, mid2, 2.2, packColor(96, 170, 255, 235), true});
-        Vec2 blade(-dir.y, dir.x);
-        ctx.out.lines.push_back({mid2, mid2 + blade * (r * 0.4), 2.2,
+        // Full blade as the collider: from -r to +r through the hub.
+        ctx.out.lines.push_back({center - dir * r, center + dir * r, 2.4,
                                  packColor(96, 170, 255, 235), true});
     }
+    ctx.out.circles.push_back({center, r * 0.22, packColor(96, 170, 255, 245), 0.0, true, false});
 
     char buf[48];
     std::snprintf(buf, sizeof(buf), "%.1f %s", comp.value, tr("V pump"));
     Vec2 dir = (b - a).normalized();
     Vec2 perp(-dir.y, dir.x);
+    Vec2 mid((a.x + b.x) * 0.5, (a.y + b.y) * 0.5);
     ctx.out.labels.push_back({mid + perp * 24.0, buf, packColor(200, 200, 200), false});
 }
 
@@ -1603,8 +1611,10 @@ void buildHydraulic(BuildContext& ctx) {
             emitReadoutLabels(ctx, comp, mid, perp, branchCurrent, branchPower);
     }
 
-    // Pipe tees at junction nodes.
-    double radius = pipeHalfWidth(ctx) * 1.1;
+    // Junction chambers at the nodes — drawn at the SAME radius as the
+    // physical plumbing chamber the particles flow through, filled in the
+    // quad pass so the transiting water stays visible on top.
+    double chamberR = physics::junctionRadius(ctx.p.wireThickness * 0.5);
     for (const auto& node : ctx.circuit.nodes) {
         int connected = 0;
         for (const auto& comp : ctx.circuit.components) {
@@ -1612,8 +1622,17 @@ void buildHydraulic(BuildContext& ctx) {
             if (comp.nodeA == node.id || comp.nodeB == node.id) ++connected;
         }
         if (connected < 2) continue;
-        ctx.out.circles.push_back({node.position, radius, packColor(26, 36, 52), 0.0, true, false});
-        ctx.out.circles.push_back({node.position, radius, packColor(110, 150, 200, 230), 1.6, false, false});
+        // Octagon-ish disc from two overlapping filled squares (quads render
+        // under the particle pass; a filled circle would cover the water).
+        uint32_t shell = packColor(26, 36, 52);
+        double h = chamberR * 0.71; // square corners ~ on the chamber circle
+        Vec2 p = node.position;
+        ctx.out.quads.push_back({p + Vec2(-h, -h), p + Vec2(h, -h),
+                                 p + Vec2(h, h), p + Vec2(-h, h), shell, true, 0.0});
+        double d = chamberR; // diamond corners on the chamber circle
+        ctx.out.quads.push_back({p + Vec2(0, -d), p + Vec2(d, 0),
+                                 p + Vec2(0, d), p + Vec2(-d, 0), shell, true, 0.0});
+        ctx.out.circles.push_back({p, chamberR, packColor(110, 150, 200, 230), 1.6, false, false});
     }
 
     emitNodes(ctx);

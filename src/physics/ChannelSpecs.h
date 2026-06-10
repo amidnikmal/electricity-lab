@@ -12,6 +12,30 @@
 //   water (Hydraulic view): the pump impeller is a real paddle collider.
 namespace current_lab::physics {
 
+// --- shared water-plumbing geometry (sim AND renderer use these) -------------
+
+// Junction chamber radius at a node where pipes meet: wide enough that the
+// mouths of two perpendicular pipes fit on the chamber circle.
+inline double junctionRadius(double halfWidth) { return halfWidth * 1.5; }
+
+// The pump impeller sits offset toward one pipe wall (paddle-wheel in a
+// casing pocket): the exposed sweep above the axis entrains the water, the
+// casing side blocks the back-flow short-circuit.
+inline Vec2 pumpImpellerCenter(Vec2 a, Vec2 b, double halfWidth) {
+    Vec2 unit = (b - a).normalized();
+    Vec2 perp(-unit.y, unit.x);
+    return (a + b) * 0.5 + perp * (-halfWidth * 0.45);
+}
+
+inline double pumpImpellerRadius(double halfWidth) { return halfWidth * 0.9; }
+
+// Impeller angular velocity for a wanted flow along a->b. Tip velocity on the
+// exposed (+perp) side of an offset wheel is omega * (-unit), so positive
+// flow needs NEGATIVE omega. Sign verified by test_water_network.
+inline double pumpOmegaForFlow(double current) {
+    return -std::clamp(current * 400.0, -9.0, 9.0);
+}
+
 inline std::vector<ChannelSpec> makeChannelSpecs(const Circuit& circuit,
                                                  const CircuitSolution* solution,
                                                  double wireThickness,
@@ -47,7 +71,8 @@ inline std::vector<ChannelSpec> makeChannelSpecs(const Circuit& circuit,
         spec.targetSpeed = waterWorld ? drive : -drive;
         spec.scatterers = comp.type == ComponentType::Resistor;
         spec.paddle = waterWorld && comp.type == ComponentType::VoltageSource;
-        spec.paddleSpeed = std::clamp(current * 400.0, -9.0, 9.0);
+        spec.paddleSpeed = pumpOmegaForFlow(current);
+        spec.connected = waterWorld; // one plumbing network, pump-driven
         specs.push_back(spec);
     }
     return specs;

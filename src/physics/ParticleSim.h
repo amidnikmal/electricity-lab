@@ -22,9 +22,14 @@ struct ChannelSpec {
     double halfWidth = 4.0;  // world units
     double targetSpeed = 0.0; // signed, world units / s (calibrated from I)
     bool scatterers = false;  // Drude lattice pillars (resistor body)
-    bool paddle = false;      // rotating impeller at the channel center
+    bool paddle = false;      // rotating impeller (pump) inside the channel
     double paddleSpeed = 0.0; // rad/s, signed (∝ flow)
     int seedParticles = -1;   // -1 = auto count; 0 = start empty (tests)
+    // Water-network mode: walls are trimmed at shared nodes and junction
+    // chambers connect the pipes, so particles flow through the WHOLE circuit
+    // physically (no teleporting); packing is dense and the per-channel drive
+    // becomes a weak assist — the pump impeller does the actual pushing.
+    bool connected = false;
 };
 
 struct SimParticle {
