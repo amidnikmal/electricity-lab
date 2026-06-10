@@ -4,6 +4,7 @@
 #include "projection/MechanicsMapping.h"
 #include "render/ColorMaps.h"
 #include "ui/I18n.h"
+#include "physics/ChainGeometry.h"
 #include "physics/DriftModel.h"
 #include "physics/FieldModel.h"
 #include "physics/MagneticFieldModel.h"
@@ -841,7 +842,9 @@ double spinPhase(const BuildContext& ctx, int componentId, double current, doubl
     return ctx.p.time * current * rate;
 }
 
-double chainHalfWidth(const BuildContext& ctx) { return ctx.p.wireThickness * 0.45; }
+double chainHalfWidth(const BuildContext& ctx) {
+    return physics::chain_geometry::chainHalfWidth(ctx.p.wireThickness);
+}
 
 void emitChain(BuildContext& ctx, Vec2 a, Vec2 b, double va, double vb,
                double current, int compId) {
@@ -863,26 +866,55 @@ void emitChain(BuildContext& ctx, Vec2 a, Vec2 b, double va, double vb,
         ctx.out.gradients.push_back(grad);
     }
 
-    uint32_t rail = packColor(150, 160, 175, 210);
-    ctx.out.lines.push_back({a + perp * half, b + perp * half, 1.5, rail, true});
-    ctx.out.lines.push_back({a - perp * half, b - perp * half, 1.5, rail, true});
+    namespace cg = physics::chain_geometry;
+    const double rollerR = cg::linkRadius(ctx.p.wireThickness);
+    const double railOff = cg::sprocketPitchRadius(half, rollerR);
 
-    // REAL Box2D chain: rigid-jointed links from the mechanics world.
+    // Guide rails follow the simulated pitch track exactly.
+    uint32_t rail = packColor(150, 160, 175, 120);
+    ctx.out.lines.push_back({a + perp * railOff, b + perp * railOff, 1.2, rail, true});
+    ctx.out.lines.push_back({a - perp * railOff, b - perp * railOff, 1.2, rail, true});
+
+    // REAL Box2D chain: rigid-jointed links from the mechanics world, drawn
+    // as a bicycle chain — rollers with pins, joined by alternating outer
+    // (wide, light) and inner (narrow, dark) plate pairs.
     if (ctx.p.chainLinks) {
-        uint32_t linkCol = packColor(208, 214, 224, 230);
-        uint32_t barCol = packColor(150, 160, 175, 220);
+        const uint32_t rollerFill = packColor(70, 76, 88, 255);
+        const uint32_t rollerEdge = packColor(208, 214, 224, 235);
+        const uint32_t pinCol = packColor(228, 232, 240, 245);
+        const uint32_t outerPlate = packColor(196, 204, 216, 225);
+        const uint32_t innerPlate = packColor(140, 148, 162, 215);
+
+        auto emitPlates = [&](Vec2 from, Vec2 to, bool outer) {
+            Vec2 d = to - from;
+            double dl = d.length();
+            if (dl < 1e-6) return;
+            Vec2 n(-d.y / dl, d.x / dl);
+            double off = outer ? rollerR * 0.62 : rollerR * 0.34;
+            uint32_t col = outer ? outerPlate : innerPlate;
+            double w = outer ? cg::kOuterPlateWidth : cg::kInnerPlateWidth;
+            ctx.out.lines.push_back({from + n * off, to + n * off, w, col, true});
+            ctx.out.lines.push_back({from - n * off, to - n * off, w, col, true});
+        };
+
         const physics::ChainLink* prev = nullptr;
         const physics::ChainLink* first = nullptr;
         for (const auto& link : *ctx.p.chainLinks) {
             if (link.componentId != compId) continue;
-            ctx.out.circles.push_back({link.pos, half * 0.62, linkCol, 1.7, false, false});
             if (!first) first = &link;
             if (prev)
-                ctx.out.lines.push_back({prev->pos, link.pos, 2.0, barCol, true});
+                emitPlates(prev->pos, link.pos, prev->indexInLoop % 2 == 0);
             prev = &link;
         }
         if (prev && first && prev != first)
-            ctx.out.lines.push_back({prev->pos, first->pos, 2.0, barCol, true});
+            emitPlates(prev->pos, first->pos, prev->indexInLoop % 2 == 0);
+        // Rollers drawn after the plates so they sit on top at the joints.
+        for (const auto& link : *ctx.p.chainLinks) {
+            if (link.componentId != compId) continue;
+            ctx.out.circles.push_back({link.pos, rollerR, rollerFill, 0.0, true, false});
+            ctx.out.circles.push_back({link.pos, rollerR, rollerEdge, 1.4, false, false});
+            ctx.out.circles.push_back({link.pos, rollerR * 0.35, pinCol, 0.0, true, false});
+        }
         return;
     }
 
@@ -1098,10 +1130,18 @@ void emitFlywheel(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
                               packColor(200, 200, 200), false});
 }
 
-// Toothed gears at junction nodes; teeth rotate with the local chain speed,
+// Sprockets at junction nodes; teeth rotate with the local chain speed,
 // visually coupling every branch that meets here (one chain, one motion).
+// All radii come from chain_geometry, so the simulated chain rollers ride
+// exactly on the pitch circle between the drawn teeth.
 void emitGears(BuildContext& ctx) {
-    double radius = chainHalfWidth(ctx) * 1.6;
+    namespace cg = physics::chain_geometry;
+    const double rollerR = cg::linkRadius(ctx.p.wireThickness);
+    const double pitchR = cg::sprocketPitchRadius(chainHalfWidth(ctx), rollerR);
+    const double tipR = cg::sprocketTipRadius(pitchR, rollerR);
+    const double rootR = cg::sprocketRootRadius(pitchR, rollerR);
+    const int teeth = cg::sprocketTeeth(pitchR, cg::linkPitch(rollerR));
+
     for (const auto& node : ctx.circuit.nodes) {
         int connected = 0;
         double meanCurrent = 0.0;
@@ -1115,28 +1155,53 @@ void emitGears(BuildContext& ctx) {
         if (connected < 2) continue;
         meanCurrent /= connected;
 
-        uint32_t col = packColor(170, 178, 190, 230);
-        ctx.out.circles.push_back({node.position, radius, packColor(48, 54, 64, 255), 0.0, true, false});
-        ctx.out.circles.push_back({node.position, radius, col, 1.8, false, false});
-        ctx.out.circles.push_back({node.position, radius * 0.22, col, 0.0, true, false});
+        const uint32_t bodyFill = packColor(58, 64, 76, 255);
+        const uint32_t edgeCol = packColor(170, 178, 190, 230);
+        const uint32_t toothFill = packColor(120, 128, 142, 245);
 
-        // Teeth: phase follows the INTEGRated chain travel over the radius.
+        // Disc body under the teeth + rim.
+        ctx.out.circles.push_back({node.position, rootR, bodyFill, 0.0, true, false});
+        ctx.out.circles.push_back({node.position, rootR, edgeCol, 1.6, false, false});
+
+        // Teeth: trapezoids root->tip, narrower at the tip (sprocket profile);
+        // phase follows the INTEGRated chain travel over the pitch radius, so
+        // tooth surface speed equals chain speed (no slip).
         double phase = ctx.p.flowIntegrals
-            ? nodeIntegral(ctx.p.flowIntegrals, node.id) * kVisualChainSpeed / radius
+            ? nodeIntegral(ctx.p.flowIntegrals, node.id) * kVisualChainSpeed / pitchR
             : ctx.p.time * mechanics::chainSpeedFromCurrent(meanCurrent) *
-                  kVisualChainSpeed / radius;
-        int teeth = 8;
+                  kVisualChainSpeed / pitchR;
+        const double toothPitch = 2.0 * kPi / teeth;
         for (int tooth = 0; tooth < teeth; ++tooth) {
-            double angle = phase + tooth * (2.0 * kPi / teeth);
-            Vec2 dir(std::cos(angle), std::sin(angle));
-            ctx.out.lines.push_back({node.position + dir * radius,
-                                     node.position + dir * (radius * 1.28),
-                                     2.2, col, true});
+            double mid = phase + tooth * toothPitch;
+            double rootHalf = toothPitch * 0.30; // angular half-widths
+            double tipHalf = toothPitch * 0.16;
+            auto at = [&](double angle, double r) {
+                return node.position + Vec2(std::cos(angle), std::sin(angle)) * r;
+            };
+            render::PrimQuad quad{at(mid - rootHalf, rootR), at(mid - tipHalf, tipR),
+                                  at(mid + tipHalf, tipR), at(mid + rootHalf, rootR),
+                                  toothFill, true, 0.0};
+            ctx.out.quads.push_back(quad);
+        }
+
+        // Hub: bearing hole + four lightening holes between hub and rim.
+        ctx.out.circles.push_back({node.position, rootR * 0.30, packColor(36, 40, 48, 255), 0.0, true, false});
+        ctx.out.circles.push_back({node.position, rootR * 0.30, edgeCol, 1.2, false, false});
+        if (rootR > 6.0) {
+            for (int h = 0; h < 4; ++h) {
+                double angle = phase + (h + 0.5) * (kPi / 2.0);
+                Vec2 pos = node.position + Vec2(std::cos(angle), std::sin(angle)) * (rootR * 0.62);
+                ctx.out.circles.push_back({pos, rootR * 0.14, packColor(36, 40, 48, 220), 0.0, true, false});
+            }
         }
     }
 }
 
 void buildMechanics(BuildContext& ctx) {
+    // Sprockets first: their disc bodies must stay UNDER the chain rollers
+    // (circles render in push order), so the chain visibly wraps the gears.
+    emitGears(ctx);
+
     for (const auto& comp : ctx.circuit.components) {
         const Node* nodeA = ctx.circuit.findNode(comp.nodeA);
         const Node* nodeB = ctx.circuit.findNode(comp.nodeB);
@@ -1223,7 +1288,6 @@ void buildMechanics(BuildContext& ctx) {
         }
     }
 
-    emitGears(ctx);
     emitNodes(ctx);
 
     if (ctx.solution && ctx.p.layers.potential && ctx.hasPotentialRange())

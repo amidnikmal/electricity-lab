@@ -6,6 +6,7 @@
 #include "visualization/VisualizationStatus.h"
 #include "visualization/VisualizationPresets.h"
 #include "ui/Format.h"
+#include "physics/ChainGeometry.h"
 #include "physics/ChainSim.h"
 #include "physics/ChannelSpecs.h"
 #include "physics/DriftModel.h"
@@ -297,7 +298,7 @@ void MainWindow::updateParticleSim(float realDt) {
         spec.componentId = comp.id;
         spec.a = a->position;
         spec.b = b->position;
-        spec.halfWidth = m_wireThickness * 0.5;
+        spec.halfWidth = current_lab::physics::chain_geometry::chainHalfWidth(m_wireThickness);
         spec.targetSpeed = std::clamp(
             current_lab::mechanics::chainSpeedFromCurrent(current) *
                 current_lab::mechanics::kVisualChainSpeed * 100.0,
@@ -309,7 +310,8 @@ void MainWindow::updateParticleSim(float realDt) {
         m_chainLinks.clear();
     } else {
         if (!m_chainSim.configured())
-            m_chainSim.configure(chainSpecs, std::max(1.0, m_wireThickness * 0.16));
+            m_chainSim.configure(chainSpecs,
+                                 current_lab::physics::chain_geometry::linkRadius(m_wireThickness));
         else
             m_chainSim.setTargets(chainSpecs);
         if (dt > 0.0)

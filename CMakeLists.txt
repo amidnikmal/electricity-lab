@@ -132,6 +132,7 @@ set(TEST_SOURCES
     tests/test_particle_sim.cpp
     tests/test_worlds_separation.cpp
     tests/test_chain_sim.cpp
+    tests/test_chain_gear.cpp
     src/circuit/Circuit.cpp
     src/solver/CircuitSolver.cpp
     src/projection/ProjectionBuilder.cpp

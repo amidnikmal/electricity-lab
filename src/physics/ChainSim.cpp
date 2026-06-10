@@ -1,4 +1,5 @@
 #include "physics/ChainSim.h"
+#include "physics/ChainGeometry.h"
 
 #include <box2d/box2d.h>
 
@@ -104,12 +105,15 @@ struct ChainSim::Impl {
         loop.oval.unit = ab / len;
         loop.oval.perp = Vec2(-loop.oval.unit.y, loop.oval.unit.x);
         loop.oval.len = len;
-        loop.oval.off = std::max(spec.halfWidth * 0.55, linkRadius * 1.6);
+        // The loop arcs around each node exactly on the sprocket pitch circle,
+        // so the simulated chain stays on the drawn gear teeth.
+        loop.oval.off = chain_geometry::sprocketPitchRadius(spec.halfWidth, linkRadius);
 
         const uintptr_t tag = loops.size() + 1;
 
         // Guide rails: inner and outer racetrack walls (polyline of edges).
-        double gap = linkRadius * 1.5;
+        // Tight clearance keeps the rollers on the pitch track around arcs.
+        double gap = linkRadius * 1.25;
         for (double railOff : {loop.oval.off - gap, loop.oval.off + gap}) {
             if (railOff < linkRadius) continue;
             b2BodyDef railDef;
@@ -135,7 +139,7 @@ struct ChainSim::Impl {
         }
 
         // Links: rigid bodies around the oval, jointed into a closed ring.
-        double spacing = linkRadius * 2.6;
+        double spacing = chain_geometry::linkPitch(linkRadius);
         int count = std::max(8, static_cast<int>(loop.oval.perimeter() / spacing));
         spacing = loop.oval.perimeter() / count; // exact ring closure
 
