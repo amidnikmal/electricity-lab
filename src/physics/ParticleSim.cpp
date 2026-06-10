@@ -16,8 +16,8 @@ namespace {
 constexpr float kToSim = 0.05f;   // world units -> sim metres
 constexpr float kFromSim = 1.0f / kToSim;
 constexpr float kSubStep = 1.0f / 120.0f;
-constexpr int kVelocityIterations = 6;
-constexpr int kPositionIterations = 2;
+constexpr int kVelocityIterations = 16; // long contact chains: pump pressure must cross the whole loop
+constexpr int kPositionIterations = 6;
 constexpr double kPi = 3.14159265358979323846;
 
 b2Vec2 toSim(Vec2 v) { return b2Vec2(static_cast<float>(v.x) * kToSim,
@@ -92,8 +92,12 @@ struct ParticleSim::Impl {
         if (spec.scatterers) {
             double start = channel.length * 0.32;
             double end = channel.length * 0.68;
-            double maxR = (2.0 * spec.halfWidth - 2.8 * particleRadius) / 2.0;
-            double pillarR = std::clamp(spec.halfWidth * 0.45, 0.6, std::max(0.6, maxR));
+            // Connected (water) mode keeps a wider corridor: dense granular
+            // flow arches and clogs at narrow throats, electrons do not.
+            double corridor = spec.connected ? 4.2 : 2.8;
+            double maxR = (2.0 * spec.halfWidth - corridor * particleRadius) / 2.0;
+            double baseFrac = spec.connected ? 0.32 : 0.45;
+            double pillarR = std::clamp(spec.halfWidth * baseFrac, 0.6, std::max(0.6, maxR));
             double stepAlong = std::max(pillarR * 3.0, particleRadius * 3.2);
             int row = 0;
             for (double t = start; t <= end; t += stepAlong, ++row) {
@@ -316,7 +320,11 @@ struct ParticleSim::Impl {
         }
     }
 
+    uint64_t stepCount = 0;
+
     void applyDriveForces() {
+        uint32_t noiseSeed = static_cast<uint32_t>(stepCount * 2246822519u);
+        size_t bodyIndex = 0;
         for (auto& channel : channels) {
             b2Vec2 axis = toSim(channel.unit);
             axis.Normalize();
@@ -326,7 +334,21 @@ struct ParticleSim::Impl {
             // drift to the solver current and overcomes numerical friction.
             float gain = channel.spec.connected ? 1.5f : 6.0f;
             for (b2Body* body : channel.bodies) {
+                ++bodyIndex;
                 if (channel.spec.connected) {
+                    // Thermal agitation: isotropic, zero-mean pseudo-random
+                    // kicks act like molecular pressure — they refill the void
+                    // behind the pump wheel (suction side) and break granular
+                    // arches at constrictions. No net direction: circulation
+                    // can only come from the impeller (or the assist field).
+                    uint32_t h = static_cast<uint32_t>(bodyIndex) * 2654435761u ^ noiseSeed;
+                    h ^= h >> 16;
+                    h *= 2246822519u;
+                    float angle = static_cast<float>(h % 6283u) * 0.001f;
+                    float kick = body->GetMass() * 18.0f * kToSim;
+                    body->ApplyForceToCenter(
+                        b2Vec2(std::cos(angle) * kick, std::sin(angle) * kick), true);
+
                     // No field force inside junction chambers.
                     Vec2 rel = fromSim(body->GetPosition()) - channel.spec.a;
                     double t = rel.x * channel.unit.x + rel.y * channel.unit.y;
@@ -343,6 +365,7 @@ struct ParticleSim::Impl {
                 channel.paddleBody->SetAngularVelocity(
                     static_cast<float>(channel.spec.paddleSpeed));
         }
+        ++stepCount;
     }
 
     // Connected mode: particles cross junctions PHYSICALLY; here we only keep

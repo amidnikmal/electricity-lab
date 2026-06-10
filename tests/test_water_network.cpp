@@ -19,7 +19,8 @@ using namespace current_lab::physics;
 
 // Rectangle loop: source on the left, resistor on top, wires right + bottom.
 // Same shape as MainWindow::setupTestCircuit.
-Circuit makeLoop(int& srcId, int& resId, int& wire1Id, int& wire2Id) {
+Circuit makeLoop(int& srcId, int& resId, int& wire1Id, int& wire2Id,
+                 double resistance = 1000.0) {
     Circuit c;
     int gnd = c.addNode(Vec2(200, 300));
     int n1 = c.addNode(Vec2(200, 150));
@@ -28,7 +29,7 @@ Circuit makeLoop(int& srcId, int& resId, int& wire1Id, int& wire2Id) {
     c.groundNodeId = gnd;
     c.addComponent(ComponentType::Ground, gnd, gnd, 0.0);
     srcId = c.addComponent(ComponentType::VoltageSource, n1, gnd, 5.0);
-    resId = c.addComponent(ComponentType::Resistor, n1, n2, 1000.0);
+    resId = c.addComponent(ComponentType::Resistor, n1, n2, resistance);
     wire1Id = c.addComponent(ComponentType::Wire, n2, corner, 0.0);
     wire2Id = c.addComponent(ComponentType::Wire, corner, gnd, 0.0);
     return c;
@@ -132,7 +133,9 @@ TEST(WaterNetwork, DISABLED_PumpAloneDrivesTheLoop) {
     // (targetSpeed = 0) and keep only the impeller spinning — the loop still
     // has to circulate in the direction of the current.
     int srcId, resId, w1, w2;
-    Circuit c = makeLoop(srcId, resId, w1, w2);
+    // Strong current (50 mA): the impeller spins at the clamp speed — the
+    // causality question is "does the wheel pump?", not "is 2 rad/s enough".
+    Circuit c = makeLoop(srcId, resId, w1, w2, 100.0);
     CircuitSolver solver;
     CircuitSolution sol = solver.solve(c);
     auto specs = makeChannelSpecs(c, &sol, 8.0, /*waterWorld=*/true);
@@ -146,9 +149,23 @@ TEST(WaterNetwork, DISABLED_PumpAloneDrivesTheLoop) {
 
     ParticleSim sim;
     sim.configure(specs, particleWorldRadius(8.0));
-    runFor(sim, 5.0);
 
-    auto means = meanAxisSpeeds(sim, specs);
+    // Time-averaged transport: instantaneous velocities are dominated by the
+    // thermal agitation; the pump signal is the mean over the whole run.
+    std::map<int, double> means;
+    int samples = 0;
+    runFor(sim, 1.0); // spin-up
+    for (int s = 0; s < 70; ++s) {
+        runFor(sim, 0.1);
+        for (auto& [id, v] : meanAxisSpeeds(sim, specs))
+            means[id] += v;
+        ++samples;
+    }
+    for (auto& [id, v] : means)
+        v /= samples;
+    for (const auto& spec : specs)
+        std::cout << "comp " << spec.componentId << " I=" << branchCurrent[spec.componentId]
+                  << " meanV=" << means[spec.componentId] << "\n";
     // The pump pipe itself must flow with the current...
     double srcFlow = means[srcId] * branchCurrent[srcId];
     EXPECT_GT(srcFlow, 0.0) << "pump pushes its own pipe backwards";
