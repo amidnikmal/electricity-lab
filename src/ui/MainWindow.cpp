@@ -299,10 +299,12 @@ void MainWindow::updateParticleSim(float realDt) {
         spec.a = a->position;
         spec.b = b->position;
         spec.halfWidth = current_lab::physics::chain_geometry::chainHalfWidth(m_wireThickness);
+        // Same visual ceiling as the electron drift (±120): the chain shows
+        // the SAME current, it must not look slower than the electrons.
         spec.targetSpeed = std::clamp(
             current_lab::mechanics::chainSpeedFromCurrent(current) *
                 current_lab::mechanics::kVisualChainSpeed * 100.0,
-            -90.0, 90.0);
+            -120.0, 120.0);
         spec.brake = comp.type == ComponentType::Resistor;
         chainSpecs.push_back(spec);
     }
@@ -373,6 +375,19 @@ void MainWindow::mapDistributedSolution() {
     for (const auto& node : m_circuit.nodes)
         m_solution.nodePotentials.push_back({node.id, potentialForNode(node.id)});
 
+    // distributedSource is aligned with m_distributedCircuit.components by
+    // INDEX, but solver branches are NOT positional (Ground is skipped there)
+    // — match branches by componentId. The old positional lookup shifted every
+    // branch after Ground by one: the source got the RESISTOR's current and
+    // the visual loop currents converged into the ground corner (user report
+    // 2026-06-11 «ток течёт в одну точку — левый нижний угол»).
+    auto originalIdFor = [&](int distributedComponentId) {
+        int idx = m_distributedCircuit.componentIndex(distributedComponentId);
+        if (idx < 0 || idx >= (int)m_distributedCircuit.distributedSource.size())
+            return -1;
+        return m_distributedCircuit.distributedSource[idx];
+    };
+
     m_solution.branches.clear();
     for (const auto& oc : m_circuit.components) {
         if (oc.type == ComponentType::Ground)
@@ -387,12 +402,9 @@ void MainWindow::mapDistributedSolution() {
         double totalPower = 0.0;
         int segCount = 0;
 
-        for (int di = 0; di < (int)m_distributedSolution.branches.size(); ++di) {
-            int srcIdx = di < (int)m_distributedCircuit.distributedSource.size()
-                             ? m_distributedCircuit.distributedSource[di] : -1;
-            if (srcIdx != oc.id) continue;
+        for (const auto& db : m_distributedSolution.branches) {
+            if (originalIdFor(db.componentId) != oc.id) continue;
 
-            const auto& db = m_distributedSolution.branches[di];
             if (isWire) {
                 totalCurrent += db.current;
                 totalVdrop += db.voltageDrop;
@@ -818,7 +830,17 @@ void MainWindow::renderTopBar() {
                 m_dualView.clearSelection();
                 m_elementEdit.close();
                 m_transientState.reset();
-                m_transientRunning = false;
+                // Reactive demos are DEAD in DC steady state (capacitor = open
+                // circuit -> I = 0, «демка не запускается»): switch to transient
+                // and RUN so the story starts immediately.
+                bool reactive = false;
+                for (const auto& comp : m_circuit.components)
+                    if (comp.type == ComponentType::Capacitor ||
+                        comp.type == ComponentType::Inductor)
+                        reactive = true;
+                m_simMode = reactive ? SimulationMode::Transient
+                                     : SimulationMode::DcSteadyState;
+                m_transientRunning = reactive;
                 m_fitDualViewsRequested = true;
                 onCircuitChanged();
             }

@@ -134,6 +134,7 @@ set(TEST_SOURCES
     tests/test_chain_sim.cpp
     tests/test_chain_gear.cpp
     tests/test_water_network.cpp
+    tests/test_app_path_directions.cpp
     src/circuit/Circuit.cpp
     src/solver/CircuitSolver.cpp
     src/projection/ProjectionBuilder.cpp
