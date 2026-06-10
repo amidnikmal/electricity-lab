@@ -125,7 +125,18 @@ void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
         if (quad.filled)
             dl->AddQuadFilled(m.toScreen(quad.p1), m.toScreen(quad.p2),
                               m.toScreen(quad.p3), m.toScreen(quad.p4), quad.color);
-        else
+    }
+
+    // Particles sit inside the conductors: above the fills, below the outlines
+    // so element bodies stay readable.
+    for (const auto& particle : prims.particles) {
+        float r = particle.screenSpaceRadius ? static_cast<float>(particle.radius)
+                                             : m.px(particle.radius);
+        dl->AddCircleFilled(m.toScreen(particle.pos), r, particle.color);
+    }
+
+    for (const auto& quad : prims.quads) {
+        if (!quad.filled)
             dl->AddQuad(m.toScreen(quad.p1), m.toScreen(quad.p2),
                         m.toScreen(quad.p3), m.toScreen(quad.p4), quad.color,
                         static_cast<float>(quad.outlineThickness));
@@ -156,11 +167,6 @@ void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
 
     for (const auto& arrow : prims.arrows)
         drawArrowHead(dl, m, arrow.pos, arrow.dir, arrow.size, arrow.color);
-
-    for (const auto& particle : prims.particles) {
-        float r = particle.screenSpaceRadius ? static_cast<float>(particle.radius) : m.px(particle.radius);
-        dl->AddCircleFilled(m.toScreen(particle.pos), r, particle.color);
-    }
 
     for (const auto& label : prims.labels)
         dl->AddText(m.toScreen(label.pos), label.color, label.text.c_str());

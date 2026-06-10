@@ -1,7 +1,7 @@
 #include "projection/ProjectionBuilder.h"
 #include "projection/ElementGeometry.h"
 #include "projection/HydraulicMapping.h"
-#include "projection/SpintronicsMapping.h"
+#include "projection/MechanicsMapping.h"
 #include "render/ColorMaps.h"
 #include "ui/I18n.h"
 #include "physics/DriftModel.h"
@@ -571,14 +571,21 @@ void emitDriftParticles(BuildContext& ctx, Vec2 a, Vec2 b, double current, int c
     config.componentId = compId;
     config.electronFlowVisualization = ctx.p.layers.electronFlow;
 
-    auto particles = physics::sampleDriftParticles(a, b, current, config);
-    if (particles.empty()) return;
+    double radius = physics::particleWorldRadius(config.wireThickness);
+    uint32_t color = ctx.p.layers.electronFlow ? packColor(245, 182, 87, 170)
+                                               : packColor(120, 180, 255, 170);
 
-    double screenR = std::min(14.0, 2.0 + 2.0 * ctx.p.cameraScale);
-    uint32_t color = ctx.p.layers.electronFlow ? packColor(245, 182, 87, 210)
-                                               : packColor(120, 180, 255, 210);
+    if (ctx.p.simParticles) {
+        // Box2D microdynamics: real elastic particles from the shared sim.
+        for (const auto& sp : *ctx.p.simParticles)
+            if (sp.componentId == compId)
+                ctx.out.particles.push_back({sp.pos, radius, color, false});
+        return;
+    }
+
+    auto particles = physics::sampleDriftParticles(a, b, current, config);
     for (const auto& particle : particles)
-        ctx.out.particles.push_back({particle.position, screenR, color, true});
+        ctx.out.particles.push_back({particle.position, radius, color, false});
 }
 
 void emitSurfaceCharge(BuildContext& ctx, Vec2 a, Vec2 b, double va, double vb,
@@ -819,12 +826,20 @@ void emitReadoutLabels(BuildContext& ctx, const Component& comp, Vec2 mid, Vec2 
     }
 }
 
-// --- spintronics (mechanical analogy) -----------------------------------------
-// Magnitudes and signs come from SpintronicsMapping (exact images of solver
+// --- mechanics (mechanical analogy) -----------------------------------------
+// Magnitudes and signs come from MechanicsMapping (exact images of solver
 // values); only the on-screen motion speed is scaled by kVisual* constants.
 
-constexpr double kVisualChainSpeed = 40.0; // world units per (chain-speed unit * s)
-constexpr double kVisualSpinRate = 6.0;    // rad per (angular-momentum unit * s)
+using mechanics::kVisualChainSpeed;
+using mechanics::kVisualSpinRate;
+
+// Continuous wheel phase: prefer the integral of current (smooth when I
+// changes every frame, e.g. while cranking); fall back to t*omega.
+double spinPhase(const BuildContext& ctx, int componentId, double current, double rate) {
+    if (ctx.p.flowIntegrals)
+        return componentIntegral(ctx.p.flowIntegrals, componentId) * rate;
+    return ctx.p.time * current * rate;
+}
 
 double chainHalfWidth(const BuildContext& ctx) { return ctx.p.wireThickness * 0.45; }
 
@@ -852,19 +867,48 @@ void emitChain(BuildContext& ctx, Vec2 a, Vec2 b, double va, double vb,
     ctx.out.lines.push_back({a + perp * half, b + perp * half, 1.5, rail, true});
     ctx.out.lines.push_back({a - perp * half, b - perp * half, 1.5, rail, true});
 
-    // Moving links: speed/sign from the mapped chain speed.
-    double speed = spintronics::chainSpeedFromCurrent(current);
-    double spacing = 14.0;
-    double phase = std::fmod(ctx.p.time * speed * kVisualChainSpeed, spacing);
-    if (phase < 0.0) phase += spacing;
+    // REAL Box2D chain: rigid-jointed links from the mechanics world.
+    if (ctx.p.chainLinks) {
+        uint32_t linkCol = packColor(208, 214, 224, 230);
+        uint32_t barCol = packColor(150, 160, 175, 220);
+        const physics::ChainLink* prev = nullptr;
+        const physics::ChainLink* first = nullptr;
+        for (const auto& link : *ctx.p.chainLinks) {
+            if (link.componentId != compId) continue;
+            ctx.out.circles.push_back({link.pos, half * 0.62, linkCol, 1.7, false, false});
+            if (!first) first = &link;
+            if (prev)
+                ctx.out.lines.push_back({prev->pos, link.pos, 2.0, barCol, true});
+            prev = &link;
+        }
+        if (prev && first && prev != first)
+            ctx.out.lines.push_back({prev->pos, first->pos, 2.0, barCol, true});
+        return;
+    }
 
-    int count = static_cast<int>(len / spacing) + 1;
-    uint32_t linkCol = packColor(208, 214, 224, 225);
+    // Fallback (no sim): phase animation. Bicycle-chain look.
+    double speed = mechanics::chainSpeedFromCurrent(current);
+    double spacing = std::max(half * 2.4, 10.0);
+    double phase = std::fmod(ctx.p.time * speed * kVisualChainSpeed, spacing * 2.0);
+    if (phase < 0.0) phase += spacing * 2.0;
+
+    uint32_t linkCol = packColor(208, 214, 224, 230);
+    uint32_t barCol = packColor(150, 160, 175, 220);
+    int count = static_cast<int>(len / spacing) + 2;
+    Vec2 prev;
+    bool hasPrev = false;
     for (int i = 0; i < count; ++i) {
         double t = i * spacing + phase;
-        if (t > len) t -= len * std::floor(t / len);
+        t = std::fmod(t, len);
+        if (t < 0.0) t += len;
         Vec2 p = a + unit * t;
-        ctx.out.lines.push_back({p + perp * half, p - perp * half, 2.0, linkCol, true});
+        ctx.out.circles.push_back({p, half * 0.78, linkCol, 1.8, false, false});
+        if (hasPrev && (p - prev).length() < spacing * 1.5) {
+            ctx.out.lines.push_back({prev + unit * (half * 0.5), p - unit * (half * 0.5),
+                                     2.2, barCol, true});
+        }
+        prev = p;
+        hasPrev = true;
         (void)compId;
     }
 }
@@ -900,7 +944,7 @@ void emitBrake(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
         ctx.out.quads.push_back(pad);
     }
 
-    double heat = spintronics::brakeHeatFromPower(comp.type, power);
+    double heat = mechanics::brakeHeatFromPower(comp.type, power);
     double frac = ctx.maxP > 1e-12 ? std::clamp(heat / ctx.maxP, 0.0, 1.0) : 0.0;
     if (ctx.p.layers.heat && frac > 0.02) {
         Vec2 mid = (body->start + body->end) * 0.5;
@@ -926,9 +970,10 @@ void emitCrank(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
     double r = 15.0;
     ctx.out.circles.push_back({mid, r, packColor(255, 255, 255), 2.5, false, false});
 
-    // Spokes spin with the mapped chain speed: the crank "pumps" the loop.
-    double omega = spintronics::chainSpeedFromCurrent(current) * kVisualSpinRate;
-    double angle0 = ctx.p.time * omega;
+    // Spokes spin with the integral of the mapped chain speed: continuous
+    // even while the hand crank changes the current every frame.
+    double angle0 = spinPhase(ctx, comp.id, mechanics::chainSpeedFromCurrent(current),
+                              kVisualSpinRate);
     uint32_t spokeCol = packColor(255, 196, 110, 235);
     for (int s = 0; s < 3; ++s) {
         double angle = angle0 + s * (kPi * 2.0 / 3.0);
@@ -936,6 +981,11 @@ void emitCrank(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
         ctx.out.lines.push_back({mid - dir * (r * 0.85), mid + dir * (r * 0.85), 2.0, spokeCol, true});
     }
     ctx.out.circles.push_back({mid, r * 0.18, spokeCol, 0.0, true, false});
+
+    // Grab knob on the rim: the handle you can drag (dynamo).
+    Vec2 knobDir(std::cos(angle0), std::sin(angle0));
+    ctx.out.circles.push_back({mid + knobDir * (r * 0.82), 4.0,
+                               packColor(255, 220, 130, 245), 0.0, true, true});
 
     char buf[48];
     std::snprintf(buf, sizeof(buf), "%.1f %s", comp.value, tr("V drive"));
@@ -963,7 +1013,7 @@ void emitSpring(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
 
     double vc = va - vb; // spring displacement is proportional to this
     double vRange = std::max(std::abs(ctx.vMax - ctx.vMin), 1e-9);
-    double c = std::clamp(std::abs(spintronics::springCompressionFromVoltage(vc)) / vRange, 0.0, 1.0);
+    double c = std::clamp(std::abs(mechanics::springCompressionFromVoltage(vc)) / vRange, 0.0, 1.0);
 
     emitChain(ctx, a, g.leadAEnd, va, va, 0.0, comp.id);
     emitChain(ctx, g.leadBEnd, b, vb, vb, 0.0, comp.id);
@@ -1025,9 +1075,11 @@ void emitFlywheel(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
     ctx.out.circles.push_back({mid, radius, rimCol, 2.0 + 2.5 * iFrac, false, false});
     ctx.out.circles.push_back({mid, radius * 0.16, rimCol, 0.0, true, false});
 
-    // Spokes spin with the mapped angular momentum (sign = direction).
-    double omega = spintronics::flywheelAngularMomentumFromCurrent(current) * kVisualSpinRate;
-    double angle0 = ctx.p.time * omega;
+    // Spokes spin with the INTEGRAL of angular momentum: the flywheel angle
+    // is proportional to the charge that has passed (and never teleports).
+    double angle0 = spinPhase(ctx, comp.id,
+                              mechanics::flywheelAngularMomentumFromCurrent(current),
+                              kVisualSpinRate);
     for (int s = 0; s < 4; ++s) {
         double angle = angle0 + s * (kPi / 2.0);
         Vec2 dir(std::cos(angle), std::sin(angle));
@@ -1046,23 +1098,45 @@ void emitFlywheel(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
                               packColor(200, 200, 200), false});
 }
 
-void emitPulleys(BuildContext& ctx) {
-    double radius = chainHalfWidth(ctx) * 1.25;
+// Toothed gears at junction nodes; teeth rotate with the local chain speed,
+// visually coupling every branch that meets here (one chain, one motion).
+void emitGears(BuildContext& ctx) {
+    double radius = chainHalfWidth(ctx) * 1.6;
     for (const auto& node : ctx.circuit.nodes) {
         int connected = 0;
+        double meanCurrent = 0.0;
         for (const auto& comp : ctx.circuit.components) {
             if (comp.type == ComponentType::Ground) continue;
-            if (comp.nodeA == node.id || comp.nodeB == node.id) ++connected;
+            if (comp.nodeA != node.id && comp.nodeB != node.id) continue;
+            ++connected;
+            if (const BranchResult* br = branchFor(ctx.solution, comp.id))
+                meanCurrent += std::abs(br->current);
         }
         if (connected < 2) continue;
+        meanCurrent /= connected;
+
         uint32_t col = packColor(170, 178, 190, 230);
         ctx.out.circles.push_back({node.position, radius, packColor(48, 54, 64, 255), 0.0, true, false});
-        ctx.out.circles.push_back({node.position, radius, col, 1.6, false, false});
-        ctx.out.circles.push_back({node.position, radius * 0.25, col, 0.0, true, false});
+        ctx.out.circles.push_back({node.position, radius, col, 1.8, false, false});
+        ctx.out.circles.push_back({node.position, radius * 0.22, col, 0.0, true, false});
+
+        // Teeth: phase follows the INTEGRated chain travel over the radius.
+        double phase = ctx.p.flowIntegrals
+            ? nodeIntegral(ctx.p.flowIntegrals, node.id) * kVisualChainSpeed / radius
+            : ctx.p.time * mechanics::chainSpeedFromCurrent(meanCurrent) *
+                  kVisualChainSpeed / radius;
+        int teeth = 8;
+        for (int tooth = 0; tooth < teeth; ++tooth) {
+            double angle = phase + tooth * (2.0 * kPi / teeth);
+            Vec2 dir(std::cos(angle), std::sin(angle));
+            ctx.out.lines.push_back({node.position + dir * radius,
+                                     node.position + dir * (radius * 1.28),
+                                     2.2, col, true});
+        }
     }
 }
 
-void buildSpintronics(BuildContext& ctx) {
+void buildMechanics(BuildContext& ctx) {
     for (const auto& comp : ctx.circuit.components) {
         const Node* nodeA = ctx.circuit.findNode(comp.nodeA);
         const Node* nodeB = ctx.circuit.findNode(comp.nodeB);
@@ -1149,7 +1223,7 @@ void buildSpintronics(BuildContext& ctx) {
         }
     }
 
-    emitPulleys(ctx);
+    emitGears(ctx);
     emitNodes(ctx);
 
     if (ctx.solution && ctx.p.layers.potential && ctx.hasPotentialRange())
@@ -1204,11 +1278,19 @@ void emitWaterFlow(BuildContext& ctx, Vec2 a, Vec2 b, double current, int compId
     config.time = ctx.p.time;
     config.componentId = compId;
 
+    double radius = physics::particleWorldRadius(config.wireThickness) * 1.25;
+    uint32_t color = packColor(96, 170, 255, 185);
+
+    if (ctx.p.simParticles) {
+        for (const auto& sp : *ctx.p.simParticles)
+            if (sp.componentId == compId)
+                ctx.out.particles.push_back({sp.pos, radius, color, false});
+        return;
+    }
+
     auto particles = physics::sampleDriftParticles(a, b, flow, config);
-    double radius = std::min(14.0, 2.4 + 2.2 * ctx.p.cameraScale);
     for (const auto& particle : particles)
-        ctx.out.particles.push_back({particle.position, radius,
-                                     packColor(96, 170, 255, 215), true});
+        ctx.out.particles.push_back({particle.position, radius, color, false});
 }
 
 void emitConstriction(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
@@ -1263,9 +1345,21 @@ void emitPump(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
     double r = 15.0;
     ctx.out.circles.push_back({mid, r, packColor(140, 190, 255), 2.5, false, false});
 
-    // Impeller spins with the mapped flow direction.
-    double omega = hydraulic::flowFromCurrent(current) * kVisualSpinRate;
-    double angle0 = ctx.p.time * omega;
+    // Blades at the REAL Box2D impeller angle when the water world runs, so
+    // what you see is exactly what the particles collide with.
+    double angle0 = 0.0;
+    bool haveReal = false;
+    if (ctx.p.paddleStates) {
+        for (const auto& paddle : *ctx.p.paddleStates) {
+            if (paddle.componentId == comp.id) {
+                angle0 = paddle.angle;
+                haveReal = true;
+                break;
+            }
+        }
+    }
+    if (!haveReal)
+        angle0 = spinPhase(ctx, comp.id, hydraulic::flowFromCurrent(current), kVisualSpinRate);
     for (int s = 0; s < 3; ++s) {
         double angle = angle0 + s * (kPi * 2.0 / 3.0);
         Vec2 dir(std::cos(angle), std::sin(angle));
@@ -1529,8 +1623,21 @@ void buildCircuitShapes(BuildContext& ctx, bool physicsLayers) {
                                           section.voltageStart, section.voltageEnd, section.halfWidth * 2.0);
                 }
             } else {
-                if (ctx.p.layers.electricField)
+                // Inside a source the carriers move AGAINST the field, pushed
+                // by the EMF; drawing E-arrows there reads as "everything
+                // flows into the minus", so the source shows an EMF arrow
+                // (- to +) instead.
+                if (ctx.p.layers.electricField && comp.type != ComponentType::VoltageSource)
                     emitEFieldArrows(ctx, a, b, va, vb);
+                if (ctx.p.layers.electricField && comp.type == ComponentType::VoltageSource) {
+                    Vec2 emfDir = (comp.value >= 0.0 ? (a - b) : (b - a)).normalized();
+                    Vec2 mid2((a.x + b.x) * 0.5, (a.y + b.y) * 0.5);
+                    double sz = std::max(ctx.p.wireThickness * 1.2, 9.0);
+                    ctx.out.arrows.push_back({mid2 - emfDir * (sz * 0.4), emfDir, sz,
+                                              packColor(255, 196, 110, 235)});
+                    ctx.out.labels.push_back({mid2 + Vec2(0, 0) + emfDir * (sz * 1.2), "EMF",
+                                              packColor(255, 196, 110, 220), false});
+                }
                 if (ctx.p.layers.current && std::abs(branchCurrent) > 1e-12)
                     emitCurrentArrows(ctx, a, b, branchCurrent);
                 if (ctx.p.layers.drift && std::abs(branchCurrent) > 1e-12)
@@ -1600,8 +1707,8 @@ ProjectionResult buildProjection(ProjectionKind kind,
         case ProjectionKind::Physics:
             buildCircuitShapes(ctx, /*physicsLayers=*/true);
             break;
-        case ProjectionKind::Spintronics:
-            buildSpintronics(ctx);
+        case ProjectionKind::Mechanical:
+            buildMechanics(ctx);
             break;
         case ProjectionKind::Hydraulic:
             buildHydraulic(ctx);

@@ -147,7 +147,7 @@ TEST(DiodeSwitchProjection, SymbolsAppearInAllProjections) {
 
     for (auto kind : {current_lab::projection::ProjectionKind::Schematic,
                       current_lab::projection::ProjectionKind::Physics,
-                      current_lab::projection::ProjectionKind::Spintronics}) {
+                      current_lab::projection::ProjectionKind::Mechanical}) {
         auto result = current_lab::projection::buildProjection(kind, d.c, &solution, params);
         EXPECT_TRUE(current_lab::projection::projectionHasComponent(result, d.diodeId));
         EXPECT_FALSE(result.prims.arrows.empty()); // diode triangle / ratchet pawl

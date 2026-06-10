@@ -28,6 +28,15 @@ FetchContent_Declare(glm
 )
 FetchContent_MakeAvailable(glm)
 
+# Box2D — particle microdynamics for the visual layer (Drude-style)
+FetchContent_Declare(box2d
+    GIT_REPOSITORY https://github.com/erincatto/box2d.git
+    GIT_TAG v2.4.1
+)
+set(BOX2D_BUILD_UNIT_TESTS OFF CACHE BOOL "" FORCE)
+set(BOX2D_BUILD_TESTBED OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(box2d)
+
 # Dear ImGui — UI
 FetchContent_Declare(imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
@@ -66,6 +75,7 @@ target_include_directories(current-lab PRIVATE
 target_link_libraries(current-lab PRIVATE
     OpenGL::GL
     glfw
+    box2d
 )
 
 # Platform-specific
@@ -94,13 +104,17 @@ set(TEST_SOURCES
     tests/test_projection.cpp
     tests/test_transient.cpp
     tests/test_elements.cpp
-    tests/test_spintronics.cpp
+    tests/test_mechanics.cpp
     tests/test_learning.cpp
     tests/test_diode_switch.cpp
     tests/test_fixes.cpp
     tests/test_pane_layout.cpp
     tests/test_hydraulic.cpp
     tests/test_mathtext.cpp
+    tests/test_demos.cpp
+    tests/test_particle_sim.cpp
+    tests/test_worlds_separation.cpp
+    tests/test_chain_sim.cpp
     src/circuit/Circuit.cpp
     src/solver/CircuitSolver.cpp
     src/projection/ProjectionBuilder.cpp
@@ -112,11 +126,13 @@ set(TEST_SOURCES
     src/ui/I18n.cpp
     src/ui/PaneLayout.cpp
     src/ui/MathTextParse.cpp
+    src/physics/ParticleSim.cpp
+    src/physics/ChainSim.cpp
 )
 
 add_executable(current-lab-tests ${TEST_SOURCES})
 target_include_directories(current-lab-tests PRIVATE ${CMAKE_SOURCE_DIR}/src ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
-target_link_libraries(current-lab-tests PRIVATE GTest::gtest_main)
+target_link_libraries(current-lab-tests PRIVATE GTest::gtest_main box2d)
 
 include(GoogleTest)
 gtest_discover_tests(current-lab-tests)

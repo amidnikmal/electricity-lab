@@ -49,9 +49,9 @@ TEST(PaneSplitters, RatioIsClampedToKeepPanesUsable) {
 TEST(PaneSplitters, TripleRatiosKeepEveryPaneAlive) {
     auto split = current_lab::ui::computeTripleViewPaneSplit(1500.0f, 8.0f, 0.6f, 0.5f);
     // ratio2 gets re-clamped so the third pane keeps its minimum share.
-    EXPECT_GT(split.spintronicsWidth, 100.0f);
+    EXPECT_GT(split.mechanicsWidth, 100.0f);
     EXPECT_GT(split.circuitWidth, split.physicsWidth);
-    EXPECT_NEAR(split.circuitWidth + split.physicsWidth + split.spintronicsWidth + 16.0f,
+    EXPECT_NEAR(split.circuitWidth + split.physicsWidth + split.mechanicsWidth + 16.0f,
                 1500.0f, 3.0f);
 }
 

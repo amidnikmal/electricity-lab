@@ -1,5 +1,6 @@
 #pragma once
 
+#include "circuit/DemoCircuits.h"
 #include "learning/TaskGenerator.h"
 #include <vector>
 
@@ -38,7 +39,7 @@ inline Circuit lessonPresetCircuit(TaskFamily family) {
         case TaskFamily::OhmsLaw: {
             int n2 = c.addNode(Vec2(480, 140), "N2");
             c.addComponent(ComponentType::Resistor, n1, n2, 1000.0);
-            c.addComponent(ComponentType::Wire, n2, gnd, 0.0);
+            demos::closeLoopRect(c, n2, Vec2(480, 140), gnd, Vec2(200, 320));
             break;
         }
         case TaskFamily::SeriesResistors: {
@@ -46,7 +47,7 @@ inline Circuit lessonPresetCircuit(TaskFamily family) {
             int n3 = c.addNode(Vec2(620, 140), "N3");
             c.addComponent(ComponentType::Resistor, n1, n2, 1000.0);
             c.addComponent(ComponentType::Resistor, n2, n3, 2000.0);
-            c.addComponent(ComponentType::Wire, n3, gnd, 0.0);
+            demos::closeLoopRect(c, n3, Vec2(620, 140), gnd, Vec2(200, 320));
             break;
         }
         case TaskFamily::ParallelResistors: {
@@ -55,25 +56,29 @@ inline Circuit lessonPresetCircuit(TaskFamily family) {
             c.addComponent(ComponentType::Wire, n1, n2, 0.0);
             c.addComponent(ComponentType::Resistor, n2, n3, 1000.0);
             c.addComponent(ComponentType::Resistor, n2, n3, 2000.0);
-            c.addComponent(ComponentType::Wire, n3, gnd, 0.0);
+            demos::closeLoopRect(c, n3, Vec2(480, 320), gnd, Vec2(200, 320));
             break;
         }
         case TaskFamily::PowerDissipation: {
             int n2 = c.addNode(Vec2(480, 140), "N2");
             c.addComponent(ComponentType::Resistor, n1, n2, 500.0);
-            c.addComponent(ComponentType::Wire, n2, gnd, 0.0);
+            demos::closeLoopRect(c, n2, Vec2(480, 140), gnd, Vec2(200, 320));
             break;
         }
         case TaskFamily::RcTimeConstant: {
             int n2 = c.addNode(Vec2(480, 140), "N2");
+            int corner = c.addNode(Vec2(480, 320));
             c.addComponent(ComponentType::Resistor, n1, n2, 1000.0);
-            c.addComponent(ComponentType::Capacitor, n2, gnd, 1e-3); // tau = 1 s
+            c.addComponent(ComponentType::Capacitor, n2, corner, 1e-3); // tau = 1 s
+            c.addComponent(ComponentType::Wire, corner, gnd, 0.0);
             break;
         }
         case TaskFamily::RlTimeConstant: {
             int n2 = c.addNode(Vec2(480, 140), "N2");
+            int corner = c.addNode(Vec2(480, 320));
             c.addComponent(ComponentType::Resistor, n1, n2, 10.0);
-            c.addComponent(ComponentType::Inductor, n2, gnd, 1.0); // tau = 0.1 s
+            c.addComponent(ComponentType::Inductor, n2, corner, 1.0); // tau = 0.1 s
+            c.addComponent(ComponentType::Wire, corner, gnd, 0.0);
             break;
         }
         case TaskFamily::Count:
@@ -124,9 +129,17 @@ inline const std::vector<Lesson>& lessons() {
           "V_C(t) = V(1 - e^{-t/\\tau}),   \\tau = RC"},
          TaskFamily::RcTimeConstant},
 
+        {"continuity", "Why series current is the same everywhere",
+         {"Squeeze the brake in the Mechanics view: the whole chain slows at once, not just one link.",
+          "Raise the resistor value and watch the speed drop everywhere in the loop simultaneously.",
+          "The chain cannot stretch, and the electron gas cannot pile up: the wire stays neutral, so one loop carries one current.",
+          "Charge conservation + quasi-neutrality: what flows in must flow out at every cross-section.",
+          "I_1 = I_2 = I"},
+         TaskFamily::SeriesResistors},
+
         {"rl", "An inductor resists change of current",
          {"An inductor in series with a resistor connects to a source at t = 0.",
-          "Run the transient and watch the flywheel in the Spintronics view spin up gradually.",
+          "Run the transient and watch the flywheel in the Mechanics view spin up gradually.",
           "Current cannot jump: the inductor stores energy in its field and yields slowly.",
           "The current approaches V/R exponentially with time constant tau = L/R.",
           "I(t) = \\frac{V}{R}(1 - e^{-t/\\tau}),   \\tau = \\frac{L}{R}"},

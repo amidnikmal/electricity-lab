@@ -43,6 +43,97 @@ Date: 2026-06-10 (большой проход по CURRENT_LAB_NEXT_PROMPT.md, �
 Осталось из заявок: ничего критичного. Промпты ГЕНЕРИРУЕМЫХ задач — только EN
 (формат-строки с числами; нужен отдельный проход по TaskGenerator).
 
+## Разделение миров (2026-06-10, поздняя ночь) — 296 тестов зелёные
+
+- БАГ «электроны сбились в угол»: стенки каналов в общем Box2D-мире перегораживали
+  чужие каналы на узлах. Фикс: ChannelContactFilter (userData=тег канала, коллизии
+  только внутри своего канала). Тест ChannelsCrossingAtAJunctionDoNotJam.
+- БАГ «электроны бьются о невидимое в источнике»: это была крыльчатка насоса из
+  общего мира. ПРИНЦИП ПРОЕКТА: миры (электроны/вода/механика) НЕ смешиваются.
+  Теперь ДВА сима: m_electronSim (без лопастей — ЭДС гонит полем) и m_waterSim
+  (крыльчатка-коллайдер). makeChannelSpecs(circuit, solution, thickness, waterWorld)
+  в src/physics/ChannelSpecs.h (чистая, тестируемая). Лопасти насоса рисуются под
+  РЕАЛЬНЫМ углом из Box2D (PaddleState через ViewParams::paddleStates).
+- БАГ «колесо перестаёт крутиться»: ручка-динамо при отпускании оставляла ЭДС≈0.
+  Фикс: crankBegin/crankEnd — значение источника сохраняется и восстанавливается.
+- Тесты test_worlds_separation.cpp (6 шт): нет лопастей у электронов / есть у воды,
+  Друде в обоих, открытый ключ без канала, дрейф сквозь источник у электронов,
+  угол крыльчатки растёт, четыре проекции дают разные картинки при одних элементах.
+
+## Box2D-проход (2026-06-10, ночь) — 289 тестов зелёные, ВЫПОЛНЕНО из плана ниже
+
+- Переименование: «спинтроника» удалена ОТОВСЮДУ (enum ProjectionKind::Mechanical,
+  файлы MechanicsMapping.h / test_mechanics.cpp / MECHANICS_PROJECTION.md,
+  namespace current_lab::mechanics, UI «Mechanics/Механика»).
+- Глифы: i18n::allUiText() (все ключи+значения словаря) скармливается в атлас
+  шрифта (App.cpp) + типографика «—–«»…» явно; тест I18nAtlas. «?» невозможны.
+- Демо-пресеты: src/circuit/DemoCircuits.h (7 шт: на каждый элемент + RLC +
+  пик-детектор), комбо «Демо» в топ-баре, тесты test_demos.cpp.
+- Подсказка transient «нет C/L» с тултипом; паддинги кнопок панелей; урок
+  «Почему ток одинаков» (несжимаемость/квазинейтральность) добавлен в уроки.
+- Частицы: мировой радиус (particleWorldRadius, зумятся с проводником),
+  плотность снижена, контуры элементов рисуются ПОВЕРХ частиц (z-order в
+  PrimitiveRenderer: fills → particles → outlines).
+- **Box2D v2.4.1** (FetchContent) + src/physics/ParticleSim.h/.cpp:
+  упругие частицы в каналах компонентов, стенки, решётка Друде в резисторе,
+  кинематические лопасти насоса/привода; средний дрейф калибруется к I из
+  солвера (target = clamp(I*4000, ±120) wu/s — знак точный, магнитуда
+  монотонна до клампа). Каналы строятся в MainWindow::buildChannelSpecs(),
+  сим живёт в MainWindow, частицы идут в Physics/Hydraulic канвасы через
+  ViewParams::simParticles. Тесты test_particle_sim.cpp (7 шт: сходимость
+  среднего, знак, границы, непересечение, работа лопастей, setTargets,
+  layoutSignature).
+- Ручка-динамо: в Mechanics-виде зажать колесо привода мышкой и крутить —
+  угловая скорость задаёт ЭДС (mechanics::emfFromCrankSpeed, V=1.5ω, кламп
+  ±12В, сглаживание в MainWindow). Канва: m_crankComponent, обычное
+  взаимодействие подавляется во время кручения.
+- Цепь: велосипедные звенья (круглые внешние + соединительные бары),
+  шестерёнки с зубьями на узлах, зубья вращаются ∝ локальной скорости цепи.
+
+ЕЩЁ НЕ СДЕЛАНО из фидбека (следующий блок):
+- PBD/Box2D-цепь с НАСТОЯЩИМИ констрейнтами (тормоз физически пережимает,
+  волна сжатия) — сейчас цепь всё ещё фазовая анимация, шестерёнки визуальные.
+  Реализовать на Box2D revolute joints (звенья-капсулы) в ParticleSim-стиле
+  (отдельный ChainSim), namespace уже готов.
+- Локализация ТЕКСТОВ генерируемых задач (TaskGenerator: tr()-шаблоны).
+- Частицы в катушке: канал сейчас прямой a→b; провести путь по виткам
+  (полилиния-канал в ParticleSim — поддержка сегментированных каналов).
+- Обновить PHYSICS_VISUAL_LAYER_STATUS.md строками про Box2D-микродинамику
+  (qualitative Drude; средние величины exact) и MECHANICS_PROJECTION.md про
+  динамо-ручку.
+
+## ПЛАН следующего большого блока (фидбек пользователя 2026-06-10, вечер)
+
+A. Быстрые фиксы:
+   - Переименовать «Mechanics» в UI → «Mechanics»/«Механика» (код может остаться).
+   - «?» в лейблах = глифы вне атласа: em dash «—», кавычки «», многоточие
+     НЕ входят в Cyrillic/Greek диапазоны → добавить в builder.AddText (App.cpp)
+     и/или убрать типографику из словаря I18n.
+   - Паддинги кнопок split/close в шапке панели (FramePadding).
+   - Видимость резистора: частиц меньше/мельче, контур корпуса рисовать ПОВЕРХ
+     частиц (z-order в PrimitiveRenderer/билдере), прозрачность частиц.
+   - Transient-подсказка: если в схеме нет C/L — показывать «процесс совпадает
+     со стационаром, добавьте конденсатор/катушку или урок RC».
+   - Допереводы статики: VisualizationStatus (бейджи/описания слоёв), Material,
+     Verbose Inspector, Raw Layer Switches, "Current Lab Workspace" и пр.
+B. Particle-движок (микродинамика, Drude-стиль) src/physics/ParticleChannel.*:
+   частицы с упругими отскоками от стенок канала; тяга ∝ локальному E из
+   солвера; в резисторе решётка столбиков-рассеивателей (видно как частицы
+   протискиваются); лопасти насоса = движущиеся коллайдеры, толкающие частицы;
+   путь частиц через катушку видимый. Средняя скорость сегмента калибруется к
+   I из солвера (честно), столкновения = qualitative Drude (пометить статус).
+   Состояние частиц живёт в канвасе (persistent), builder получает его через
+   ViewParams. Чистые тесты: средняя скорость → целевая, границы, отскоки,
+   столбики требуют большей тяги (интуиция R).
+C. Механика (бывш. механика) в стиле Algodoo: цепь = звенья-частицы с
+   PBD-констрейнтами расстояния (нерастяжимость = ток одинаков в контуре),
+   намотана на шестерёнки в узлах (зубья ∝ скорости), тормоз пережимает —
+   ВСЯ цепь замедляется сразу (+мгновенная волна сжатия у тормоза = аналог
+   перестройки поверхностных зарядов). Ручка на приводе: drag мышью по кругу →
+   угловая скорость → ЭДС источника (генератор, честный маппинг V = k·ω).
+D. Локализация генерируемых задач (тексты строить через tr()-шаблоны).
+E. Тесты на всё чистое; handoff после каждого блока.
+
 ## UX-проход (2026-06-10, после основного прохода) — 253 теста зелёные
 
 - **Element Editor был МОДАЛЬНЫМ** и открывался при каждом выборе элемента, блокируя весь UI
@@ -64,7 +155,7 @@ Date: 2026-06-10 (большой проход по CURRENT_LAB_NEXT_PROMPT.md, �
 
 ## Project overview
 
-Интерактивное обучающее приложение для электрических цепей: единая `CircuitModel`, MNA-солвер (DC + transient), три честные проекции одной модели (Circuit / Physics / Spintronics), обучающий модуль на science of learning с AI-resilience предохранителями в коде.
+Интерактивное обучающее приложение для электрических цепей: единая `CircuitModel`, MNA-солвер (DC + transient), три честные проекции одной модели (Circuit / Physics / Mechanics), обучающий модуль на science of learning с AI-resilience предохранителями в коде.
 
 ## Quick commands
 
@@ -84,8 +175,8 @@ CircuitModel (src/circuit/Circuit.h, single source of truth, stable ComponentId)
   -> CircuitSolver (src/solver/) : DC | stepTransient (companion BE/Trapezoidal) | solveTransientSnapshot
        diode states: solveIterative (ideal PWL fixed point)
   -> ProjectionBuilder (src/projection/) : ЕДИНСТВЕННЫЙ источник render-данных
-       ProjectionKind::{Schematic, Physics, Spintronics} -> ProjectionResult{RenderPrimitives, ElementState[]}
-       ElementGeometry.h (символы C/L), SpintronicsMapping.h (аналогия, P=V*I сохраняется точно)
+       ProjectionKind::{Schematic, Physics, Mechanics} -> ProjectionResult{RenderPrimitives, ElementState[]}
+       ElementGeometry.h (символы C/L), MechanicsMapping.h (аналогия, P=V*I сохраняется точно)
   -> PrimitiveRenderer (src/render/) : тупой ImGui-бэкенд; RenderPrimitives/ColorMaps — pure data
   -> CanvasInteraction (src/ui/) : edit/hit-test, потребляет InteractionInput (без ImGui, тестируемо)
   -> CircuitCanvas (src/ui/) : тонкая оболочка (камера + клок анимации + сборка ViewParams)
@@ -103,11 +194,11 @@ Net: src/net/HttpClient.* (POSIX, plain HTTP, localhost-сервисы)
 1. Арх-долг: DualViewProjection вживлён как ProjectionBuilder (реальный путь рендера), CircuitCanvas распилен (1151 -> ~130 строк), слой RenderPrimitives.
 2. Transient: companion-модели BE/Trapezoidal (старт трапеции = BE-шаг), режимы DC/Transient, UI Run/Pause/Step/Reset/dt/метод/скорость, снапшот t=0+. Тесты: RC/RL τ, энергия, Tellegen-баланс каждый шаг, устойчивость BE при dt=5τ, сходимость.
 3. C+L: полный комплект (модель, солвер, символы, физпроекция: заряды пластин/E в зазоре/энерго-glow, инспектор, редактор, плейсмент).
-4. Spintronics: цепь/тормоз/привод/пружина/маховик/якорь/шкивы/храповик/сцепка; маппинг в SpintronicsMapping.h; layout Triple + sync 3 камер.
+4. Mechanics: цепь/тормоз/привод/пружина/маховик/якорь/шкивы/храповик/сцепка; маппинг в MechanicsMapping.h; layout Triple + sync 3 камер.
 5. Learning: 6 семейств задач (ground truth из солвера/transient), LearningSession (attempt-first, predict-then-verify, tool-free, reliance-метрики), уроки, Anki-экспорт, панель.
 6. Assistant: LlmClient + сократический критик; gating в коде (LearningSession), не в промпте.
 7. Diode (ideal PWL + итерация) + Switch (open/closed).
-8. Доки: REALTIME_TRANSIENT_MODEL.md, SPINTRONICS_PROJECTION.md, ELEMENT_LIBRARY.md, LEARNING_MODULE.md (эпистемическая таблица), PHYSICS_VISUAL_LAYER_STATUS.md обновлён.
+8. Доки: REALTIME_TRANSIENT_MODEL.md, MECHANICS_PROJECTION.md, ELEMENT_LIBRARY.md, LEARNING_MODULE.md (эпистемическая таблица), PHYSICS_VISUAL_LAYER_STATUS.md обновлён.
 
 ## Known limitations / Recommended next pass
 
@@ -118,8 +209,8 @@ Net: src/net/HttpClient.* (POSIX, plain HTTP, localhost-сервисы)
 - HttpClient — plain HTTP (для https нужен локальный прокси); сознательное решение для портативности.
 - Учебная панель не навязывает FSRS-расписание tool-free сессий внутри приложения — расписание у Anki.
 - Поле/поверхностные заряды остаются эвристикой (см. PHYSICS_VISUAL_LAYER_STATUS.md).
-- Приложение визуально не прогонялось в этом проходе (headless-сессия): сборка и 240 тестов зелёные, но стоит запустить `DISPLAY=:0 ./build/current-lab` и глазами проверить triple-layout, transient-анимацию C/L, spintronics-вид, Learning-панель.
+- Приложение визуально не прогонялось в этом проходе (headless-сессия): сборка и 240 тестов зелёные, но стоит запустить `DISPLAY=:0 ./build/current-lab` и глазами проверить triple-layout, transient-анимацию C/L, mechanics-вид, Learning-панель.
 
 ## Тесты
 
-240 тестов / 40 сьютов, все зелёные. Чистая логика, без ImGui-рендера (CircuitCanvas.cpp и PrimitiveRenderer.cpp в тестовый таргет не входят). Файлы: test_linear_system, test_circuit, test_solver, test_consistency, test_canvas, test_dual_view, test_projection, test_transient, test_elements, test_spintronics, test_learning, test_diode_switch.
+240 тестов / 40 сьютов, все зелёные. Чистая логика, без ImGui-рендера (CircuitCanvas.cpp и PrimitiveRenderer.cpp в тестовый таргет не входят). Файлы: test_linear_system, test_circuit, test_solver, test_consistency, test_canvas, test_dual_view, test_projection, test_transient, test_elements, test_mechanics, test_learning, test_diode_switch.

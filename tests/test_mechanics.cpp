@@ -3,12 +3,12 @@
 #include "circuit/Circuit.h"
 #include "solver/CircuitSolver.h"
 #include "projection/ProjectionBuilder.h"
-#include "projection/SpintronicsMapping.h"
+#include "projection/MechanicsMapping.h"
 #include "ui/DualViewState.h"
 
 namespace {
 
-using namespace current_lab::spintronics;
+using namespace current_lab::mechanics;
 using namespace current_lab::projection;
 
 Circuit makeRlcCircuit(int& capId, int& indId, int& resId) {
@@ -39,7 +39,7 @@ ViewParams spinParams() {
 
 // --- mapping: monotonic, sign-correct, power-preserving ---------------------
 
-TEST(SpintronicsMapping, ChainSpeedIsMonotonicAndSignCorrect) {
+TEST(MechanicsMapping, ChainSpeedIsMonotonicAndSignCorrect) {
     EXPECT_GT(chainSpeedFromCurrent(0.2), chainSpeedFromCurrent(0.1));
     EXPECT_GT(chainSpeedFromCurrent(0.1), 0.0);
     EXPECT_LT(chainSpeedFromCurrent(-0.1), 0.0);
@@ -47,13 +47,13 @@ TEST(SpintronicsMapping, ChainSpeedIsMonotonicAndSignCorrect) {
     EXPECT_DOUBLE_EQ(chainSpeedFromCurrent(0.0), 0.0);
 }
 
-TEST(SpintronicsMapping, TensionIsMonotonicAndSignCorrect) {
+TEST(MechanicsMapping, TensionIsMonotonicAndSignCorrect) {
     EXPECT_GT(tensionFromPotential(5.0), tensionFromPotential(2.0));
     EXPECT_LT(tensionFromPotential(-1.0), 0.0);
     EXPECT_DOUBLE_EQ(tensionFromPotential(0.0), 0.0);
 }
 
-TEST(SpintronicsMapping, MechanicalPowerEqualsElectricalPower) {
+TEST(MechanicsMapping, MechanicalPowerEqualsElectricalPower) {
     for (double v : {-3.0, 0.5, 5.0}) {
         for (double i : {-0.2, 0.01, 0.3}) {
             double mech = mechanicalPower(tensionFromPotential(v), chainSpeedFromCurrent(i));
@@ -62,23 +62,32 @@ TEST(SpintronicsMapping, MechanicalPowerEqualsElectricalPower) {
     }
 }
 
-TEST(SpintronicsMapping, SpringCompressionTracksCapVoltage) {
+TEST(MechanicsMapping, SpringCompressionTracksCapVoltage) {
     EXPECT_GT(springCompressionFromVoltage(4.0), springCompressionFromVoltage(2.0));
     EXPECT_LT(springCompressionFromVoltage(-2.0), 0.0);
     EXPECT_DOUBLE_EQ(springCompressionFromVoltage(0.0), 0.0);
 }
 
-TEST(SpintronicsMapping, FlywheelMomentumTracksInductorCurrent) {
+TEST(MechanicsMapping, FlywheelMomentumTracksInductorCurrent) {
     EXPECT_GT(flywheelAngularMomentumFromCurrent(0.4), flywheelAngularMomentumFromCurrent(0.2));
     EXPECT_LT(flywheelAngularMomentumFromCurrent(-0.2), 0.0);
 }
 
-TEST(SpintronicsMapping, AnalogEnergiesMatchElectricalEnergies) {
+TEST(MechanicsMapping, AnalogEnergiesMatchElectricalEnergies) {
     EXPECT_DOUBLE_EQ(springEnergy(1e-3, 4.0), current_lab::physics::capacitorEnergy(1e-3, 4.0));
     EXPECT_DOUBLE_EQ(flywheelEnergy(2.0, 0.3), current_lab::physics::inductorEnergy(2.0, 0.3));
 }
 
-TEST(SpintronicsMapping, BrakeHeatOnlyCountsDissipation) {
+TEST(MechanicsMapping, CrankDynamoEmfIsMonotonicSignedAndClamped) {
+    using current_lab::mechanics::emfFromCrankSpeed;
+    EXPECT_GT(emfFromCrankSpeed(2.0), emfFromCrankSpeed(1.0));
+    EXPECT_LT(emfFromCrankSpeed(-2.0), 0.0);
+    EXPECT_DOUBLE_EQ(emfFromCrankSpeed(0.0), 0.0);
+    EXPECT_DOUBLE_EQ(emfFromCrankSpeed(100.0), 12.0);   // clamped
+    EXPECT_DOUBLE_EQ(emfFromCrankSpeed(-100.0), -12.0); // clamped
+}
+
+TEST(MechanicsMapping, BrakeHeatOnlyCountsDissipation) {
     EXPECT_DOUBLE_EQ(brakeHeatFromPower(ComponentType::Resistor, 2.0), 2.0);
     EXPECT_DOUBLE_EQ(brakeHeatFromPower(ComponentType::VoltageSource, -2.0), 0.0);
     EXPECT_DOUBLE_EQ(brakeHeatFromPower(ComponentType::Resistor, -0.5), 0.0);
@@ -86,7 +95,7 @@ TEST(SpintronicsMapping, BrakeHeatOnlyCountsDissipation) {
 
 // --- projection: built from the same model + solution ------------------------
 
-TEST(SpintronicsProjection, ElementsMatchOtherProjectionsExactly) {
+TEST(MechanicsProjection, ElementsMatchOtherProjectionsExactly) {
     int capId, indId, resId;
     Circuit c = makeRlcCircuit(capId, indId, resId);
     CircuitSolver solver;
@@ -96,7 +105,7 @@ TEST(SpintronicsProjection, ElementsMatchOtherProjectionsExactly) {
     auto solution = solver.solveTransientSnapshot(c, state);
 
     ViewParams params = spinParams();
-    auto spin = buildProjection(ProjectionKind::Spintronics, c, &solution, params);
+    auto spin = buildProjection(ProjectionKind::Mechanical, c, &solution, params);
     auto physics = buildProjection(ProjectionKind::Physics, c, &solution, params);
 
     ASSERT_EQ(spin.elements.size(), physics.elements.size());
@@ -108,13 +117,13 @@ TEST(SpintronicsProjection, ElementsMatchOtherProjectionsExactly) {
     }
 }
 
-TEST(SpintronicsProjection, EmitsMechanicalAnalogShapes) {
+TEST(MechanicsProjection, EmitsMechanicalAnalogShapes) {
     int capId, indId, resId;
     Circuit c = makeRlcCircuit(capId, indId, resId);
     CircuitSolver solver;
     auto solution = solver.solve(c);
 
-    auto result = buildProjection(ProjectionKind::Spintronics, c, &solution, spinParams());
+    auto result = buildProjection(ProjectionKind::Mechanical, c, &solution, spinParams());
 
     EXPECT_FALSE(result.prims.lines.empty());     // chain rails and links
     EXPECT_FALSE(result.prims.circles.empty());   // crank wheel / flywheel / pulleys
@@ -127,7 +136,7 @@ TEST(SpintronicsProjection, EmitsMechanicalAnalogShapes) {
     EXPECT_TRUE(hasBrakeLabel);
 }
 
-TEST(SpintronicsProjection, ChainLinkPositionsFollowCurrentSign) {
+TEST(MechanicsProjection, ChainLinkPositionsFollowCurrentSign) {
     // The chain phase at small t>0 moves along +I; with reversed source it
     // must move the other way.
     Circuit c;
@@ -146,13 +155,13 @@ TEST(SpintronicsProjection, ChainLinkPositionsFollowCurrentSign) {
 
     ViewParams params = spinParams();
     params.time = 0.001;
-    auto forward = buildProjection(ProjectionKind::Spintronics, c, &solution, params);
+    auto forward = buildProjection(ProjectionKind::Mechanical, c, &solution, params);
 
     Component* source = c.findComponent(src);
     ASSERT_NE(source, nullptr);
     source->value = -5.0;
     auto reversedSolution = solver.solve(c);
-    auto reversed = buildProjection(ProjectionKind::Spintronics, c, &reversedSolution, params);
+    auto reversed = buildProjection(ProjectionKind::Mechanical, c, &reversedSolution, params);
 
     // Same primitive structure, but the animated link phases differ because
     // the chain speed (sign of I) reversed.
@@ -168,19 +177,19 @@ TEST(SpintronicsProjection, ChainLinkPositionsFollowCurrentSign) {
     EXPECT_TRUE(anyDifferent);
 }
 
-TEST(SpintronicsProjection, SpringCompressesAsCapacitorCharges) {
+TEST(MechanicsProjection, SpringCompressesAsCapacitorCharges) {
     int capId, indId, resId;
     Circuit c = makeRlcCircuit(capId, indId, resId);
     CircuitSolver solver;
 
     TransientState empty;
     auto uncharged = solver.solveTransientSnapshot(c, empty);
-    auto unchargedSpin = buildProjection(ProjectionKind::Spintronics, c, &uncharged, spinParams());
+    auto unchargedSpin = buildProjection(ProjectionKind::Mechanical, c, &uncharged, spinParams());
 
     TransientState charged;
     charged.capVoltage[capId] = 5.0;
     auto chargedSolution = solver.solveTransientSnapshot(c, charged);
-    auto chargedSpin = buildProjection(ProjectionKind::Spintronics, c, &chargedSolution, spinParams());
+    auto chargedSpin = buildProjection(ProjectionKind::Mechanical, c, &chargedSolution, spinParams());
 
     // Spring polyline (the longest polyline) must contract when charged.
     auto springSpanX = [](const ProjectionResult& r) {
@@ -204,16 +213,16 @@ TEST(SpintronicsProjection, SpringCompressesAsCapacitorCharges) {
 TEST(TripleView, PanSyncsAllThreeCameras) {
     current_lab::ui::DualViewState state;
     state.syncCameras = true;
-    state.pan(current_lab::ui::DualViewPane::Spintronics, Vec2(15, -7));
-    EXPECT_TRUE(current_lab::ui::cameraApproximatelyEqual(state.circuitCamera, state.spintronicsCamera));
-    EXPECT_TRUE(current_lab::ui::cameraApproximatelyEqual(state.physicsCamera, state.spintronicsCamera));
+    state.pan(current_lab::ui::DualViewPane::Mechanics, Vec2(15, -7));
+    EXPECT_TRUE(current_lab::ui::cameraApproximatelyEqual(state.circuitCamera, state.mechanicsCamera));
+    EXPECT_TRUE(current_lab::ui::cameraApproximatelyEqual(state.physicsCamera, state.mechanicsCamera));
 }
 
 TEST(TripleView, SplitCoversFullWidth) {
     auto split = current_lab::ui::computeTripleViewPaneSplit(1200.0f, 8.0f);
     EXPECT_GT(split.circuitWidth, 100.0f);
     EXPECT_GT(split.physicsWidth, 100.0f);
-    EXPECT_GT(split.spintronicsWidth, 100.0f);
-    EXPECT_NEAR(split.circuitWidth + split.physicsWidth + split.spintronicsWidth + 16.0f,
+    EXPECT_GT(split.mechanicsWidth, 100.0f);
+    EXPECT_NEAR(split.circuitWidth + split.physicsWidth + split.mechanicsWidth + 16.0f,
                 1200.0f, 2.0f);
 }

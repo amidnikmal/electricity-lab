@@ -1,10 +1,10 @@
-# Spintronics Projection
+# Mechanics Projection
 
 Date: 2026-06-10
 
-A third projection of the same `CircuitModel`: the circuit rendered as a mechanical chain machine (inspired by the Spintronics construction-set idea, own styling, no asset copying). Electrical quantities become visible motion. Built by `ProjectionBuilder` (`ProjectionKind::Spintronics`) from exactly the same model + solver solution as the Schematic and Physics projections — one `ComponentId`, N projections.
+A third projection of the same `CircuitModel`: the circuit rendered as a mechanical chain machine (inspired by the Mechanics construction-set idea, own styling, no asset copying). Electrical quantities become visible motion. Built by `ProjectionBuilder` (`ProjectionKind::Mechanical`) from exactly the same model + solver solution as the Schematic and Physics projections — one `ComponentId`, N projections.
 
-## Analogy table (implemented in `SpintronicsMapping.h`)
+## Analogy table (implemented in `MechanicsMapping.h`)
 
 | Electrical | Mechanical analog | Visual |
 | --- | --- | --- |
@@ -51,8 +51,8 @@ Metaphor / visualization:
 
 ## UI
 
-Projection selector: `Single` layout + projection combo (Circuit | Physics | Spintronics), or `Dual` (Circuit + Physics), or `Triple` (Circuit + Physics + Spintronics). Selection and camera sync work across all visible panes through the shared `DualViewState` (one `ComponentId` highlighted everywhere; editing always mutates the single `CircuitModel`).
+Projection selector: `Single` layout + projection combo (Circuit | Physics | Mechanics), or `Dual` (Circuit + Physics), or `Triple` (Circuit + Physics + Mechanics). Selection and camera sync work across all visible panes through the shared `DualViewState` (one `ComponentId` highlighted everywhere; editing always mutates the single `CircuitModel`).
 
-## Tests (tests/test_spintronics.cpp)
+## Tests (tests/test_mechanics.cpp)
 
 Mapping monotonicity and sign-correctness, reversal with current sign, exact power correspondence, energy identities, element parity with other projections, chain phase reversal, spring contraction on charging, triple-pane camera sync and layout split.
