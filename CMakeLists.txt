@@ -90,6 +90,7 @@ set(TEST_SOURCES
     tests/test_solver.cpp
     tests/test_consistency.cpp
     tests/test_canvas.cpp
+    tests/test_dual_view.cpp
     src/circuit/Circuit.cpp
     src/solver/CircuitSolver.cpp
 )
