@@ -19,17 +19,19 @@ namespace current_lab::physics {
 inline double junctionRadius(double halfWidth) { return halfWidth * 1.5; }
 
 // Sluice-wheel pump: the axle sits ON the pipe wall, the lower half of the
-// wheel is buried BEHIND the wall (the wall itself is the casing that blocks
-// the back-flow), and the blades sweep almost the whole pipe cross-section.
-// The gap between blade tip and the far wall is smaller than a particle
-// diameter, so water cannot leak back over the top: positive displacement.
+// wheel is buried BEHIND the wall (the wall blocks the back-flow under the
+// axle), the blades sweep the lower half of the pipe and ADD momentum.
+// IMPORTANT: the corridor above the blade tips stays >= 1.4 particle
+// diameters — a sealed wheel turns the pump into a PLUG and the loop water
+// piles up at the intake (regression: «шарики собираются внизу, насос не
+// проталкивает»).
 inline Vec2 pumpImpellerCenter(Vec2 a, Vec2 b, double halfWidth) {
     Vec2 unit = (b - a).normalized();
     Vec2 perp(-unit.y, unit.x);
     return (a + b) * 0.5 + perp * (-halfWidth);
 }
 
-inline double pumpImpellerRadius(double halfWidth) { return halfWidth * 1.45; }
+inline double pumpImpellerRadius(double halfWidth) { return halfWidth * 1.05; }
 
 // Impeller angular velocity for a wanted flow along a->b. Tip velocity on the
 // exposed (+perp) side of an offset wheel is omega * (-unit), so positive

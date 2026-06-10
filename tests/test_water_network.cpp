@@ -179,6 +179,21 @@ TEST(WaterNetwork, DISABLED_PumpAloneDrivesTheLoop) {
     EXPECT_GE(moving, 2) << "pump-driven flow failed to propagate past the junctions";
 }
 
+TEST(WaterNetwork, PumpWheelDoesNotPlugThePipe) {
+    // Regression «шарики собираются внизу, насос не проталкивает»: the
+    // corridor above the impeller blade tips must pass particles freely
+    // (>= 1.4 diameters), otherwise the wheel is a plug and the loop water
+    // piles up at the pump intake.
+    for (double wt : {6.0, 8.0, 12.0}) {
+        double hw = wt * 0.5;
+        double r = particleWorldRadius(wt);
+        // Axle on the wall at -hw; tips reach -hw + R.
+        double tipLateral = -hw + pumpImpellerRadius(hw);
+        double corridor = hw - tipLateral;
+        EXPECT_GE(corridor, 2.8 * r) << "wt=" << wt << ": pump seals the pipe";
+    }
+}
+
 TEST(WaterNetwork, NoParticleEscapesThePlumbing) {
     int srcId, resId, w1, w2;
     Circuit c = makeLoop(srcId, resId, w1, w2);
