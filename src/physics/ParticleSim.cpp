@@ -168,14 +168,22 @@ struct ParticleSim::Impl {
         if (spec.seedParticles >= 0)
             count = spec.seedParticles;
 
-        int rows = spec.connected
-            ? std::max(1, static_cast<int>(std::floor(usableHalf / (particleRadius * 1.05))))
-            : 1;
+        int rows = 1;
+        int cols = count;
+        if (spec.connected) {
+            // Use the whole pipe cross-section. The previous formula used
+            // only half-width and produced a single centreline row for the
+            // default 8 wu pipe, so the "water" looked like a sparse trickle.
+            double rowPitch = particleRadius * 2.0 * 1.03;
+            rows = std::max(2, static_cast<int>(std::floor((usableHalf * 2.0) / rowPitch)) + 1);
+            double colPitch = particleRadius * 2.0 * 1.04;
+            cols = std::max(1, static_cast<int>(std::floor(channel.length / colPitch)));
+            count = std::min(count, rows * cols);
+        }
         for (int i = 0; i < count; ++i) {
             double t, lateral;
             if (spec.connected) {
                 // Row-major grid with a half-step stagger per row (hex-ish).
-                int cols = (count + rows - 1) / rows;
                 int row = i % rows;
                 int col = i / rows;
                 t = (col + 0.5 + 0.5 * (row % 2)) / (cols + 1) * channel.length;
@@ -204,6 +212,10 @@ struct ParticleSim::Impl {
             fixture.restitution = spec.connected ? 0.05f : 0.4f;
             fixture.userData.pointer = channelTag;
             body->CreateFixture(&fixture);
+            if (spec.connected && std::abs(spec.targetSpeed) > 1e-9) {
+                Vec2 initialVel = channel.unit * spec.targetSpeed;
+                body->SetLinearVelocity(toSim(initialVel));
+            }
             channel.bodies.push_back(body);
         }
 
@@ -322,13 +334,61 @@ struct ParticleSim::Impl {
 
     uint64_t stepCount = 0;
 
+    std::vector<double> pumpPressureTargets() const {
+        std::vector<double> targets(channels.size(), 0.0);
+        if (!connectedMode) return targets;
+
+        for (size_t pumpIndex = 0; pumpIndex < channels.size(); ++pumpIndex) {
+            const Channel& pump = channels[pumpIndex];
+            if (!pump.paddleBody || std::abs(pump.spec.paddleSpeed) <= 1e-6)
+                continue;
+
+            double pumpFlow = -pump.spec.paddleSpeed * 10.0;
+            if (std::abs(pumpFlow) <= 1e-6) continue;
+
+            targets[pumpIndex] = pumpFlow;
+            int node = pumpFlow >= 0.0 ? pump.spec.nodeB : pump.spec.nodeA;
+            int prev = static_cast<int>(pumpIndex);
+            double speed = std::abs(pumpFlow) * 0.85;
+
+            for (size_t step = 0; step < channels.size(); ++step) {
+                int next = -1;
+                for (size_t i = 0; i < channels.size(); ++i) {
+                    if (static_cast<int>(i) == prev) continue;
+                    const auto& spec = channels[i].spec;
+                    if (spec.nodeA == node || spec.nodeB == node) {
+                        next = static_cast<int>(i);
+                        break;
+                    }
+                }
+                if (next < 0) break;
+
+                const auto& spec = channels[next].spec;
+                double sign = spec.nodeA == node ? 1.0 : -1.0;
+                targets[next] = sign * speed;
+                node = sign > 0.0 ? spec.nodeB : spec.nodeA;
+                prev = next;
+
+                if (next == static_cast<int>(pumpIndex))
+                    break;
+            }
+        }
+
+        return targets;
+    }
+
     void applyDriveForces() {
+        std::vector<double> pressureTargets = pumpPressureTargets();
         uint32_t noiseSeed = static_cast<uint32_t>(stepCount * 2246822519u);
         size_t bodyIndex = 0;
-        for (auto& channel : channels) {
+        for (size_t ci = 0; ci < channels.size(); ++ci) {
+            auto& channel = channels[ci];
             b2Vec2 axis = toSim(channel.unit);
             axis.Normalize();
-            float target = static_cast<float>(channel.spec.targetSpeed) * kToSim;
+            double effectiveTarget = channel.spec.targetSpeed;
+            if (channel.spec.connected && std::abs(effectiveTarget) < 1e-9)
+                effectiveTarget = pressureTargets[ci];
+            float target = static_cast<float>(effectiveTarget) * kToSim;
             // Connected (water) mode: the PUMP is the cause of motion; the
             // per-channel drive is only a weak assist that calibrates the mean
             // drift to the solver current and overcomes numerical friction.
@@ -360,6 +420,36 @@ struct ParticleSim::Impl {
                 // Proportional drive toward the calibrated drift speed.
                 float force = (target - along) * body->GetMass() * gain;
                 body->ApplyForceToCenter(b2Vec2(axis.x * force, axis.y * force), true);
+
+                if (channel.paddleBody && std::abs(channel.spec.paddleSpeed) > 1e-6) {
+                    Vec2 pos = fromSim(body->GetPosition());
+                    Vec2 center = fromSim(channel.paddleBody->GetPosition());
+                    Vec2 relW = pos - center;
+                    double axial = relW.x * channel.unit.x + relW.y * channel.unit.y;
+                    double lateral = relW.x * channel.perp.x + relW.y * channel.perp.y;
+                    double influenceR = pumpImpellerRadius(channel.spec.halfWidth) +
+                                        particleRadius * 2.5;
+                    if (std::abs(axial) <= influenceR &&
+                        std::abs(lateral) <= channel.spec.halfWidth + particleRadius) {
+                        // A rotating blade is a local pump, not a global
+                        // velocity clamp. Positive omega must drive negative
+                        // a->b flow (see pumpOmegaForFlow).
+                        float pumpTarget = static_cast<float>(
+                            -channel.spec.paddleSpeed * 10.0 * kToSim);
+                        float pumpForce = (pumpTarget - along) * body->GetMass() * 12.0f;
+                        body->ApplyForceToCenter(
+                            b2Vec2(axis.x * pumpForce, axis.y * pumpForce), true);
+
+                        float churn = static_cast<float>(
+                            std::sin(stepCount * 0.37 + bodyIndex * 1.91) *
+                            std::abs(channel.spec.paddleSpeed) * 0.9 * kToSim);
+                        b2Vec2 side = toSim(channel.perp);
+                        side.Normalize();
+                        body->ApplyForceToCenter(
+                            b2Vec2(side.x * churn * body->GetMass(),
+                                   side.y * churn * body->GetMass()), true);
+                    }
+                }
             }
             if (channel.paddleBody)
                 channel.paddleBody->SetAngularVelocity(
@@ -586,10 +676,16 @@ void ParticleSim::step(double dt) {
     while (m_impl->accumulator >= kSubStep && steps < 8) {
         m_impl->applyDriveForces();
         m_impl->world->Step(kSubStep, kVelocityIterations, kPositionIterations);
-        if (m_impl->connectedMode)
+        if (m_impl->connectedMode) {
             m_impl->flowOwnership(); // physical transit, bookkeeping only
-        else
+            // Keep the stream continuous through node chambers. Without this
+            // handoff particles can sit in a junction with no channel drive,
+            // which visually reads as water reaching a steady value and then
+            // no longer flowing through the loop.
+            m_impl->wrapParticles();
+        } else {
             m_impl->wrapParticles(); // legacy teleport wrap/transfer
+        }
         m_impl->accumulator -= kSubStep;
         ++steps;
     }

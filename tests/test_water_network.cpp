@@ -96,6 +96,29 @@ TEST(WaterNetwork, WaterPacksThePipeDensely) {
     EXPECT_GE(covered / area, 0.35) << "water must visibly fill the pipe";
 }
 
+TEST(WaterNetwork, WaterStartsAcrossTheWholePipeWidth) {
+    ChannelSpec spec;
+    spec.componentId = 1;
+    spec.a = Vec2(0, 0);
+    spec.b = Vec2(250, 0);
+    spec.nodeA = 0;
+    spec.nodeB = 1;
+    spec.halfWidth = 4.0;
+    spec.connected = true;
+
+    ParticleSim sim;
+    sim.configure({spec}, particleWorldRadius(8.0));
+
+    double minY = 1e9;
+    double maxY = -1e9;
+    for (const auto& p : sim.particles()) {
+        minY = std::min(minY, p.pos.y);
+        maxY = std::max(maxY, p.pos.y);
+    }
+    EXPECT_LT(minY, -spec.halfWidth * 0.35);
+    EXPECT_GT(maxY, spec.halfWidth * 0.35);
+}
+
 TEST(WaterNetwork, FlowSignMatchesBranchCurrentInEveryPipe) {
     // THE direction contract (user question 2026-06-11): per-pipe mean water
     // velocity along nodeA->nodeB carries the sign of the branch current, so
@@ -124,11 +147,7 @@ TEST(WaterNetwork, FlowSignMatchesBranchCurrentInEveryPipe) {
     }
 }
 
-// TODO(handoff 2026-06-11): пока красный — циркуляция от одной крыльчатки
-// не доходит до соседних труб за 5 с (свой канал течёт правильно).
-// Гипотезы и план в docs/HANDOFF.md, секция «ВОДА». Включить обратно
-// (убрать DISABLED_), когда насос реально прокачает контур.
-TEST(WaterNetwork, DISABLED_PumpAloneDrivesTheLoop) {
+TEST(WaterNetwork, PumpAloneDrivesTheLoop) {
     // The pump must be the CAUSE of motion: kill every per-channel assist
     // (targetSpeed = 0) and keep only the impeller spinning — the loop still
     // has to circulate in the direction of the current.
@@ -163,9 +182,6 @@ TEST(WaterNetwork, DISABLED_PumpAloneDrivesTheLoop) {
     }
     for (auto& [id, v] : means)
         v /= samples;
-    for (const auto& spec : specs)
-        std::cout << "comp " << spec.componentId << " I=" << branchCurrent[spec.componentId]
-                  << " meanV=" << means[spec.componentId] << "\n";
     // The pump pipe itself must flow with the current...
     double srcFlow = means[srcId] * branchCurrent[srcId];
     EXPECT_GT(srcFlow, 0.0) << "pump pushes its own pipe backwards";
