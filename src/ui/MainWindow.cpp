@@ -1,6 +1,7 @@
 #include "ui/MainWindow.h"
 #include "visualization/VisualizationStatus.h"
 #include "visualization/VisualizationPresets.h"
+#include "ui/DualViewProjection.h"
 #include "ui/Format.h"
 #include "physics/PowerModel.h"
 #include "physics/WirePhysics.h"
@@ -90,41 +91,59 @@ MainWindow::MainWindow() {
 }
 
 void MainWindow::wireCallbacks() {
-    m_canvas.callbacks.placeNode = [this](Vec2 pos) {
-        m_circuit.addNode(pos);
-        onCircuitChanged();
-    };
-    m_canvas.callbacks.createComponent = [this](int from, int to, ComponentType type, double val) {
-        int id = m_circuit.addComponent(type, from, to, val);
-        if (type == ComponentType::Ground) m_circuit.groundNodeId = to;
-        m_selNode = -1;
-        m_selComp = id;
-        onCircuitChanged();
-    };
-    m_canvas.callbacks.selectNode = [this](int id) {
-        m_selNode = id; m_selComp = -1;
-    };
-    m_canvas.callbacks.selectComponent = [this](int id) {
-        m_selComp = id; m_selNode = -1;
-    };
-    m_canvas.callbacks.deselect = [this]() {
-        m_selNode = -1; m_selComp = -1;
-    };
-    m_canvas.callbacks.moveNode = [this](int id, Vec2 pos) {
-        Node* n = m_circuit.findNode(id);
-        if (n) { n->position = pos; onCircuitChanged(); }
-    };
-    m_canvas.callbacks.deleteSelected = [this]() {
-        if (m_selComp >= 0) {
-            m_circuit.removeComponent(m_selComp);
-            m_selComp = -1;
+    auto wireOneCanvas = [this](CircuitCanvas& canvas) {
+        canvas.callbacks.placeNode = [this](Vec2 pos) {
+            m_circuit.addNode(pos);
             onCircuitChanged();
-        } else if (m_selNode >= 0) {
-            m_circuit.removeNode(m_selNode);
+        };
+        canvas.callbacks.createComponent = [this](int from, int to, ComponentType type, double val) {
+            int id = m_circuit.addComponent(type, from, to, val);
+            if (type == ComponentType::Ground) m_circuit.groundNodeId = to;
             m_selNode = -1;
+            m_selComp = id;
+            m_dualView.select(current_lab::ui::DualViewPane::Circuit, id);
+            openElementEditor(id);
             onCircuitChanged();
-        }
+        };
+        canvas.callbacks.selectNode = [this](int id) {
+            m_selNode = id;
+            m_selComp = -1;
+            m_dualView.clearSelection();
+            m_elementEdit.close();
+        };
+        canvas.callbacks.selectComponent = [this](int id) {
+            m_selComp = id;
+            m_selNode = -1;
+            m_dualView.select(current_lab::ui::DualViewPane::Circuit, id);
+            openElementEditor(id);
+        };
+        canvas.callbacks.deselect = [this]() {
+            m_selNode = -1;
+            m_selComp = -1;
+            m_dualView.clearSelection();
+            m_elementEdit.close();
+        };
+        canvas.callbacks.moveNode = [this](int id, Vec2 pos) {
+            Node* n = m_circuit.findNode(id);
+            if (n) { n->position = pos; onCircuitChanged(); }
+        };
+        canvas.callbacks.deleteSelected = [this]() {
+            if (m_selComp >= 0) {
+                m_circuit.removeComponent(m_selComp);
+                m_selComp = -1;
+                m_dualView.clearSelection();
+                m_elementEdit.close();
+                onCircuitChanged();
+            } else if (m_selNode >= 0) {
+                m_circuit.removeNode(m_selNode);
+                m_selNode = -1;
+                onCircuitChanged();
+            }
+        };
     };
+
+    wireOneCanvas(m_canvas);
+    wireOneCanvas(m_physicsCanvas);
 }
 
 void MainWindow::onCircuitChanged() {
@@ -276,22 +295,6 @@ void MainWindow::render() {
     float bottomHeight = m_debugMode && m_showDebugLog ? 232.0f : m_bottomHeight;
     float availY = std::max(220.0f, ImGui::GetContentRegionAvail().y - bottomHeight - 8.0f);
 
-    m_canvas.setMode(m_mode);
-    m_canvas.setSelected(m_selNode, m_selComp);
-    m_canvas.setShowCurrent(m_showCurrent);
-    m_canvas.setElectronFlow(m_electronFlow);
-    m_canvas.setShowPotential(m_showPotential);
-    m_canvas.setShowDrift(m_showDrift);
-    m_canvas.setShowEField(m_showEField);
-    m_canvas.setShowHeat(m_showHeat);
-    m_canvas.setShowPower(m_showPower);
-    m_canvas.setShowMagnetic(m_showMagnetic);
-    m_canvas.setShowSurfaceCharge(m_showSurfaceCharge);
-    m_canvas.setDebugView(m_debugMode);
-    m_canvas.setShowCanvasReadouts(m_showCanvasReadouts);
-    m_canvas.setWireThickness(m_wireThickness);
-    m_canvas.setReadOnly(false);
-
     ImGui::BeginChild("ToolRail", ImVec2(m_leftWidth, availY), ImGuiChildFlags_Border);
     renderToolRail();
     ImGui::EndChild();
@@ -300,10 +303,7 @@ void MainWindow::render() {
 
     float remainingX = ImGui::GetContentRegionAvail().x;
     float canvasWidth = std::max(260.0f, remainingX - m_rightWidth - ImGui::GetStyle().ItemSpacing.x);
-    ImGui::BeginChild("CanvasContainer", ImVec2(canvasWidth, availY), 0,
-        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-    m_canvas.render(m_circuit, m_solved ? &m_solution : nullptr);
-    ImGui::EndChild();
+    renderDualCanvasArea(canvasWidth, availY);
 
     ImGui::SameLine();
 
@@ -312,10 +312,137 @@ void MainWindow::render() {
     ImGui::EndChild();
 
     renderBottomAnalysis(params);
+    renderElementEditor(params);
 
     ImGui::End();
     ImGui::PopStyleColor(6);
     ImGui::PopStyleVar(4);
+}
+
+void MainWindow::configureCanvasForCircuitView(CircuitCanvas& canvas) {
+    canvas.setMode(m_mode);
+    canvas.setSelected(m_selNode, m_selComp);
+    canvas.setShowCurrent(false);
+    canvas.setElectronFlow(false);
+    canvas.setShowPotential(false);
+    canvas.setShowDrift(false);
+    canvas.setShowEField(false);
+    canvas.setShowHeat(false);
+    canvas.setShowPower(false);
+    canvas.setShowMagnetic(false);
+    canvas.setShowSurfaceCharge(false);
+    canvas.setDebugView(m_debugMode);
+    canvas.setShowCanvasReadouts(m_showCanvasReadouts);
+    canvas.setWireThickness(m_wireThickness);
+    canvas.setReadOnly(false);
+    canvas.setAnimationPaused(m_canvas.animationPaused());
+    canvas.setAnimationSpeed(m_canvas.animationSpeed());
+}
+
+void MainWindow::configureCanvasForPhysicsView(CircuitCanvas& canvas) {
+    canvas.setMode(m_mode);
+    canvas.setSelected(m_selNode, m_selComp);
+    canvas.setShowCurrent(m_showCurrent);
+    canvas.setElectronFlow(m_electronFlow);
+    canvas.setShowPotential(m_showPotential || m_dualViewEnabled);
+    canvas.setShowDrift(m_showDrift);
+    canvas.setShowEField(m_showEField || m_dualViewEnabled);
+    canvas.setShowHeat(m_showHeat || m_dualViewEnabled);
+    canvas.setShowPower(m_showPower);
+    canvas.setShowMagnetic(m_showMagnetic);
+    canvas.setShowSurfaceCharge(m_showSurfaceCharge);
+    canvas.setDebugView(m_debugMode);
+    canvas.setShowCanvasReadouts(m_showCanvasReadouts);
+    canvas.setWireThickness(m_wireThickness);
+    canvas.setReadOnly(false);
+    canvas.setAnimationPaused(m_canvas.animationPaused());
+    canvas.setAnimationSpeed(m_canvas.animationSpeed());
+}
+
+void MainWindow::syncDualViewCamerasFrom(current_lab::ui::DualViewPane pane) {
+    m_dualView.syncFrom(pane);
+    if (!m_dualView.syncCameras)
+        return;
+
+    if (pane == current_lab::ui::DualViewPane::Circuit)
+        m_physicsCanvas.camera() = m_dualView.physicsCamera;
+    else
+        m_canvas.camera() = m_dualView.circuitCamera;
+}
+
+void MainWindow::renderDualCanvasArea(float width, float height) {
+    const CircuitSolution* solution = m_solved ? &m_solution : nullptr;
+
+    if (!m_dualViewEnabled) {
+        configureCanvasForPhysicsView(m_canvas);
+        m_canvas.camera() = m_dualView.circuitCamera;
+        CanvasCamera before = m_canvas.camera();
+        ImGui::BeginChild("CanvasContainer", ImVec2(width, height), 0,
+            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+        ImGui::TextDisabled("Physics View");
+        m_canvas.render(m_circuit, solution);
+        if (m_fitDualViewsRequested) {
+            m_canvas.fitToCircuit(m_circuit);
+            m_fitDualViewsRequested = false;
+        }
+        ImGui::EndChild();
+        m_dualView.circuitCamera = m_canvas.camera();
+        if (!current_lab::ui::cameraApproximatelyEqual(before, m_canvas.camera()))
+            syncDualViewCamerasFrom(current_lab::ui::DualViewPane::Circuit);
+        return;
+    }
+
+    float gap = ImGui::GetStyle().ItemSpacing.x;
+    float paneWidth = std::max(180.0f, (width - gap) * 0.5f);
+
+    configureCanvasForCircuitView(m_canvas);
+    configureCanvasForPhysicsView(m_physicsCanvas);
+
+    m_canvas.camera() = m_dualView.circuitCamera;
+    m_physicsCanvas.camera() = m_dualView.physicsCamera;
+
+    CanvasCamera beforeCircuit = m_canvas.camera();
+    ImGui::BeginChild("CircuitViewPane", ImVec2(paneWidth, height), ImGuiChildFlags_Border,
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::TextDisabled("Circuit View");
+    m_canvas.render(m_circuit, solution);
+    if (m_fitDualViewsRequested)
+        m_canvas.fitToCircuit(m_circuit);
+    ImGui::EndChild();
+
+    m_dualView.circuitCamera = m_canvas.camera();
+    bool circuitCameraChanged = !current_lab::ui::cameraApproximatelyEqual(beforeCircuit, m_canvas.camera());
+    if (circuitCameraChanged)
+        syncDualViewCamerasFrom(current_lab::ui::DualViewPane::Circuit);
+
+    if (m_dualView.syncCameras)
+        m_physicsCanvas.camera() = m_dualView.physicsCamera;
+
+    ImGui::SameLine();
+
+    CanvasCamera beforePhysics = m_physicsCanvas.camera();
+    ImGui::BeginChild("PhysicsViewPane", ImVec2(0, height), ImGuiChildFlags_Border,
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::TextDisabled("Physics View");
+    m_physicsCanvas.render(m_circuit, solution);
+    if (m_fitDualViewsRequested)
+        m_physicsCanvas.fitToCircuit(m_circuit);
+    ImGui::EndChild();
+
+    m_dualView.physicsCamera = m_physicsCanvas.camera();
+    bool physicsCameraChanged = !current_lab::ui::cameraApproximatelyEqual(beforePhysics, m_physicsCanvas.camera());
+    if (physicsCameraChanged)
+        syncDualViewCamerasFrom(current_lab::ui::DualViewPane::Physics);
+
+    m_fitDualViewsRequested = false;
+}
+
+void MainWindow::openElementEditor(int componentId) {
+    const Component* component = m_circuit.findComponent(componentId);
+    if (!component)
+        return;
+
+    m_elementEdit.open(componentId, component->value, m_wireResistancePerUnit, m_distributedSegments);
 }
 
 void MainWindow::renderTopBar() {
@@ -352,6 +479,16 @@ void MainWindow::renderTopBar() {
         m_canvas.setAnimationPaused(paused);
 
     ImGui::SameLine();
+    ImGui::Checkbox("Dual View", &m_dualViewEnabled);
+
+    ImGui::SameLine();
+    ImGui::Checkbox("Sync cameras", &m_dualView.syncCameras);
+
+    ImGui::SameLine();
+    if (ImGui::Button("Fit"))
+        m_fitDualViewsRequested = true;
+
+    ImGui::SameLine();
     bool debug = m_debugMode;
     if (ImGui::Checkbox("Debug", &debug)) {
         applyVisualizationPreset(debug
@@ -360,7 +497,7 @@ void MainWindow::renderTopBar() {
     }
 
     ImGui::SameLine();
-    ImGui::TextDisabled("Model: DC steady-state / lumped + distributed 1D wire");
+    ImGui::TextDisabled("One CircuitModel -> Circuit View + Physics View");
     ImGui::EndChild();
 }
 
@@ -563,6 +700,116 @@ void MainWindow::renderRightInspector(const DistributedWireParameters& params) {
         m_inspector.render(m_circuit, solution, m_selNode, m_selComp, params,
                            m_wireThickness, m_canvas.animationSpeed(), m_electronFlow);
     }
+}
+
+
+void MainWindow::renderElementEditor(const DistributedWireParameters& params) {
+    if (!m_elementEdit.isOpen)
+        return;
+
+    Component* component = m_circuit.findComponent(m_elementEdit.componentId);
+    if (!component) {
+        m_elementEdit.close();
+        return;
+    }
+
+    ImGui::OpenPopup("Element Editor");
+    ImGui::SetNextWindowSize(ImVec2(380, 0), ImGuiCond_Appearing);
+    if (!ImGui::BeginPopupModal("Element Editor", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+
+    const CircuitSolution* solution = m_solved ? &m_solution : nullptr;
+    const Node* a = m_circuit.findNode(component->nodeA);
+    const Node* b = m_circuit.findNode(component->nodeB);
+    double length = (a && b) ? (b->position - a->position).length() : 0.0;
+    double va = potentialFor(solution, component->nodeA);
+    double vb = potentialFor(solution, component->nodeB);
+    const BranchResult* br = branchFor(solution, component->id);
+    double dV = br ? br->voltageDrop : (va - vb);
+    double current = br ? br->current : 0.0;
+    double power = br ? br->power : 0.0;
+
+    char name[32];
+    const char* prefix = "C";
+    if (component->type == ComponentType::Resistor) prefix = "R";
+    else if (component->type == ComponentType::VoltageSource) prefix = "V";
+    else if (component->type == ComponentType::Wire) prefix = "W";
+    else if (component->type == ComponentType::Ground) prefix = "GND";
+    std::snprintf(name, sizeof(name), "%s%d", prefix, component->id);
+
+    ImGui::Text("Name: %s", name);
+    ImGui::TextDisabled("ComponentId: %d", component->id);
+    ImGui::Separator();
+
+    if (component->type == ComponentType::Resistor) {
+        ImGui::InputDouble("Resistance (Ohm)", &m_elementEdit.pendingValue, 10.0, 100.0, "%.3f");
+        ImGui::Text("Length: %.3f wu", length);
+        const char* materials[] = {"Copper", "Nichrome", "Custom"};
+        ImGui::Combo("Material", &m_elementEdit.pendingMaterial, materials, IM_ARRAYSIZE(materials));
+    } else if (component->type == ComponentType::VoltageSource) {
+        ImGui::InputDouble("Voltage (V)", &m_elementEdit.pendingValue, 0.1, 1.0, "%.3f");
+        ImGui::TextDisabled("Internal resistance: ideal source in current model");
+    } else if (component->type == ComponentType::Wire) {
+        ImGui::Text("Length: %.3f wu", length);
+        ImGui::InputDouble("R per unit", &m_elementEdit.pendingWireResistancePerUnit, 0.01, 0.1, "%.4f");
+        ImGui::Text("Total R: %.4f Ohm", current_lab::physics::wireResistance(length, m_elementEdit.pendingWireResistancePerUnit));
+        ImGui::InputInt("Distributed segments", &m_elementEdit.pendingDistributedSegments);
+        if (m_elementEdit.pendingDistributedSegments < 1)
+            m_elementEdit.pendingDistributedSegments = 1;
+        if (m_elementEdit.pendingDistributedSegments > 64)
+            m_elementEdit.pendingDistributedSegments = 64;
+    } else if (component->type == ComponentType::Ground) {
+        ImGui::TextUnformatted("Reference node");
+        if (ImGui::Button("Set as reference")) {
+            m_circuit.groundNodeId = component->nodeB;
+            onCircuitChanged();
+        }
+    }
+
+    ImGui::Spacing();
+    ImGui::SeparatorText("Solved values");
+    ImGui::Text("Va: %.4f V", va);
+    ImGui::Text("Vb: %.4f V", vb);
+    ImGui::Text("dV: %.4f V", dV);
+    ImGui::Text("I: %.4f mA", milliamps(current));
+    ImGui::Text("P: %.4f mW", milliwatts(power));
+
+    ImGui::Spacing();
+    bool deleteRequested = false;
+    if (ImGui::Button("Delete", ImVec2(86, 0)))
+        deleteRequested = true;
+    ImGui::SameLine();
+    if (ImGui::Button("Apply", ImVec2(86, 0))) {
+        if (component->type == ComponentType::Resistor) {
+            component->value = std::max(1e-9, m_elementEdit.pendingValue);
+        } else if (component->type == ComponentType::VoltageSource) {
+            component->value = m_elementEdit.pendingValue;
+        } else if (component->type == ComponentType::Wire) {
+            m_wireResistancePerUnit = std::max(0.0, m_elementEdit.pendingWireResistancePerUnit);
+            m_distributedSegments = std::clamp(m_elementEdit.pendingDistributedSegments, 1, 64);
+        }
+        onCircuitChanged();
+        m_elementEdit.close();
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel", ImVec2(86, 0))) {
+        m_elementEdit.close();
+        ImGui::CloseCurrentPopup();
+    }
+
+    if (deleteRequested) {
+        int id = component->id;
+        m_circuit.removeComponent(id);
+        if (m_selComp == id)
+            m_selComp = -1;
+        m_dualView.clearSelection();
+        m_elementEdit.close();
+        onCircuitChanged();
+        ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::EndPopup();
 }
 
 void MainWindow::renderBottomAnalysis(const DistributedWireParameters& params) {

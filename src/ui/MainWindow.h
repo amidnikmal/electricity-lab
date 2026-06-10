@@ -5,6 +5,7 @@
 #include "physics/PhysicalUnits.h"
 #include "solver/CircuitSolver.h"
 #include "ui/CircuitCanvas.h"
+#include "ui/DualViewState.h"
 #include "ui/InspectorPanel.h"
 
 class MainWindow {
@@ -21,6 +22,12 @@ private:
     void renderToolRail();
     void renderRightInspector(const DistributedWireParameters& params);
     void renderBottomAnalysis(const DistributedWireParameters& params);
+    void renderDualCanvasArea(float width, float height);
+    void configureCanvasForCircuitView(CircuitCanvas& canvas);
+    void configureCanvasForPhysicsView(CircuitCanvas& canvas);
+    void syncDualViewCamerasFrom(current_lab::ui::DualViewPane pane);
+    void openElementEditor(int componentId);
+    void renderElementEditor(const DistributedWireParameters& params);
     void wireCallbacks();
     void onCircuitChanged();
     void mapDistributedSolution();
@@ -34,6 +41,9 @@ private:
     bool m_solved = false;
 
     CircuitCanvas m_canvas;
+    CircuitCanvas m_physicsCanvas;
+    current_lab::ui::DualViewState m_dualView;
+    current_lab::ui::ElementEditState m_elementEdit;
     InspectorPanel m_inspector;
     EditorMode m_mode = EditorMode::Select;
 
@@ -56,8 +66,10 @@ private:
     bool m_debugMode = false;
     bool m_showCanvasReadouts = false;
     bool m_showDebugLog = false;
+    bool m_dualViewEnabled = true;
+    bool m_fitDualViewsRequested = false;
     float m_wireThickness = 8.0f;
-    int m_visualPreset = 0;
+    int m_visualPreset = 2;
     int m_distributedSegments = current_lab::physics::kDefaultDistributedWireSegments;
     double m_wireResistancePerUnit = current_lab::physics::kDefaultWireResistancePerUnit;
 };
