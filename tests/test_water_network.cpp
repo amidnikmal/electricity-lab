@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <stdexcept>
 #include <unordered_map>
 #include "circuit/Circuit.h"
 #include "physics/ChannelSpecs.h"
@@ -137,6 +138,30 @@ int countParticlesInAxialBand(const ParticleSim& sim, const ChannelSpec& spec,
             ++count;
     }
     return count;
+}
+
+const ChannelSpec& specFor(const std::vector<ChannelSpec>& specs, int componentId) {
+    auto it = std::find_if(specs.begin(), specs.end(),
+                           [componentId](const ChannelSpec& s) {
+                               return s.componentId == componentId;
+                           });
+    if (it == specs.end())
+        throw std::runtime_error("missing channel spec");
+    return *it;
+}
+
+double measuredLoopFlowThroughBottomWire(double resistance) {
+    int srcId, resId, w1, w2;
+    Circuit c = makeLoop(srcId, resId, w1, w2, resistance);
+    CircuitSolver solver;
+    CircuitSolution sol = solver.solve(c);
+    auto specs = makeChannelSpecs(c, &sol, 8.0, /*waterWorld=*/true);
+    double radius = particleWorldRadius(8.0);
+
+    ParticleSim sim;
+    sim.configure(specs, radius);
+    runFor(sim, 5.0);
+    return measureFlow(sim, specFor(specs, w2), 0.5, radius, 6.0);
 }
 
 // Mean velocity along each channel's own axis, keyed by componentId.
@@ -321,6 +346,54 @@ TEST(WaterNetwork, ResistorDoesNotAccumulateWater) {
         << "resistor water count trends instead of staying bounded";
     EXPECT_LT(std::abs(last - avg), avg * 0.75)
         << "resistor ends far from its time average";
+}
+
+TEST(WaterNetwork, VolumeFlowScalesWithCircuitCurrent) {
+    double qLow = measuredLoopFlowThroughBottomWire(1000.0); // 5 mA
+    double qHigh = measuredLoopFlowThroughBottomWire(500.0); // 10 mA
+
+    EXPECT_GT(qLow, 0.0);
+    EXPECT_GT(qHigh, 0.0);
+    EXPECT_GT(qHigh, qLow * 1.25)
+        << "larger solver current should push more visual water volume";
+    EXPECT_LT(qHigh, qLow * 4.0)
+        << "visual flow should remain comparable to current scaling";
+}
+
+TEST(WaterNetwork, ResistorFlowIsTemporallyUniform) {
+    int srcId, resId, w1, w2;
+    Circuit c = makeLoop(srcId, resId, w1, w2, 100.0);
+    CircuitSolver solver;
+    CircuitSolution sol = solver.solve(c);
+    auto specs = makeChannelSpecs(c, &sol, 8.0, /*waterWorld=*/true);
+    const ChannelSpec& resistor = specFor(specs, resId);
+    double radius = particleWorldRadius(8.0);
+
+    ParticleSim sim;
+    sim.configure(specs, radius);
+    runFor(sim, 5.0);
+
+    std::vector<double> windows;
+    for (int i = 0; i < 12; ++i)
+        windows.push_back(std::abs(measureFlow(sim, resistor, 0.5, radius, 0.75)));
+
+    int nonzero = 0;
+    double sum = 0.0;
+    for (double q : windows) {
+        if (q > 1.0) ++nonzero;
+        sum += q;
+    }
+    double mean = sum / windows.size();
+    ASSERT_GT(mean, 1.0);
+
+    double variance = 0.0;
+    for (double q : windows)
+        variance += (q - mean) * (q - mean);
+    variance /= windows.size();
+    double cv = std::sqrt(variance) / mean;
+
+    EXPECT_GE(nonzero, 9);
+    EXPECT_LT(cv, 1.25) << "resistor flow should not arrive only in bursts";
 }
 
 TEST(WaterNetwork, PumpAloneDrivesTheLoop) {
