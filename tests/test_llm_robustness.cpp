@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include "assistant/LlmClient.h"
+#include "learning/AnkiExport.h" // escapeJson, for the round-trip test
 #include "net/HttpClient.h"
 
 using namespace current_lab::assistant;
@@ -285,6 +286,62 @@ TEST(LlmReplyExtractor, DoesNotValidateSurroundingStructure) {
     ASSERT_TRUE(extractAssistantReply(
         R"json({"note":"message","content":"decoy"})json", &reply));
     EXPECT_EQ(reply, "decoy");
+}
+
+TEST(LlmReplyExtractor, ShortUnicodeEscapeEatsClosingQuoteAndFails) {
+    // \u with fewer than 4 chars before the closing quote: the scanner skips
+    // 4 chars blindly, swallowing the closing quote, so the string never
+    // terminates and extraction fails without touching *reply.
+    std::string reply = "sentinel";
+    EXPECT_FALSE(extractAssistantReply(
+        R"json({"message":{"content":"x\u41"}})json", &reply));
+    EXPECT_EQ(reply, "sentinel");
+}
+
+// --- additional request-builder edges --------------------------------------------
+
+TEST(LlmRequestBuilder, EmptyRoleAndContentProduceEmptyJsonStrings) {
+    LlmConfig config;
+    std::string request = buildChatRequest(config, {{"", ""}});
+    EXPECT_EQ(request,
+              "{\"model\":\"local\",\"messages\":["
+              "{\"role\":\"\",\"content\":\"\"}"
+              "],\"temperature\":0.4,\"stream\":false}");
+}
+
+TEST(LlmRequestBuilder, Utf8BytesPassThroughUnescaped) {
+    // escapeJson only rewrites ", \, and control bytes < 0x20; multi-byte
+    // UTF-8 (each byte >= 0x80) must travel byte-for-byte.
+    LlmConfig config;
+    const std::string omega = "\xCE\xA9"; // U+03A9 GREEK CAPITAL OMEGA
+    std::string request = buildChatRequest(config, {{"user", "R = 5 " + omega}});
+    EXPECT_NE(request.find("R = 5 " + omega), npos);
+}
+
+TEST(LlmRequestBuilder, SocraticPromptEmbedsVerbatimInRequest) {
+    // The shipped system prompt contains no quotes, backslashes, or control
+    // chars, so it must appear byte-for-byte inside the request. If a future
+    // edit adds such a char, escaping kicks in and this test flags the change.
+    const std::string prompt = socraticCriticSystemPrompt();
+    ASSERT_FALSE(prompt.empty());
+    LlmConfig config;
+    std::string request = buildChatRequest(config, {{"system", prompt}});
+    EXPECT_NE(request.find("\"content\":\"" + prompt + "\""), npos);
+}
+
+// --- request escape / reply unescape round trip -----------------------------------
+
+TEST(LlmJsonRoundTrip, EscapedContentSurvivesExtraction) {
+    // Whatever escapeJson (used by buildChatRequest) emits for \n, \t, \r,
+    // quotes and backslashes, extractAssistantReply must invert exactly.
+    // (Excludes bytes < 0x20 other than \n\t\r: those become \uXXXX, which
+    // the v1 unescaper maps to '?' — pinned elsewhere.)
+    const std::string nasty = "line1\nline2\t\"quoted\" back\\slash\rdone";
+    std::string wire = "{\"message\":{\"content\":\""
+                       + current_lab::learning::escapeJson(nasty) + "\"}}";
+    std::string reply;
+    ASSERT_TRUE(extractAssistantReply(wire, &reply));
+    EXPECT_EQ(reply, nasty);
 }
 
 // --- net::buildHttpPostRequest under a hostile locale ----------------------------
