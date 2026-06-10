@@ -33,6 +33,7 @@ struct ChannelSpec {
 };
 
 struct SimParticle {
+    uint64_t id = 0;
     Vec2 pos;
     Vec2 vel;
     int componentId = -1;

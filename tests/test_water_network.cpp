@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <cmath>
 #include <map>
+#include <unordered_map>
 #include "circuit/Circuit.h"
 #include "physics/ChannelSpecs.h"
 #include "physics/DriftModel.h"
@@ -39,6 +41,55 @@ void runFor(ParticleSim& sim, double seconds) {
     int frames = static_cast<int>(seconds * 60.0);
     for (int i = 0; i < frames; ++i)
         sim.step(1.0 / 60.0);
+}
+
+struct FlowMeter {
+    int componentId = -1;
+    Vec2 a;
+    Vec2 unit;
+    double station = 0.0;
+    double particleArea = 0.0;
+    std::unordered_map<uint64_t, double> previousT;
+    int signedCrossings = 0;
+
+    FlowMeter(const ChannelSpec& spec, double stationFrac, double particleRadius)
+        : componentId(spec.componentId),
+          a(spec.a),
+          unit((spec.b - spec.a).normalized()),
+          station((spec.b - spec.a).length() * stationFrac),
+          particleArea(3.14159265358979323846 * particleRadius * particleRadius) {}
+
+    void observe(const std::vector<SimParticle>& particles) {
+        for (const auto& p : particles) {
+            if (p.componentId != componentId) continue;
+            Vec2 rel = p.pos - a;
+            double t = rel.x * unit.x + rel.y * unit.y;
+            auto [it, inserted] = previousT.emplace(p.id, t);
+            if (inserted) continue;
+            double oldT = it->second;
+            if (oldT < station && t >= station)
+                ++signedCrossings;
+            else if (oldT > station && t <= station)
+                --signedCrossings;
+            it->second = t;
+        }
+    }
+
+    double signedVolumePerSecond(double seconds) const {
+        return signedCrossings * particleArea / std::max(seconds, 1e-9);
+    }
+};
+
+double measureFlow(ParticleSim& sim, const ChannelSpec& spec, double stationFrac,
+                   double particleRadius, double seconds) {
+    FlowMeter meter(spec, stationFrac, particleRadius);
+    meter.observe(sim.particles());
+    int frames = static_cast<int>(seconds * 60.0);
+    for (int i = 0; i < frames; ++i) {
+        sim.step(1.0 / 60.0);
+        meter.observe(sim.particles());
+    }
+    return meter.signedVolumePerSecond(seconds);
 }
 
 // Mean velocity along each channel's own axis, keyed by componentId.
@@ -117,6 +168,25 @@ TEST(WaterNetwork, WaterStartsAcrossTheWholePipeWidth) {
     }
     EXPECT_LT(minY, -spec.halfWidth * 0.35);
     EXPECT_GT(maxY, spec.halfWidth * 0.35);
+}
+
+TEST(WaterNetwork, FlowMeterCountsSignedVolumeCrossings) {
+    int srcId, resId, w1, w2;
+    Circuit c = makeLoop(srcId, resId, w1, w2, 100.0);
+    CircuitSolver solver;
+    CircuitSolution sol = solver.solve(c);
+    auto specs = makeChannelSpecs(c, &sol, 8.0, /*waterWorld=*/true);
+    auto specIt = std::find_if(specs.begin(), specs.end(),
+                               [w2](const ChannelSpec& s) { return s.componentId == w2; });
+    ASSERT_NE(specIt, specs.end());
+    double radius = particleWorldRadius(8.0);
+
+    ParticleSim sim;
+    sim.configure(specs, radius);
+    runFor(sim, 1.0);
+
+    double q = measureFlow(sim, *specIt, 0.5, radius, 4.0);
+    EXPECT_GT(q, 0.0);
 }
 
 TEST(WaterNetwork, FlowSignMatchesBranchCurrentInEveryPipe) {

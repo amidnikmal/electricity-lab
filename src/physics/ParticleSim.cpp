@@ -696,6 +696,8 @@ std::vector<SimParticle> ParticleSim::particles() const {
     for (const auto& channel : m_impl->channels) {
         for (const b2Body* body : channel.bodies) {
             SimParticle particle;
+            particle.id = static_cast<uint64_t>(
+                reinterpret_cast<uintptr_t>(body));
             particle.pos = fromSim(body->GetPosition());
             particle.vel = fromSim(body->GetLinearVelocity());
             particle.componentId = channel.spec.componentId;
