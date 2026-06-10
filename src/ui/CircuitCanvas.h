@@ -96,6 +96,8 @@ public:
     void setDragNode(int id) { m_dragNode = id; }
     void setPlaceFromNode(int id) { m_placeFromNode = id; }
     CanvasCamera& camera() { return m_camera; }
+    const CanvasCamera& camera() const { return m_camera; }
+    void fitToCircuit(const Circuit& circuit);
 
 private:
     ImVec2 toScreen(Vec2 w) const {

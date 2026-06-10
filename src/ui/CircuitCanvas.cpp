@@ -115,6 +115,32 @@ Vec2 qualitativeFieldAt(Vec2 p, const std::vector<FieldSource>& sources) {
 
 } // namespace
 
+void CircuitCanvas::fitToCircuit(const Circuit& circuit) {
+    if (circuit.nodes.empty() || m_size.x <= 1.0f || m_size.y <= 1.0f)
+        return;
+
+    double minX = circuit.nodes.front().position.x;
+    double maxX = minX;
+    double minY = circuit.nodes.front().position.y;
+    double maxY = minY;
+    for (const auto& node : circuit.nodes) {
+        minX = std::min(minX, node.position.x);
+        maxX = std::max(maxX, node.position.x);
+        minY = std::min(minY, node.position.y);
+        maxY = std::max(maxY, node.position.y);
+    }
+
+    double width = std::max(40.0, maxX - minX);
+    double height = std::max(40.0, maxY - minY);
+    double pad = 90.0;
+    double sx = (m_size.x - pad) / width;
+    double sy = (m_size.y - pad) / height;
+    double scale = std::clamp(std::min(sx, sy), 0.15, 8.0);
+    Vec2 center((minX + maxX) * 0.5, (minY + maxY) * 0.5);
+    m_camera.scale = static_cast<float>(scale);
+    m_camera.offset = Vec2(m_size.x * 0.5 - center.x * scale, m_size.y * 0.5 - center.y * scale);
+}
+
 int CircuitCanvas::hitTestNode(const Circuit& circuit, Vec2 worldPos) const {
     for (const auto& n : circuit.nodes) {
         if ((n.position - worldPos).length() < kHitRadius)
@@ -539,6 +565,25 @@ void CircuitCanvas::drawComponent(ImDrawList* dl, const Component& comp, const C
         case ComponentType::Resistor:       drawResistor(dl, a, b, comp.value, va, vb, vMin, vMax, branchPower, globalMaxP); break;
         case ComponentType::VoltageSource:  drawVoltageSource(dl, a, b, comp.value, va, vb, vMin, vMax); break;
         case ComponentType::Ground:         drawGround(dl, b); break;
+    }
+
+    if (comp.id == m_selComp) {
+        Vec2 dir = b - a;
+        double len = dir.length();
+        if (len > 1.0) {
+            Vec2 unit = dir / len;
+            Vec2 perp(-unit.y, unit.x);
+            double halfWidth = comp.type == ComponentType::Resistor
+                ? current_lab::physics::resistorBodyHalfWidth(wireThickness()) + 6.0 / std::max(0.05f, m_camera.scale)
+                : wireThickness() * 0.5 + 8.0 / std::max(0.05f, m_camera.scale);
+            Vec2 q1 = a + perp * halfWidth;
+            Vec2 q2 = a - perp * halfWidth;
+            Vec2 q3 = b - perp * halfWidth;
+            Vec2 q4 = b + perp * halfWidth;
+            dl->AddQuadFilled(toScreen(q1), toScreen(q2), toScreen(q3), toScreen(q4), IM_COL32(255, 210, 90, 20));
+            dl->AddQuad(toScreen(q1), toScreen(q2), toScreen(q3), toScreen(q4), IM_COL32(255, 215, 110, 220), 2.0f);
+            dl->AddLine(toScreen(a), toScreen(b), IM_COL32(255, 220, 120, 135), 7.0f);
+        }
     }
 
     if (solution && comp.type != ComponentType::Ground) {
