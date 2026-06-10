@@ -5,6 +5,12 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Sources are BOM-less UTF-8 (Cyrillic literals in I18n.cpp and tests); MSVC
+# would otherwise decode them in the active code page and corrupt the strings.
+if(MSVC)
+    add_compile_options(/utf-8)
+endif()
+
 # --- Dependencies via FetchContent ---
 include(FetchContent)
 
@@ -74,6 +80,14 @@ if(UNIX)
         ${CMAKE_DL_LIBS}   # dlopen for glfw/GL
     )
 endif()
+if(WIN32)
+    target_link_libraries(current-lab PRIVATE ws2_32)  # Winsock for net/HttpClient
+endif()
+if(MINGW)
+    # Self-contained exe: otherwise Windows may resolve libstdc++-6.dll /
+    # libgcc_s_seh-1.dll to a mismatched copy elsewhere on PATH (0xC0000139).
+    target_link_options(current-lab PRIVATE -static)
+endif()
 
 # --- Google Test ---
 FetchContent_Declare(googletest
@@ -117,6 +131,12 @@ set(TEST_SOURCES
 add_executable(current-lab-tests ${TEST_SOURCES})
 target_include_directories(current-lab-tests PRIVATE ${CMAKE_SOURCE_DIR}/src ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
 target_link_libraries(current-lab-tests PRIVATE GTest::gtest_main)
+if(WIN32)
+    target_link_libraries(current-lab-tests PRIVATE ws2_32)  # tests compile net/HttpClient.cpp
+endif()
+if(MINGW)
+    target_link_options(current-lab-tests PRIVATE -static)
+endif()
 
 include(GoogleTest)
 gtest_discover_tests(current-lab-tests)

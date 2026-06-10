@@ -3,10 +3,21 @@
 #include <cstring>
 #include <sstream>
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <netdb.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
+#endif
 
 namespace current_lab::net {
 
@@ -17,12 +28,68 @@ bool fail(std::string* error, const std::string& message) {
     return false;
 }
 
+// Thin platform shims so the request/response logic below stays single-path.
+#ifdef _WIN32
+using socket_t = SOCKET;
+constexpr socket_t kInvalidSocket = INVALID_SOCKET;
+
+bool initSockets() {
+    static const bool ok = [] {
+        WSADATA data;
+        return WSAStartup(MAKEWORD(2, 2), &data) == 0;
+    }();
+    return ok;
+}
+
+void closeSocket(socket_t s) { closesocket(s); }
+
+void setSocketTimeouts(socket_t s, int timeoutMs) {
+    DWORD tv = static_cast<DWORD>(timeoutMs); // Windows expects milliseconds
+    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&tv), sizeof(tv));
+    setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&tv), sizeof(tv));
+}
+
+long sendSome(socket_t s, const char* data, size_t len) {
+    return send(s, data, static_cast<int>(len), 0);
+}
+
+long recvSome(socket_t s, char* buf, size_t len) {
+    return recv(s, buf, static_cast<int>(len), 0);
+}
+#else
+using socket_t = int;
+constexpr socket_t kInvalidSocket = -1;
+
+bool initSockets() { return true; }
+
+void closeSocket(socket_t s) { close(s); }
+
+void setSocketTimeouts(socket_t s, int timeoutMs) {
+    timeval tv{};
+    tv.tv_sec = timeoutMs / 1000;
+    tv.tv_usec = (timeoutMs % 1000) * 1000;
+    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+}
+
+long sendSome(socket_t s, const char* data, size_t len) {
+    return static_cast<long>(send(s, data, len, 0));
+}
+
+long recvSome(socket_t s, char* buf, size_t len) {
+    return static_cast<long>(recv(s, buf, len, 0));
+}
+#endif
+
 } // namespace
 
 bool httpPost(const std::string& host, int port, const std::string& path,
               const std::string& body, const std::string& contentType,
               const std::string& extraHeaders, HttpResponse* out,
               std::string* error, int timeoutMs) {
+    if (!initSockets())
+        return fail(error, "socket subsystem init failed");
+
     addrinfo hints{};
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
@@ -32,41 +99,28 @@ bool httpPost(const std::string& host, int port, const std::string& path,
     if (getaddrinfo(host.c_str(), portStr.c_str(), &hints, &result) != 0 || !result)
         return fail(error, "cannot resolve host " + host);
 
-    int fd = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
-    if (fd < 0) {
+    socket_t fd = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
+    if (fd == kInvalidSocket) {
         freeaddrinfo(result);
         return fail(error, "cannot create socket");
     }
 
-    timeval tv{};
-    tv.tv_sec = timeoutMs / 1000;
-    tv.tv_usec = (timeoutMs % 1000) * 1000;
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    setSocketTimeouts(fd, timeoutMs);
 
-    bool connected = connect(fd, result->ai_addr, result->ai_addrlen) == 0;
+    bool connected =
+        connect(fd, result->ai_addr, static_cast<int>(result->ai_addrlen)) == 0;
     freeaddrinfo(result);
     if (!connected) {
-        close(fd);
+        closeSocket(fd);
         return fail(error, "cannot connect to " + host + ":" + portStr);
     }
 
-    std::ostringstream request;
-    request << "POST " << path << " HTTP/1.1\r\n"
-            << "Host: " << host << ":" << portStr << "\r\n"
-            << "Content-Type: " << contentType << "\r\n"
-            << "Content-Length: " << body.size() << "\r\n"
-            << "Connection: close\r\n"
-            << extraHeaders
-            << "\r\n"
-            << body;
-
-    std::string data = request.str();
+    std::string data = buildHttpPostRequest(host, port, path, body, contentType, extraHeaders);
     size_t sent = 0;
     while (sent < data.size()) {
-        ssize_t n = send(fd, data.data() + sent, data.size() - sent, 0);
+        long n = sendSome(fd, data.data() + sent, data.size() - sent);
         if (n <= 0) {
-            close(fd);
+            closeSocket(fd);
             return fail(error, "send failed");
         }
         sent += static_cast<size_t>(n);
@@ -75,15 +129,36 @@ bool httpPost(const std::string& host, int port, const std::string& path,
     std::string raw;
     char buf[4096];
     for (;;) {
-        ssize_t n = recv(fd, buf, sizeof(buf), 0);
+        long n = recvSome(fd, buf, sizeof(buf));
         if (n <= 0) break;
         raw.append(buf, static_cast<size_t>(n));
     }
-    close(fd);
+    closeSocket(fd);
 
     if (raw.empty())
         return fail(error, "empty response (timeout?)");
 
+    return parseHttpResponse(raw, out, error);
+}
+
+std::string buildHttpPostRequest(const std::string& host, int port, const std::string& path,
+                                 const std::string& body, const std::string& contentType,
+                                 const std::string& extraHeaders) {
+    std::ostringstream request;
+    // HTTP numbers must not pick up locale digit grouping ("Content-Length: 1 234").
+    request.imbue(std::locale::classic());
+    request << "POST " << path << " HTTP/1.1\r\n"
+            << "Host: " << host << ":" << port << "\r\n"
+            << "Content-Type: " << contentType << "\r\n"
+            << "Content-Length: " << body.size() << "\r\n"
+            << "Connection: close\r\n"
+            << extraHeaders
+            << "\r\n"
+            << body;
+    return request.str();
+}
+
+bool parseHttpResponse(const std::string& raw, HttpResponse* out, std::string* error) {
     size_t statusEnd = raw.find("\r\n");
     if (statusEnd == std::string::npos || raw.compare(0, 5, "HTTP/") != 0)
         return fail(error, "malformed response");

@@ -20,6 +20,8 @@ const char* socraticCriticSystemPrompt() {
 std::string buildChatRequest(const LlmConfig& config, const std::vector<ChatMessage>& messages) {
     using learning::escapeJson;
     std::ostringstream json;
+    // JSON requires '.' as the decimal separator regardless of the user's locale.
+    json.imbue(std::locale::classic());
     json << "{\"model\":\"" << escapeJson(config.model) << "\",\"messages\":[";
     for (size_t i = 0; i < messages.size(); ++i) {
         if (i) json << ",";

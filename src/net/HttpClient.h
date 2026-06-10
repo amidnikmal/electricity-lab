@@ -17,4 +17,15 @@ bool httpPost(const std::string& host, int port, const std::string& path,
               const std::string& extraHeaders, // raw "Header: value\r\n" lines, may be empty
               HttpResponse* out, std::string* error = nullptr, int timeoutMs = 15000);
 
+// Pure request/response logic, split out of httpPost for unit testing.
+
+// Assembles the exact bytes httpPost sends on the wire.
+std::string buildHttpPostRequest(const std::string& host, int port, const std::string& path,
+                                 const std::string& body, const std::string& contentType,
+                                 const std::string& extraHeaders);
+
+// Parses a raw HTTP/1.x response: status line, headers, body; undoes chunked
+// transfer-encoding ("good enough for local APIs" — same scope as before).
+bool parseHttpResponse(const std::string& raw, HttpResponse* out, std::string* error = nullptr);
+
 } // namespace current_lab::net
