@@ -237,12 +237,11 @@ struct ParticleSim::Impl {
                 if (t > channel.length) exitNode = channel.spec.nodeB;
                 else if (t < 0.0) exitNode = channel.spec.nodeA;
 
+                double speed = fromSim(body->GetLinearVelocity()).length();
+                double lateralFrac = maxLat > 1e-9 ? std::clamp(lateral / maxLat, -1.0, 1.0) : 0.0;
                 if (exitNode >= 0) {
                     int next = pickOutgoing(exitNode, static_cast<int>(ci));
-                    double speed = fromSim(body->GetLinearVelocity()).length();
-                    double lateralFrac = maxLat > 1e-9 ? std::clamp(lateral / maxLat, -1.0, 1.0) : 0.0;
                     if (next >= 0) {
-                        // hand the particle over to the next pipe
                         Channel& to = channels[next];
                         relocate(body, to, lateralFrac, std::max(speed, 2.0));
                         to.bodies.push_back(body);
@@ -250,11 +249,14 @@ struct ParticleSim::Impl {
                         --bi;
                         continue;
                     }
-                    // dead end: wrap within the channel (legacy behaviour)
-                    t = t > channel.length ? t - channel.length : t + channel.length;
                 }
 
-                bool moved = exitNode >= 0;
+                bool moved = false;
+                if (t > channel.length || t < 0.0) {
+                    // wrap within the same channel (either dead-end node or no node defined)
+                    t = t > channel.length ? t - channel.length : t + channel.length;
+                    moved = true;
+                }
                 if (std::abs(lateral) > maxLat) {
                     lateral = std::clamp(lateral, -maxLat, maxLat);
                     moved = true;
