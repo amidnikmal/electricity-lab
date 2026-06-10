@@ -92,6 +92,53 @@ double measureFlow(ParticleSim& sim, const ChannelSpec& spec, double stationFrac
     return meter.signedVolumePerSecond(seconds);
 }
 
+std::map<int, double> measureFlows(ParticleSim& sim,
+                                   const std::vector<ChannelSpec>& specs,
+                                   const std::vector<int>& componentIds,
+                                   double stationFrac,
+                                   double particleRadius,
+                                   double seconds) {
+    std::vector<FlowMeter> meters;
+    for (int id : componentIds) {
+        auto it = std::find_if(specs.begin(), specs.end(),
+                               [id](const ChannelSpec& s) { return s.componentId == id; });
+        if (it != specs.end())
+            meters.emplace_back(*it, stationFrac, particleRadius);
+    }
+    auto observeAll = [&]() {
+        auto particles = sim.particles();
+        for (auto& meter : meters)
+            meter.observe(particles);
+    };
+    observeAll();
+    int frames = static_cast<int>(seconds * 60.0);
+    for (int i = 0; i < frames; ++i) {
+        sim.step(1.0 / 60.0);
+        observeAll();
+    }
+    std::map<int, double> out;
+    for (const auto& meter : meters)
+        out[meter.componentId] = meter.signedVolumePerSecond(seconds);
+    return out;
+}
+
+int countParticlesInAxialBand(const ParticleSim& sim, const ChannelSpec& spec,
+                              double t0Frac, double t1Frac) {
+    Vec2 unit = (spec.b - spec.a).normalized();
+    double length = (spec.b - spec.a).length();
+    double lo = length * t0Frac;
+    double hi = length * t1Frac;
+    int count = 0;
+    for (const auto& p : sim.particles()) {
+        if (p.componentId != spec.componentId) continue;
+        Vec2 rel = p.pos - spec.a;
+        double t = rel.x * unit.x + rel.y * unit.y;
+        if (t >= lo && t <= hi)
+            ++count;
+    }
+    return count;
+}
+
 // Mean velocity along each channel's own axis, keyed by componentId.
 std::map<int, double> meanAxisSpeeds(const ParticleSim& sim,
                                      const std::vector<ChannelSpec>& specs) {
@@ -215,6 +262,65 @@ TEST(WaterNetwork, FlowSignMatchesBranchCurrentInEveryPipe) {
         EXPECT_GT(std::abs(it->second), 0.5)
             << "pipe of component " << branch.componentId << " is stagnant";
     }
+}
+
+TEST(WaterNetwork, SeriesVolumeFlowIsConservedThroughResistor) {
+    int srcId, resId, w1, w2;
+    Circuit c = makeLoop(srcId, resId, w1, w2, 100.0);
+    CircuitSolver solver;
+    CircuitSolution sol = solver.solve(c);
+    auto specs = makeChannelSpecs(c, &sol, 8.0, /*waterWorld=*/true);
+
+    double radius = particleWorldRadius(8.0);
+    ParticleSim sim;
+    sim.configure(specs, radius);
+    runFor(sim, 2.0);
+
+    auto q = measureFlows(sim, specs, {resId, w1, w2}, 0.5, radius, 8.0);
+    ASSERT_EQ(q.size(), 3u);
+    EXPECT_GT(q[resId], 0.0);
+    EXPECT_GT(q[w1], 0.0);
+    EXPECT_GT(q[w2], 0.0);
+
+    double minQ = std::min({std::abs(q[resId]), std::abs(q[w1]), std::abs(q[w2])});
+    double maxQ = std::max({std::abs(q[resId]), std::abs(q[w1]), std::abs(q[w2])});
+    EXPECT_GT(minQ, 1.0);
+    EXPECT_LT(maxQ / std::max(minQ, 1e-9), 6.0)
+        << "series flow should stay comparable through resistor and wires";
+}
+
+TEST(WaterNetwork, ResistorDoesNotAccumulateWater) {
+    int srcId, resId, w1, w2;
+    Circuit c = makeLoop(srcId, resId, w1, w2, 100.0);
+    CircuitSolver solver;
+    CircuitSolution sol = solver.solve(c);
+    auto specs = makeChannelSpecs(c, &sol, 8.0, /*waterWorld=*/true);
+    auto resIt = std::find_if(specs.begin(), specs.end(),
+                              [resId](const ChannelSpec& s) { return s.componentId == resId; });
+    ASSERT_NE(resIt, specs.end());
+
+    ParticleSim sim;
+    sim.configure(specs, particleWorldRadius(8.0));
+    runFor(sim, 5.0);
+
+    std::vector<int> counts;
+    for (int window = 0; window < 16; ++window) {
+        runFor(sim, 0.5);
+        counts.push_back(countParticlesInAxialBand(sim, *resIt, 0.25, 0.75));
+    }
+    ASSERT_GE(counts.size(), 4u);
+
+    double sum = 0.0;
+    for (int n : counts) sum += n;
+    double avg = sum / counts.size();
+    ASSERT_GT(avg, 1.0);
+
+    int first = counts.front();
+    int last = counts.back();
+    EXPECT_LT(std::abs(last - first), avg * 0.75)
+        << "resistor water count trends instead of staying bounded";
+    EXPECT_LT(std::abs(last - avg), avg * 0.75)
+        << "resistor ends far from its time average";
 }
 
 TEST(WaterNetwork, PumpAloneDrivesTheLoop) {
