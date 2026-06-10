@@ -45,7 +45,7 @@ TEST(ProjectionBuilder, AllKindsShareTheSameComponentIds)
     auto solution = solver.solve(circuit);
     ViewParams params = physicsParams();
 
-    for (auto kind : {ProjectionKind::Schematic, ProjectionKind::Physics, ProjectionKind::Spintronics}) {
+    for (auto kind : {ProjectionKind::Schematic, ProjectionKind::Physics, ProjectionKind::Mechanical}) {
         auto result = buildProjection(kind, circuit, &solution, params);
         EXPECT_EQ(result.elements.size(), circuit.components.size());
         EXPECT_TRUE(projectionHasComponent(result, sourceId));

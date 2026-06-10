@@ -2,11 +2,11 @@
 
 Date: 2026-06-10
 
-Every element is one `Component` in the single `CircuitModel` (one `ComponentId` across all projections) with: solver behavior (DC + transient), schematic symbol, physics projection, spintronics projection, inspector/editor support, and pure-logic tests.
+Every element is one `Component` in the single `CircuitModel` (one `ComponentId` across all projections) with: solver behavior (DC + transient), schematic symbol, physics projection, mechanics projection, inspector/editor support, and pure-logic tests.
 
 `Component.value` semantics per type: R = ohms, V source = volts, C = farads, L = henries, Diode = unused (ideal), Switch = 1 closed / 0 open.
 
-| Element | DC model | Transient model | Schematic symbol | Physics projection | Spintronics projection | Status |
+| Element | DC model | Transient model | Schematic symbol | Physics projection | Mechanics projection | Status |
 | --- | --- | --- | --- | --- | --- | --- |
 | Wire | 1e9 S (or distributed R chain) | same | rounded conductor | potential gradient, drift, E-arrows, surface charge | moving chain | done |
 | Resistor | G = 1/R | same | body + leads (sectioned) | body-concentrated field, heat underline, drift slowdown | friction brake pads + heat glow | done |
@@ -33,4 +33,4 @@ R = 1 kOhm, V = 5 V, C = 1 mF (tau = 1 s with 1 kOhm), L = 1 H (tau = 0.1 s with
 
 ## Tests
 
-`tests/test_solver.cpp`, `test_transient.cpp` (RC/RL/energy/balance/stability/convergence), `test_elements.cpp` (C/L geometry, symbols, stored energy, placement), `test_diode_switch.cpp` (forward/reverse, peak detector, open/closed, mid-transient freeze, symbols in all projections), `test_spintronics.cpp` (analog mapping).
+`tests/test_solver.cpp`, `test_transient.cpp` (RC/RL/energy/balance/stability/convergence), `test_elements.cpp` (C/L geometry, symbols, stored energy, placement), `test_diode_switch.cpp` (forward/reverse, peak detector, open/closed, mid-transient freeze, symbols in all projections), `test_mechanics.cpp` (analog mapping).

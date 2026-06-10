@@ -9,6 +9,7 @@
 #include "ui/InspectorPanel.h"
 #include "ui/LearningPanel.h"
 #include "ui/PaneLayout.h"
+#include "physics/ParticleSim.h"
 #include <memory>
 #include <unordered_map>
 
@@ -37,8 +38,9 @@ private:
     void renderDualCanvasArea(float width, float height);
     void configureCanvasForCircuitView(CircuitCanvas& canvas);
     void configureCanvasForPhysicsView(CircuitCanvas& canvas);
-    void configureCanvasForSpintronicsView(CircuitCanvas& canvas);
+    void configureCanvasForMechanicsView(CircuitCanvas& canvas);
     void configureCanvasForProjection(CircuitCanvas& canvas, int projection);
+    void updateParticleSim(float realDt);
     CircuitCanvas& canvasForPane(int paneId);
     void wireCanvas(CircuitCanvas& canvas);
     void syncCamerasFrom(const CircuitCanvas& source);
@@ -65,6 +67,18 @@ private:
     double m_transientAccumulator = 0.0;
 
     current_lab::ui::PaneLayoutTree m_paneTree;
+    // Two separate microdynamics worlds: electrons must not collide with the
+    // water pump's impeller (no mechanical obstacles inside an EMF source).
+    current_lab::physics::ParticleSim m_electronSim;
+    current_lab::physics::ParticleSim m_waterSim;
+    current_lab::physics::ChainSim m_chainSim;
+    std::vector<current_lab::physics::ChainLink> m_chainLinks;
+    current_lab::projection::FlowIntegrals m_flowIntegrals;
+    std::vector<current_lab::physics::SimParticle> m_electronParticles;
+    std::vector<current_lab::physics::SimParticle> m_waterParticles;
+    std::vector<current_lab::physics::PaddleState> m_waterPaddles;
+    int m_crankSavedComponent = -1;
+    double m_crankSavedValue = 0.0;
     std::unordered_map<int, std::unique_ptr<CircuitCanvas>> m_paneCanvases;
     bool m_animationPaused = false;
     float m_animationSpeed = 1.0f;

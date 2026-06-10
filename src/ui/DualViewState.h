@@ -14,7 +14,7 @@ enum class DualViewPane
 {
     Circuit,
     Physics,
-    Spintronics,
+    Mechanics,
 };
 
 struct DualViewState
@@ -22,7 +22,7 @@ struct DualViewState
     bool syncCameras = true;
     CanvasCamera circuitCamera;
     CanvasCamera physicsCamera;
-    CanvasCamera spintronicsCamera;
+    CanvasCamera mechanicsCamera;
     std::optional<ComponentId> selectedComponentId;
 
     CanvasCamera& cameraFor(DualViewPane pane)
@@ -30,7 +30,7 @@ struct DualViewState
         switch (pane) {
             case DualViewPane::Circuit: return circuitCamera;
             case DualViewPane::Physics: return physicsCamera;
-            case DualViewPane::Spintronics: return spintronicsCamera;
+            case DualViewPane::Mechanics: return mechanicsCamera;
         }
         return circuitCamera;
     }
@@ -64,7 +64,7 @@ struct DualViewState
         const CanvasCamera source = cameraFor(pane);
         circuitCamera = source;
         physicsCamera = source;
-        spintronicsCamera = source;
+        mechanicsCamera = source;
     }
 };
 
@@ -107,7 +107,7 @@ struct TripleViewPaneSplit
 {
     float circuitWidth = 0.0f;
     float physicsWidth = 0.0f;
-    float spintronicsWidth = 0.0f;
+    float mechanicsWidth = 0.0f;
 };
 
 // ratio1/ratio2 = fractions of the usable width for the first two panes; the
@@ -122,7 +122,7 @@ inline TripleViewPaneSplit computeTripleViewPaneSplit(float availableWidth, floa
     ratio2 = clampPaneRatio(ratio2, kMinPaneRatio, 1.0f - ratio1 - kMinPaneRatio);
     split.circuitWidth = std::floor(std::max(110.0f, usableWidth * ratio1));
     split.physicsWidth = std::floor(std::max(110.0f, usableWidth * ratio2));
-    split.spintronicsWidth = std::max(110.0f, usableWidth - split.circuitWidth -
+    split.mechanicsWidth = std::max(110.0f, usableWidth - split.circuitWidth -
                                                   split.physicsWidth);
     return split;
 }

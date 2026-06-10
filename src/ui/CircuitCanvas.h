@@ -53,6 +53,18 @@ public:
     void setDebugView(bool v) { m_debugView = v; }
     bool debugView() const { return m_debugView; }
     void setReadOnly(bool v) { m_readOnly = v; }
+    void setSimParticles(const std::vector<current_lab::physics::SimParticle>* particles) {
+        m_simParticles = particles;
+    }
+    void setPaddleStates(const std::vector<current_lab::physics::PaddleState>* paddles) {
+        m_paddleStates = paddles;
+    }
+    void setChainLinks(const std::vector<current_lab::physics::ChainLink>* links) {
+        m_chainLinks = links;
+    }
+    void setFlowIntegrals(const current_lab::projection::FlowIntegrals* integrals) {
+        m_flowIntegrals = integrals;
+    }
 
     void setWireThickness(float v) { m_wireThickness = std::max(2.0f, std::min(50.0f, v)); }
     float wireThickness() const { return m_wireThickness; }
@@ -108,7 +120,15 @@ private:
     bool m_debugView = false;
     float m_wireThickness = 8.0f;
     bool m_readOnly = false;
+    const std::vector<current_lab::physics::SimParticle>* m_simParticles = nullptr;
+    const std::vector<current_lab::physics::PaddleState>* m_paddleStates = nullptr;
+    const std::vector<current_lab::physics::ChainLink>* m_chainLinks = nullptr;
+    const current_lab::projection::FlowIntegrals* m_flowIntegrals = nullptr;
     bool m_animationPaused = false;
     float m_animationSpeed = 1.0f;
     double m_animationTime = 0.0;
+
+    // Hand-crank state (Mechanics view): drag around a drive wheel to generate EMF.
+    int m_crankComponent = -1;
+    double m_crankLastAngle = 0.0;
 };

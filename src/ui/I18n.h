@@ -11,4 +11,8 @@ void setLanguage(Language language);
 Language language();
 const char* tr(const char* english);
 
+// Every dictionary key and value concatenated: feed this to the font-atlas
+// builder so no UI string can ever render as "?".
+const char* allUiText();
+
 } // namespace current_lab::i18n

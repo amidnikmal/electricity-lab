@@ -98,7 +98,7 @@ void PaneLayoutTree::resetTriple() {
     inner->sideBySide = true;
     inner->ratio = 0.5f;
     inner->a = makeLeaf(1); // Physics
-    inner->b = makeLeaf(2); // Spintronics
+    inner->b = makeLeaf(2); // Mechanics
 
     auto root = std::make_unique<PaneNode>();
     root->isLeaf = false;

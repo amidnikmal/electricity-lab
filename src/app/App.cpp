@@ -1,6 +1,7 @@
 #include "app/App.h"
 #include "app/UiScale.h"
 #include "ui/MainWindow.h"
+#include "ui/I18n.h"
 
 #define GL_SILENCE_DEPRECATION
 
@@ -86,7 +87,9 @@ void App::setupImGui() {
         builder.AddRanges(io.Fonts->GetGlyphRangesGreek());
         // Math symbols used by the formula renderer and textbook units.
         builder.AddText("\xC2\xB7\xE2\x89\x88\xE2\x86\x92\xE2\x89\xA4\xE2\x89\xA5"
-                        "\xE2\x88\x9E\xE2\x88\x92\xC2\xB5\xCE\xA9\xCF\x84");
+                        "\xE2\x88\x9E\xE2\x88\x92\xC2\xB5\xCE\xA9\xCF\x84"
+                        "\xE2\x80\x94\xE2\x80\x93\xC2\xAB\xC2\xBB\xE2\x80\xA6"); // — – « » …
+        builder.AddText(current_lab::i18n::allUiText()); // every translated string
         builder.BuildRanges(&glyphRanges);
     }
     bool fontLoaded = false;

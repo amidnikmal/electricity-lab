@@ -1,9 +1,14 @@
 #include "ui/MainWindow.h"
 #include "ui/I18n.h"
 #include "ui/UiHelpers.h"
+#include "circuit/DemoCircuits.h"
+#include "projection/MechanicsMapping.h"
 #include "visualization/VisualizationStatus.h"
 #include "visualization/VisualizationPresets.h"
 #include "ui/Format.h"
+#include "physics/ChainSim.h"
+#include "physics/ChannelSpecs.h"
+#include "physics/DriftModel.h"
 #include "physics/PowerModel.h"
 #include "physics/WirePhysics.h"
 #include <algorithm>
@@ -85,6 +90,13 @@ void renderMetric(const char* label, const char* value) {
     ImGui::TextWrapped("%s", value);
 }
 
+bool circuitHasReactive(const Circuit& circuit) {
+    for (const auto& comp : circuit.components)
+        if (comp.type == ComponentType::Capacitor || comp.type == ComponentType::Inductor)
+            return true;
+    return false;
+}
+
 } // namespace
 
 using current_lab::i18n::tr;
@@ -145,6 +157,34 @@ void MainWindow::wireCanvas(CircuitCanvas& canvas) {
             Node* n = m_circuit.findNode(id);
             if (n) { n->position = pos; onCircuitChanged(); }
         };
+        canvas.callbacks.crankBegin = [this](int componentId) {
+            // The crank is a TEMPORARY drive: remember the source setting.
+            if (Component* comp = m_circuit.findComponent(componentId)) {
+                m_crankSavedComponent = componentId;
+                m_crankSavedValue = comp->value;
+            }
+        };
+        canvas.callbacks.crankEnd = [this](int componentId) {
+            // Released: the source returns to its configured EMF, so the
+            // circuit never gets stuck at ~0 V after a slow release.
+            if (m_crankSavedComponent == componentId) {
+                if (Component* comp = m_circuit.findComponent(componentId))
+                    comp->value = m_crankSavedValue;
+                m_crankSavedComponent = -1;
+                runSolver();
+            }
+        };
+        canvas.callbacks.driveSource = [this](int componentId, double omega) {
+            Component* comp = m_circuit.findComponent(componentId);
+            if (!comp || comp->type != ComponentType::VoltageSource) return;
+            double target = current_lab::mechanics::emfFromCrankSpeed(omega);
+            // Light smoothing so the EMF follows the hand without jitter.
+            double next = comp->value * 0.7 + target * 0.3;
+            if (std::abs(next - comp->value) > 0.02) {
+                comp->value = next;
+                runSolver();
+            }
+        };
         canvas.callbacks.deleteSelected = [this]() {
             if (m_selComp >= 0) {
                 m_circuit.removeComponent(m_selComp);
@@ -191,10 +231,12 @@ void MainWindow::setupTestCircuit() {
     int n1  = m_circuit.addNode(Vec2(200, 150), "N1");
     int n2  = m_circuit.addNode(Vec2(450, 150), "N2");
     m_circuit.groundNodeId = gnd;
+    int corner = m_circuit.addNode(Vec2(450, 300));
     m_circuit.addComponent(ComponentType::Ground, gnd, gnd, 0.0);
     m_circuit.addComponent(ComponentType::VoltageSource, n1, gnd, 5.0);
     m_circuit.addComponent(ComponentType::Resistor, n1, n2, 1000.0);
-    m_circuit.addComponent(ComponentType::Wire, n2, gnd, 0.0);
+    m_circuit.addComponent(ComponentType::Wire, n2, corner, 0.0);
+    m_circuit.addComponent(ComponentType::Wire, corner, gnd, 0.0);
 }
 
 void MainWindow::runSolver() {
@@ -208,6 +250,75 @@ void MainWindow::runSolver() {
         m_distributedSolution = m_solver.solve(m_distributedCircuit);
     mapDistributedSolution();
     m_solved = true;
+}
+
+void MainWindow::updateParticleSim(float realDt) {
+    const CircuitSolution* solution = m_solved ? &m_solution : nullptr;
+    double particleRadius = current_lab::physics::particleWorldRadius(m_wireThickness);
+    double dt = m_animationPaused ? 0.0 : static_cast<double>(realDt) * m_animationSpeed;
+
+    auto runWorld = [&](current_lab::physics::ParticleSim& sim, bool waterWorld,
+                        std::vector<current_lab::physics::SimParticle>& outParticles) {
+        auto specs = current_lab::physics::makeChannelSpecs(m_circuit, solution,
+                                                            m_wireThickness, waterWorld);
+        if (specs.empty()) {
+            outParticles.clear();
+            return;
+        }
+        if (!sim.configured())
+            sim.configure(specs, particleRadius);
+        else
+            sim.setTargets(specs); // re-configures itself on layout change
+        if (dt > 0.0)
+            sim.step(dt);
+        outParticles = sim.particles();
+    };
+
+    runWorld(m_electronSim, /*waterWorld=*/false, m_electronParticles);
+    runWorld(m_waterSim, /*waterWorld=*/true, m_waterParticles);
+    m_waterPaddles = m_waterSim.paddles();
+
+    // Mechanics chain: rigid-jointed loops, one per component.
+    std::vector<current_lab::physics::ChainSpec> chainSpecs;
+    for (const auto& comp : m_circuit.components) {
+        if (comp.type == ComponentType::Ground || comp.type == ComponentType::Capacitor)
+            continue;
+        if (comp.type == ComponentType::Switch && comp.value < 0.5)
+            continue;
+        const Node* a = m_circuit.findNode(comp.nodeA);
+        const Node* b = m_circuit.findNode(comp.nodeB);
+        if (!a || !b) continue;
+        double current = 0.0;
+        if (solution) {
+            for (const auto& br : solution->branches)
+                if (br.componentId == comp.id) { current = br.current; break; }
+        }
+        current_lab::physics::ChainSpec spec;
+        spec.componentId = comp.id;
+        spec.a = a->position;
+        spec.b = b->position;
+        spec.halfWidth = m_wireThickness * 0.5;
+        spec.targetSpeed = std::clamp(
+            current_lab::mechanics::chainSpeedFromCurrent(current) *
+                current_lab::mechanics::kVisualChainSpeed * 100.0,
+            -90.0, 90.0);
+        spec.brake = comp.type == ComponentType::Resistor;
+        chainSpecs.push_back(spec);
+    }
+    if (chainSpecs.empty()) {
+        m_chainLinks.clear();
+    } else {
+        if (!m_chainSim.configured())
+            m_chainSim.configure(chainSpecs, std::max(1.0, m_wireThickness * 0.16));
+        else
+            m_chainSim.setTargets(chainSpecs);
+        if (dt > 0.0)
+            m_chainSim.step(dt);
+        m_chainLinks = m_chainSim.links();
+    }
+
+    // Continuous wheel phases (theta = k * ∫I dt).
+    current_lab::projection::advanceFlowIntegrals(m_flowIntegrals, m_circuit, solution, dt);
 }
 
 void MainWindow::advanceTransient(float realDt) {
@@ -366,6 +477,7 @@ void MainWindow::render() {
         ImGuiWindowFlags_NoSavedSettings);
 
     advanceTransient(ImGui::GetIO().DeltaTime);
+    updateParticleSim(ImGui::GetIO().DeltaTime);
 
     DistributedWireParameters params;
     params.segmentsPerWire = m_distributedSegments;
@@ -424,6 +536,7 @@ void MainWindow::render() {
 }
 
 void MainWindow::configureCanvasForCircuitView(CircuitCanvas& canvas) {
+    canvas.setSimParticles(nullptr);
     canvas.setProjection(current_lab::projection::ProjectionKind::Schematic);
     canvas.setMode(m_mode);
     canvas.setSelected(m_selNode, m_selComp);
@@ -445,6 +558,10 @@ void MainWindow::configureCanvasForCircuitView(CircuitCanvas& canvas) {
 }
 
 void MainWindow::configureCanvasForPhysicsView(CircuitCanvas& canvas) {
+    canvas.setSimParticles(&m_electronParticles);
+    canvas.setPaddleStates(nullptr);
+    canvas.setChainLinks(nullptr);
+    canvas.setFlowIntegrals(&m_flowIntegrals);
     canvas.setProjection(current_lab::projection::ProjectionKind::Physics);
     canvas.setMode(m_mode);
     canvas.setSelected(m_selNode, m_selComp);
@@ -465,19 +582,23 @@ void MainWindow::configureCanvasForPhysicsView(CircuitCanvas& canvas) {
     canvas.setAnimationSpeed(m_animationSpeed);
 }
 
-void MainWindow::configureCanvasForSpintronicsView(CircuitCanvas& canvas) {
+void MainWindow::configureCanvasForMechanicsView(CircuitCanvas& canvas) {
     configureCanvasForPhysicsView(canvas);
-    canvas.setProjection(current_lab::projection::ProjectionKind::Spintronics);
+    canvas.setSimParticles(nullptr); // mechanics uses the chain, not electrons
+    canvas.setChainLinks(&m_chainLinks);
+    canvas.setProjection(current_lab::projection::ProjectionKind::Mechanical);
 }
 
 void MainWindow::configureCanvasForProjection(CircuitCanvas& canvas, int projection) {
     auto kind = static_cast<current_lab::projection::ProjectionKind>(projection);
     if (kind == current_lab::projection::ProjectionKind::Schematic) {
         configureCanvasForCircuitView(canvas);
-    } else if (kind == current_lab::projection::ProjectionKind::Spintronics) {
-        configureCanvasForSpintronicsView(canvas);
+    } else if (kind == current_lab::projection::ProjectionKind::Mechanical) {
+        configureCanvasForMechanicsView(canvas);
     } else if (kind == current_lab::projection::ProjectionKind::Hydraulic) {
         configureCanvasForPhysicsView(canvas);
+        canvas.setSimParticles(&m_waterParticles);
+        canvas.setPaddleStates(&m_waterPaddles);
         canvas.setProjection(current_lab::projection::ProjectionKind::Hydraulic);
     } else {
         configureCanvasForPhysicsView(canvas);
@@ -511,7 +632,7 @@ void MainWindow::renderDualCanvasArea(float width, float height) {
     int splitRequest = -1;
     bool splitSideBySide = true;
 
-    const char* projections[] = {tr("Circuit"), tr("Physics"), tr("Spintronics"), tr("Water")};
+    const char* projections[] = {tr("Circuit"), tr("Physics"), tr("Mechanics"), tr("Water")};
 
     for (const auto& leaf : leaves) {
         CircuitCanvas& canvas = canvasForPane(leaf.paneId);
@@ -528,18 +649,20 @@ void MainWindow::renderDualCanvasArea(float width, float height) {
         if (ImGui::Combo("##proj", &projection, projections, IM_ARRAYSIZE(projections)))
             m_paneTree.setProjection(leaf.paneId, projection);
         current_lab::ui::tooltipIfTruncated(projections[projection], 118.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(7.0f, 3.0f));
         ImGui::SameLine();
-        if (ImGui::SmallButton("| |")) { splitRequest = leaf.paneId; splitSideBySide = true; }
+        if (ImGui::Button("| |")) { splitRequest = leaf.paneId; splitSideBySide = true; }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Split left/right"));
         ImGui::SameLine();
-        if (ImGui::SmallButton("=")) { splitRequest = leaf.paneId; splitSideBySide = false; }
+        if (ImGui::Button("=")) { splitRequest = leaf.paneId; splitSideBySide = false; }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Split top/bottom"));
         if (m_paneTree.paneCount() > 1) {
             ImGui::SameLine();
-            if (ImGui::SmallButton("x"))
+            if (ImGui::Button("x"))
                 closeRequest = leaf.paneId;
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Close view"));
         }
+        ImGui::PopStyleVar();
 
         CanvasCamera before = canvas.camera();
         canvas.render(m_circuit, solution);
@@ -644,6 +767,14 @@ void MainWindow::renderTopBar() {
             resetTransient();
         ImGui::SameLine();
         ImGui::Text(tr("t = %.3f s"), m_transientState.time);
+        if (!circuitHasReactive(m_circuit)) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f), "%s", tr("no C/L"));
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s", tr(
+                    "No capacitor or inductor: the transient equals the DC state.\n"
+                    "Add C/L or load the RC demo."));
+        }
     } else {
         ImGui::SameLine();
         if (ImGui::Button(tr("Run Solver"))) {
@@ -671,6 +802,27 @@ void MainWindow::renderTopBar() {
     ImGui::SameLine();
     if (ImGui::Button(tr("Fit")))
         m_fitDualViewsRequested = true;
+
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(96.0f);
+    if (ImGui::BeginCombo("##Demos", tr("Demos"))) {
+        using current_lab::demos::DemoCircuit;
+        for (int d = 0; d < static_cast<int>(DemoCircuit::Count); ++d) {
+            auto demo = static_cast<DemoCircuit>(d);
+            if (ImGui::Selectable(tr(current_lab::demos::demoName(demo)))) {
+                m_circuit = current_lab::demos::buildDemo(demo);
+                m_selNode = -1;
+                m_selComp = -1;
+                m_dualView.clearSelection();
+                m_elementEdit.close();
+                m_transientState.reset();
+                m_transientRunning = false;
+                m_fitDualViewsRequested = true;
+                onCircuitChanged();
+            }
+        }
+        ImGui::EndCombo();
+    }
 
     ImGui::SameLine();
     bool debug = m_debugMode;

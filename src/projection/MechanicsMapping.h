@@ -1,9 +1,10 @@
 #pragma once
 
 #include "circuit/Circuit.h"
+#include <algorithm>
 #include "physics/PowerModel.h"
 
-// Electrical -> mechanical (spintronics-like) analogy map. Pure functions.
+// Electrical -> mechanical (mechanical) analogy map. Pure functions.
 //
 //   current I        -> chain linear speed (sign = direction of motion)
 //   potential V      -> chain tension ("height" relative to the anchor)
@@ -17,9 +18,12 @@
 // Unit choice: kTensionPerVolt * kLinkSpeedPerAmp == 1, so mechanical power
 // tension * speed equals electrical power V * I exactly. Quantities below are
 // exact images of solver values; only on-screen animation speed is scaled.
-namespace current_lab::spintronics {
+namespace current_lab::mechanics {
 
-constexpr double kTensionPerVolt = 1.0;  // tension units per volt
+constexpr double kTensionPerVolt = 1.0;
+// Visual amplification constants (animation only, magnitudes stay honest):
+constexpr double kVisualChainSpeed = 40.0; // world units per (chain-speed unit * s)
+constexpr double kVisualSpinRate = 6.0;    // rad per (angular-momentum unit * s)  // tension units per volt
 constexpr double kLinkSpeedPerAmp = 1.0; // chain speed units per ampere
 
 inline double chainSpeedFromCurrent(double current) {
@@ -52,8 +56,15 @@ inline double springEnergy(double capacitance, double capVoltage) {
     return 0.5 * capacitance * capVoltage * capVoltage; // == 1/2 C V^2
 }
 
+// Hand-crank dynamo: turning the drive crank sets the source EMF.
+// V is proportional to the crank angular speed (clamped to a sane range).
+inline double emfFromCrankSpeed(double omegaRadPerSec) {
+    double v = 1.5 * omegaRadPerSec;
+    return std::clamp(v, -12.0, 12.0);
+}
+
 inline double flywheelEnergy(double inductance, double indCurrent) {
     return 0.5 * inductance * indCurrent * indCurrent; // == 1/2 L I^2
 }
 
-} // namespace current_lab::spintronics
+} // namespace current_lab::mechanics

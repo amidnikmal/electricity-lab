@@ -1,6 +1,9 @@
 #pragma once
 
 #include "circuit/Circuit.h"
+#include "physics/ChainSim.h"
+#include "physics/ParticleSim.h"
+#include "projection/FlowIntegrator.h"
 #include "solver/CircuitSolver.h"
 #include "render/RenderPrimitives.h"
 #include "visualization/VisualizationPresets.h"
@@ -15,7 +18,7 @@ namespace current_lab::projection {
 enum class ProjectionKind {
     Schematic,   // clean circuit symbols
     Physics,     // continuous-matter view: potential, fields, drift, heat
-    Spintronics, // mechanical analogy: chains, brakes, springs, flywheels
+    Mechanical,  // mechanical analogy: chains, brakes, springs, flywheels
     Hydraulic,   // water analogy: pipes, pumps, tanks, turbines, valves
 };
 
@@ -31,6 +34,15 @@ struct ViewParams {
     // keep pure-logic tests independent of any viewport.
     Vec2 viewMin{-1e6, -1e6};
     Vec2 viewMax{1e6, 1e6};
+    // When set, drift/flow layers render these Box2D microdynamics particles
+    // instead of the stateless phase animation.
+    const std::vector<physics::SimParticle>* simParticles = nullptr;
+    // Real impeller angles from the water world (pump blades = colliders).
+    const std::vector<physics::PaddleState>* paddleStates = nullptr;
+    // Box2D chain links for the Mechanics view (rigid-jointed loops).
+    const std::vector<physics::ChainLink>* chainLinks = nullptr;
+    // Continuous rotation phases: theta = k * ∫I dt (no teleporting wheels).
+    const FlowIntegrals* flowIntegrals = nullptr;
 };
 
 // Solved values attributed to a model element inside one projection build.

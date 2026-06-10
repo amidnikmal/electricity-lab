@@ -1,5 +1,6 @@
 #include "ui/I18n.h"
 
+#include <string>
 #include <string_view>
 #include <unordered_map>
 
@@ -32,7 +33,7 @@ const std::unordered_map<std::string_view, const char*>& dictionary() {
         {"Dual", "Два"},
         {"Triple", "Три"},
         {"Physics", "Физика"},
-        {"Spintronics", "Спинтроника"},
+        {"Mechanics", "Механика"},
         {"Inspector", "Инспектор"},
         {"Learn", "Учёба"},
         {"Fit", "Вписать"},
@@ -213,6 +214,29 @@ const std::unordered_map<std::string_view, const char*>& dictionary() {
         {"electron drift shown", "показан дрейф электронов"},
         {"conventional shown", "показан условный ток"},
         {"Transient: companion-model MNA", "Переходный: MNA с companion-моделями"},
+        {"Demos", "Демо"},
+        {"Drag to crank the dynamo", "Зажмите и крутите — это динамо"},
+        {"Demo: resistor loop", "Демо: контур с резистором"},
+        {"Demo: RC charging", "Демо: зарядка RC"},
+        {"Demo: RL current rise", "Демо: нарастание тока RL"},
+        {"Demo: diode + resistor", "Демо: диод + резистор"},
+        {"Demo: switched RC", "Демо: RC с ключом"},
+        {"Demo: RLC series", "Демо: последовательный RLC"},
+        {"Demo: diode peak detector", "Демо: пик-детектор на диоде"},
+        {"no C/L", "нет C/L"},
+        {"No capacitor or inductor: the transient equals the DC state.\nAdd C/L or load the RC demo.",
+         "В схеме нет конденсатора или катушки: переходный режим совпадает со стационаром.\nДобавьте C/L или загрузите демо «зарядка RC»."},
+        // Continuity lesson
+        {"Why series current is the same everywhere",
+         "Почему ток в последовательной цепи одинаков"},
+        {"Squeeze the brake in the Mechanics view: the whole chain slows at once, not just one link.",
+         "Зажмите тормоз в механическом виде: вся цепь замедляется сразу, а не одно звено."},
+        {"Raise the resistor value and watch the speed drop everywhere in the loop simultaneously.",
+         "Увеличьте сопротивление и посмотрите: скорость падает во всём контуре одновременно."},
+        {"The chain cannot stretch, and the electron gas cannot pile up: the wire stays neutral, so one loop carries one current.",
+         "Цепь нерастяжима, а электронный газ не сжимается: провод остаётся нейтральным, поэтому в контуре один ток."},
+        {"Charge conservation + quasi-neutrality: what flows in must flow out at every cross-section.",
+         "Сохранение заряда + квазинейтральность: сколько втекло через сечение, столько и вытекло."},
         // Lesson titles
         {"Current from voltage and resistance", "Ток из напряжения и сопротивления"},
         {"Voltage division in a series chain", "Деление напряжения в последовательной цепи"},
@@ -263,8 +287,8 @@ const std::unordered_map<std::string_view, const char*>& dictionary() {
          "Напряжение стремится к источнику экспоненциально с постоянной времени tau = R*C."},
         {"An inductor in series with a resistor connects to a source at t = 0.",
          "Катушка последовательно с резистором подключается к источнику в момент t = 0."},
-        {"Run the transient and watch the flywheel in the Spintronics view spin up gradually.",
-         "Запустите переходный процесс и смотрите, как маховик в спинтронном виде постепенно раскручивается."},
+        {"Run the transient and watch the flywheel in the Mechanics view spin up gradually.",
+         "Запустите переходный процесс и смотрите, как маховик в механическом виде постепенно раскручивается."},
         {"Current cannot jump: the inductor stores energy in its field and yields slowly.",
          "Ток не может прыгнуть: катушка копит энергию в поле и уступает постепенно."},
         {"The current approaches V/R exponentially with time constant tau = L/R.",
@@ -274,6 +298,21 @@ const std::unordered_map<std::string_view, const char*>& dictionary() {
 }
 
 } // namespace
+
+const char* allUiText() {
+    static const std::string text = [] {
+        std::string out;
+        out.reserve(16384);
+        for (const auto& [key, value] : dictionary()) {
+            out.append(key);
+            out.push_back('\n');
+            out.append(value);
+            out.push_back('\n');
+        }
+        return out;
+    }();
+    return text.c_str();
+}
 
 void setLanguage(Language language) { g_language = language; }
 

@@ -45,7 +45,7 @@ public:
 
     void resetSingle(int projection);
     void resetDual();   // Circuit | Physics
-    void resetTriple(); // Circuit | Physics | Spintronics
+    void resetTriple(); // Circuit | Physics | Mechanics
 
     // Splits the leaf in two; the new pane inherits the projection.
     // Returns the new pane id, or -1 if the pane was not found.

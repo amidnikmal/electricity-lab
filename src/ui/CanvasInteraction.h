@@ -16,6 +16,9 @@ struct CanvasCallbacks {
     std::function<void()> deselect;
     std::function<void(int, Vec2)> moveNode;
     std::function<void()> deleteSelected;
+    std::function<void(int, double)> driveSource; // componentId, crank rad/s (dynamo)
+    std::function<void(int)> crankBegin;          // user grabbed the drive wheel
+    std::function<void(int)> crankEnd;            // released: restore the source
 };
 
 struct InteractionInput {

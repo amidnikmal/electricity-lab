@@ -32,9 +32,15 @@ struct DriftVisualizationInfo {
     bool hasThermalMotion = true;
 };
 
+// Particle radius in WORLD units: particles zoom together with the wire
+// instead of staying a fixed pixel size.
+inline double particleWorldRadius(double wireThickness) {
+    return std::max(0.8, wireThickness * 0.16);
+}
+
 inline int driftParticleCount(double length, double wireThickness) {
     double volume = length * wireThickness * wireThickness;
-    return std::max(12, std::min(1200, static_cast<int>(volume / 40.0)));
+    return std::max(8, std::min(400, static_cast<int>(volume / 110.0)));
 }
 
 inline Vec2 conventionalCurrentDirection(Vec2 a, Vec2 b, double current) {
@@ -86,8 +92,7 @@ inline std::vector<DriftParticleState> sampleDriftParticles(Vec2 a,
     double phase = std::fmod(config.time * driftSpeed, 1.0);
 
     double halfW = config.wireThickness * 0.5;
-    double screenR = std::min(14.0, 2.0 + 2.0 * config.cameraScale);
-    double maxOff = std::max(0.0, halfW - screenR / std::max(0.05, config.cameraScale) - 0.3);
+    double maxOff = std::max(0.0, halfW - particleWorldRadius(config.wireThickness) - 0.3);
 
     int count = driftParticleCount(len, config.wireThickness);
     particles.reserve(count);
