@@ -115,6 +115,9 @@ set(TEST_SOURCES
     tests/test_pane_layout.cpp
     tests/test_hydraulic.cpp
     tests/test_mathtext.cpp
+    tests/test_ui_scale.cpp
+    tests/test_http.cpp
+    tests/test_llm_robustness.cpp
     src/circuit/Circuit.cpp
     src/solver/CircuitSolver.cpp
     src/projection/ProjectionBuilder.cpp
