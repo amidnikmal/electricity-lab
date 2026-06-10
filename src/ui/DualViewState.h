@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ui/CircuitCanvas.h"
+#include "ui/CanvasCamera.h"
 #include <algorithm>
 #include <cmath>
 #include <optional>
@@ -14,6 +14,7 @@ enum class DualViewPane
 {
     Circuit,
     Physics,
+    Spintronics,
 };
 
 struct DualViewState
@@ -21,7 +22,18 @@ struct DualViewState
     bool syncCameras = true;
     CanvasCamera circuitCamera;
     CanvasCamera physicsCamera;
+    CanvasCamera spintronicsCamera;
     std::optional<ComponentId> selectedComponentId;
+
+    CanvasCamera& cameraFor(DualViewPane pane)
+    {
+        switch (pane) {
+            case DualViewPane::Circuit: return circuitCamera;
+            case DualViewPane::Physics: return physicsCamera;
+            case DualViewPane::Spintronics: return spintronicsCamera;
+        }
+        return circuitCamera;
+    }
 
     void select(DualViewPane, ComponentId componentId)
     {
@@ -35,15 +47,13 @@ struct DualViewState
 
     void pan(DualViewPane pane, Vec2 delta)
     {
-        CanvasCamera& target = pane == DualViewPane::Circuit ? circuitCamera : physicsCamera;
-        target.pan(delta);
+        cameraFor(pane).pan(delta);
         syncFrom(pane);
     }
 
     void zoomAt(DualViewPane pane, float factor, Vec2 screenPoint)
     {
-        CanvasCamera& target = pane == DualViewPane::Circuit ? circuitCamera : physicsCamera;
-        target.zoomAt(factor, screenPoint);
+        cameraFor(pane).zoomAt(factor, screenPoint);
         syncFrom(pane);
     }
 
@@ -51,10 +61,10 @@ struct DualViewState
     {
         if (!syncCameras)
             return;
-        if (pane == DualViewPane::Circuit)
-            physicsCamera = circuitCamera;
-        else
-            circuitCamera = physicsCamera;
+        const CanvasCamera source = cameraFor(pane);
+        circuitCamera = source;
+        physicsCamera = source;
+        spintronicsCamera = source;
     }
 };
 
@@ -73,12 +83,47 @@ struct DualViewLayoutMetrics
     float canvasWidth = 0.0f;
 };
 
-inline DualViewPaneSplit computeDualViewPaneSplit(float availableWidth, float gap)
+constexpr float kMinPaneRatio = 0.12f;
+
+inline float clampPaneRatio(float ratio, float minRatio = kMinPaneRatio,
+                            float maxRatio = 1.0f - kMinPaneRatio)
+{
+    return std::clamp(ratio, minRatio, maxRatio);
+}
+
+// ratio = fraction of the usable width given to the first (circuit) pane.
+inline DualViewPaneSplit computeDualViewPaneSplit(float availableWidth, float gap,
+                                                  float ratio = 0.5f)
 {
     DualViewPaneSplit split;
     float usableWidth = std::max(1.0f, availableWidth);
-    split.circuitWidth = std::floor(std::max(120.0f, (usableWidth - gap) * 0.5f));
+    ratio = clampPaneRatio(ratio);
+    split.circuitWidth = std::floor(std::max(120.0f, (usableWidth - gap) * ratio));
     split.physicsWidth = std::max(120.0f, usableWidth - split.circuitWidth - gap);
+    return split;
+}
+
+struct TripleViewPaneSplit
+{
+    float circuitWidth = 0.0f;
+    float physicsWidth = 0.0f;
+    float spintronicsWidth = 0.0f;
+};
+
+// ratio1/ratio2 = fractions of the usable width for the first two panes; the
+// third takes the rest. Each pane is kept at least kMinPaneRatio wide.
+inline TripleViewPaneSplit computeTripleViewPaneSplit(float availableWidth, float gap,
+                                                      float ratio1 = 1.0f / 3.0f,
+                                                      float ratio2 = 1.0f / 3.0f)
+{
+    TripleViewPaneSplit split;
+    float usableWidth = std::max(1.0f, availableWidth) - 2.0f * gap;
+    ratio1 = clampPaneRatio(ratio1, kMinPaneRatio, 1.0f - 2.0f * kMinPaneRatio);
+    ratio2 = clampPaneRatio(ratio2, kMinPaneRatio, 1.0f - ratio1 - kMinPaneRatio);
+    split.circuitWidth = std::floor(std::max(110.0f, usableWidth * ratio1));
+    split.physicsWidth = std::floor(std::max(110.0f, usableWidth * ratio2));
+    split.spintronicsWidth = std::max(110.0f, usableWidth - split.circuitWidth -
+                                                  split.physicsWidth);
     return split;
 }
 

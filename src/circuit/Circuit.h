@@ -11,6 +11,10 @@ enum class ComponentType : uint8_t {
     Resistor,
     VoltageSource,
     Ground,
+    Capacitor,
+    Inductor,
+    Diode,  // ideal piecewise-linear: conducts A->B when forward biased
+    Switch, // value >= 0.5 closed, else open
 };
 
 enum class EditorMode : uint8_t {
@@ -20,6 +24,10 @@ enum class EditorMode : uint8_t {
     PlaceResistor,
     PlaceVoltageSource,
     PlaceGround,
+    PlaceCapacitor,
+    PlaceInductor,
+    PlaceDiode,
+    PlaceSwitch,
 };
 
 struct Node {

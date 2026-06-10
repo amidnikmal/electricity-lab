@@ -91,8 +91,27 @@ set(TEST_SOURCES
     tests/test_consistency.cpp
     tests/test_canvas.cpp
     tests/test_dual_view.cpp
+    tests/test_projection.cpp
+    tests/test_transient.cpp
+    tests/test_elements.cpp
+    tests/test_spintronics.cpp
+    tests/test_learning.cpp
+    tests/test_diode_switch.cpp
+    tests/test_fixes.cpp
+    tests/test_pane_layout.cpp
+    tests/test_hydraulic.cpp
+    tests/test_mathtext.cpp
     src/circuit/Circuit.cpp
     src/solver/CircuitSolver.cpp
+    src/projection/ProjectionBuilder.cpp
+    src/ui/CanvasInteraction.cpp
+    src/learning/TaskGenerator.cpp
+    src/learning/AnkiExport.cpp
+    src/assistant/LlmClient.cpp
+    src/net/HttpClient.cpp
+    src/ui/I18n.cpp
+    src/ui/PaneLayout.cpp
+    src/ui/MathTextParse.cpp
 )
 
 add_executable(current-lab-tests ${TEST_SOURCES})

@@ -7,6 +7,15 @@
 #include "ui/CircuitCanvas.h"
 #include "ui/DualViewState.h"
 #include "ui/InspectorPanel.h"
+#include "ui/LearningPanel.h"
+#include "ui/PaneLayout.h"
+#include <memory>
+#include <unordered_map>
+
+enum class SimulationMode {
+    DcSteadyState,
+    Transient,
+};
 
 class MainWindow {
 public:
@@ -15,6 +24,9 @@ public:
     void runSolver();
 
 private:
+    void advanceTransient(float realDt);
+    void stepTransientOnce();
+    void resetTransient();
     void setupTestCircuit();
     void renderToolbar();
     void renderLog();
@@ -25,7 +37,11 @@ private:
     void renderDualCanvasArea(float width, float height);
     void configureCanvasForCircuitView(CircuitCanvas& canvas);
     void configureCanvasForPhysicsView(CircuitCanvas& canvas);
-    void syncDualViewCamerasFrom(current_lab::ui::DualViewPane pane);
+    void configureCanvasForSpintronicsView(CircuitCanvas& canvas);
+    void configureCanvasForProjection(CircuitCanvas& canvas, int projection);
+    CircuitCanvas& canvasForPane(int paneId);
+    void wireCanvas(CircuitCanvas& canvas);
+    void syncCamerasFrom(const CircuitCanvas& source);
     void openElementEditor(int componentId);
     void renderElementEditor(const DistributedWireParameters& params);
     void wireCallbacks();
@@ -40,11 +56,22 @@ private:
     CircuitSolution m_distributedSolution;
     bool m_solved = false;
 
-    CircuitCanvas m_canvas;
-    CircuitCanvas m_physicsCanvas;
+    SimulationMode m_simMode = SimulationMode::DcSteadyState;
+    TransientState m_transientState;
+    IntegrationMethod m_integrationMethod = IntegrationMethod::BackwardEuler;
+    bool m_transientRunning = false;
+    double m_transientDt = 1e-3;       // s per solver step
+    float m_transientSpeed = 1.0f;     // simulated seconds per real second
+    double m_transientAccumulator = 0.0;
+
+    current_lab::ui::PaneLayoutTree m_paneTree;
+    std::unordered_map<int, std::unique_ptr<CircuitCanvas>> m_paneCanvases;
+    bool m_animationPaused = false;
+    float m_animationSpeed = 1.0f;
     current_lab::ui::DualViewState m_dualView;
     current_lab::ui::ElementEditState m_elementEdit;
     InspectorPanel m_inspector;
+    LearningPanel m_learningPanel;
     EditorMode m_mode = EditorMode::Select;
 
     int m_selNode = -1;
@@ -66,11 +93,10 @@ private:
     bool m_debugMode = false;
     bool m_showCanvasReadouts = false;
     bool m_showDebugLog = false;
-    bool m_dualViewEnabled = true;
     bool m_showRightInspector = true;
     bool m_fitDualViewsRequested = false;
     float m_wireThickness = 8.0f;
-    int m_visualPreset = 2;
+    int m_visualPreset = 3; // Current / Drift: animated layers on by default
     int m_distributedSegments = current_lab::physics::kDefaultDistributedWireSegments;
     double m_wireResistancePerUnit = current_lab::physics::kDefaultWireResistancePerUnit;
 };

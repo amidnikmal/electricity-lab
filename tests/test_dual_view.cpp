@@ -1,10 +1,16 @@
 #include <gtest/gtest.h>
 #include "circuit/Circuit.h"
 #include "solver/CircuitSolver.h"
-#include "ui/DualViewProjection.h"
+#include "projection/ProjectionBuilder.h"
 #include "ui/DualViewState.h"
 
 namespace {
+
+using current_lab::projection::ProjectionKind;
+using current_lab::projection::ViewParams;
+using current_lab::projection::buildProjection;
+using current_lab::projection::projectionHasComponent;
+using current_lab::projection::projectionElement;
 
 Circuit makeSeriesCircuit(int& resistorId)
 {
@@ -18,15 +24,6 @@ Circuit makeSeriesCircuit(int& resistorId)
     resistorId = c.addComponent(ComponentType::Resistor, n1, n2, 1000.0);
     c.addComponent(ComponentType::Wire, n2, gnd, 0.0);
     return c;
-}
-
-const BranchResult* branchFor(const CircuitSolution& solution, int componentId)
-{
-    for (const auto& branch : solution.branches) {
-        if (branch.componentId == componentId)
-            return &branch;
-    }
-    return nullptr;
 }
 
 } // namespace
@@ -71,31 +68,40 @@ TEST(DualViewState, CamerasMoveIndependentlyWhenSyncDisabled)
     EXPECT_FALSE(current_lab::ui::cameraApproximatelyEqual(state.circuitCamera, state.physicsCamera));
 }
 
+// The dual-view guarantees, asserted against the REAL render path: both panes
+// are built by buildProjection from the same model + solution.
 TEST(DualViewProjection, ParameterEditRecomputesBothProjectionValues)
 {
     int resistorId = -1;
     Circuit circuit = makeSeriesCircuit(resistorId);
     CircuitSolver solver;
+    ViewParams params;
+
     auto before = solver.solve(circuit);
-    auto beforeProjection = current_lab::ui::buildDualViewProjection(circuit, &before);
-    ASSERT_TRUE(current_lab::ui::projectionHasComponent(beforeProjection, resistorId));
-    ASSERT_NE(branchFor(before, resistorId), nullptr);
-    double currentBefore = branchFor(before, resistorId)->current;
+    auto beforeSchematic = buildProjection(ProjectionKind::Schematic, circuit, &before, params);
+    ASSERT_TRUE(projectionHasComponent(beforeSchematic, resistorId));
+    const auto* beforeElement = projectionElement(beforeSchematic, resistorId);
+    ASSERT_NE(beforeElement, nullptr);
+    double currentBefore = beforeElement->current;
 
     Component* resistor = circuit.findComponent(resistorId);
     ASSERT_NE(resistor, nullptr);
     resistor->value = 2000.0;
 
     auto after = solver.solve(circuit);
-    auto afterProjection = current_lab::ui::buildDualViewProjection(circuit, &after);
-    ASSERT_TRUE(current_lab::ui::projectionHasComponent(afterProjection, resistorId));
-    ASSERT_NE(branchFor(after, resistorId), nullptr);
-    double currentAfter = branchFor(after, resistorId)->current;
+    auto afterSchematic = buildProjection(ProjectionKind::Schematic, circuit, &after, params);
+    auto afterPhysics = buildProjection(ProjectionKind::Physics, circuit, &after, params);
 
-    EXPECT_LT(std::abs(currentAfter), std::abs(currentBefore));
-    ASSERT_EQ(afterProjection.circuitElements.size(), afterProjection.physicsElements.size());
-    EXPECT_EQ(afterProjection.circuitElements[2].componentId, afterProjection.physicsElements[2].componentId);
-    EXPECT_DOUBLE_EQ(afterProjection.circuitElements[2].current, afterProjection.physicsElements[2].current);
+    const auto* schematicElement = projectionElement(afterSchematic, resistorId);
+    const auto* physicsElement = projectionElement(afterPhysics, resistorId);
+    ASSERT_NE(schematicElement, nullptr);
+    ASSERT_NE(physicsElement, nullptr);
+
+    EXPECT_LT(std::abs(schematicElement->current), std::abs(currentBefore));
+    ASSERT_EQ(afterSchematic.elements.size(), afterPhysics.elements.size());
+    EXPECT_DOUBLE_EQ(schematicElement->current, physicsElement->current);
+    EXPECT_DOUBLE_EQ(schematicElement->voltageA, physicsElement->voltageA);
+    EXPECT_DOUBLE_EQ(schematicElement->voltageB, physicsElement->voltageB);
 }
 
 TEST(DualViewProjection, DeleteRemovesComponentFromBothProjections)
@@ -103,18 +109,21 @@ TEST(DualViewProjection, DeleteRemovesComponentFromBothProjections)
     int resistorId = -1;
     Circuit circuit = makeSeriesCircuit(resistorId);
     CircuitSolver solver;
+    ViewParams params;
+
     auto before = solver.solve(circuit);
-    auto beforeProjection = current_lab::ui::buildDualViewProjection(circuit, &before);
-    ASSERT_TRUE(current_lab::ui::projectionHasComponent(beforeProjection, resistorId));
+    auto beforeProjection = buildProjection(ProjectionKind::Physics, circuit, &before, params);
+    ASSERT_TRUE(projectionHasComponent(beforeProjection, resistorId));
 
     circuit.removeComponent(resistorId);
     auto after = solver.solve(circuit);
-    auto afterProjection = current_lab::ui::buildDualViewProjection(circuit, &after);
+    auto afterSchematic = buildProjection(ProjectionKind::Schematic, circuit, &after, params);
+    auto afterPhysics = buildProjection(ProjectionKind::Physics, circuit, &after, params);
 
-    EXPECT_FALSE(current_lab::ui::projectionHasComponent(afterProjection, resistorId));
-    EXPECT_EQ(afterProjection.circuitElements.size(), afterProjection.physicsElements.size());
+    EXPECT_FALSE(projectionHasComponent(afterSchematic, resistorId));
+    EXPECT_FALSE(projectionHasComponent(afterPhysics, resistorId));
+    EXPECT_EQ(afterSchematic.elements.size(), afterPhysics.elements.size());
 }
-
 
 TEST(DualViewLayout, PhysicsPaneKeepsPositiveWidth)
 {

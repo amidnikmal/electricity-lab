@@ -54,6 +54,33 @@ void App::setupImGui() {
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;
 
+    // Default ImGui font has no Cyrillic glyphs; load a system font that does
+    // (needed for the Russian UI language). Fall back to the built-in font.
+    const char* fontCandidates[] = {
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans.ttf",
+    };
+    static ImVector<ImWchar> glyphRanges;
+    {
+        ImFontGlyphRangesBuilder builder;
+        builder.AddRanges(io.Fonts->GetGlyphRangesDefault());
+        builder.AddRanges(io.Fonts->GetGlyphRangesCyrillic());
+        builder.AddRanges(io.Fonts->GetGlyphRangesGreek());
+        // Math symbols used by the formula renderer and textbook units.
+        builder.AddText("\xC2\xB7\xE2\x89\x88\xE2\x86\x92\xE2\x89\xA4\xE2\x89\xA5"
+                        "\xE2\x88\x9E\xE2\x88\x92\xC2\xB5\xCE\xA9\xCF\x84");
+        builder.BuildRanges(&glyphRanges);
+    }
+    for (const char* path : fontCandidates) {
+        std::FILE* probe = std::fopen(path, "rb");
+        if (!probe)
+            continue;
+        std::fclose(probe);
+        if (io.Fonts->AddFontFromFileTTF(path, 16.0f, nullptr, glyphRanges.Data))
+            break;
+    }
+
     ImGui::StyleColorsDark();
 
     ImGui_ImplGlfw_InitForOpenGL(m_window, true);

@@ -1,246 +1,125 @@
 # Current Lab — Agent Handoff
 
+Date: 2026-06-10 (большой проход по CURRENT_LAB_NEXT_PROMPT.md, все 8 этапов выполнены;
+затем UX-фиксы по фидбеку пользователя — см. «UX-проход» ниже)
+
+## Blender-панели (2026-06-10, поздний проход) — 261 тест зелёный
+
+- `src/ui/PaneLayout.h/.cpp`: рекурсивное бинарное дерево панелей (как в Blender):
+  split left/right ("| |") и top/bottom ("="), закрытие ("x", кроме последней),
+  у каждой панели свой селектор проекции, перетаскиваемые разделители (ratio в узле,
+  кламп kPaneMinRatio=0.12). MainWindow: m_paneTree + map paneId→CircuitCanvas
+  (создаются/удаляются по дереву, новая панель наследует камеру), пресеты «1/2/3»
+  в топ-баре пересоздают дерево. Камеры синхронизируются копированием от изменившейся.
+- Источник питания: «+» у плюсового вывода, «−» у минусового, глифы разнесены
+  (раньше накладывались в центре). Тест VoltageSourceSymbol.
+- Пресеты визуализации снова полностью управляют слоями physics-панели
+  (форсирование убрано — оно делало переключение пресетов бессмысленным);
+  дефолтный пресет = Current/Drift (kDefaultPreset, анимация из коробки). Тесты Presets.*.
+- Ширина панели инструментов считается из самой широкой (переведённой) надписи.
+- Тесты: tests/test_pane_layout.cpp (8 шт: split/close/проекции/раскладка без
+  перекрытий/кламп ratio/stacked split).
+
+## Вода + формулы + единицы (2026-06-10, ещё позже) — 276 тестов зелёные
+
+- **Гидравлическая проекция** `ProjectionKind::Hydraulic` («Water» в комбо панели):
+  `src/projection/HydraulicMapping.h` (I→расход Q, V→давление, ΔP·Q ≡ V·I точно),
+  эмиттеры в ProjectionBuilder: трубы с градиентом давления + частицы воды,
+  сужение-дроссель (резистор) + нагрев, насос с крыльчаткой (источник),
+  бак с уровнем ∝ Vc (конденсатор), турбина (катушка), обратный клапан (диод),
+  задвижка (ключ), резервуар (земля). Тесты tests/test_hydraulic.cpp (8 шт).
+- **Формулы**: `src/ui/MathText.h` + MathTextParse.cpp (чистый парсер: ^ _ \frac{}{},
+  греческие \tau\pi\Omega\mu, символы \cdot ≈ → − и т.д.; тесты test_mathtext.cpp)
+  + MathText.cpp (ImGui-рендер: дроби со штрихом, верхние/нижние индексы).
+  Формулы уроков переведены в разметку (V_C(t) = V(1−e^{−t/τ}) с настоящей дробью).
+- **Единицы как в учебнике**: Ω/kΩ/µF/mF/H/V/mA/mW в подписях проекций и
+  инспекторе, через tr() локализуются (Ом/кОм/мкФ/В/мА/мВт...). Шрифт собран
+  с диапазонами Cyrillic+Greek+матсимволы (ImFontGlyphRangesBuilder в App.cpp).
+- **Тултипы для комбо**: src/ui/UiHelpers.h tooltipIfTruncated() — пресеты,
+  режим симуляции, проекция панели; комбо урока растянуто на всю ширину.
+- Допереводы: секция ассистента, метрики, статусы, имена семейств задач,
+  диод/ключ в редакторе, нижняя полоса.
+
+Осталось из заявок: ничего критичного. Промпты ГЕНЕРИРУЕМЫХ задач — только EN
+(формат-строки с числами; нужен отдельный проход по TaskGenerator).
+
+## UX-проход (2026-06-10, после основного прохода) — 253 теста зелёные
+
+- **Element Editor был МОДАЛЬНЫМ** и открывался при каждом выборе элемента, блокируя весь UI
+  (корень жалоб «Reset Demo не работает», «переключение режимов не работает»). Теперь это
+  обычное окно с крестиком (MainWindow::renderElementEditor).
+- **Анимация вне Debug**: дефолтный пресет прятал слои current/drift. Теперь
+  `visualization::physicsPaneLayers(preset, multiPane)` (чистая функция, тесты) форсирует
+  динамические слои в multi-pane layout.
+- **R/unit обновляется живо**: поля провода в редакторе элемента правят
+  m_wireResistancePerUnit/m_distributedSegments напрямую с onCircuitChanged (без Apply).
+- **RU/EN переключатель**: src/ui/I18n.h/.cpp (`tr()`, словарь EN→RU, включая контент 6 уроков);
+  комбо EN/RU в правом конце топ-бара; в App.cpp подгружается DejaVuSans с кириллицей
+  (fallback на встроенный шрифт). Промпты генерируемых задач пока только EN (известное ограничение).
+- **Тянущиеся сплиттеры**: computeDualViewPaneSplit/computeTripleViewPaneSplit принимают
+  ratio (кламп kMinPaneRatio=0.12); InvisibleButton-сплиттеры в renderDualCanvasArea.
+- **Уроки-пресеты**: learning::lessonPresetCircuit(family) — каноническая схема урока,
+  кнопка «Открыть схему урока» в Learning-панели.
+- Тесты на фиксы: tests/test_fixes.cpp (слои панели, сплиттеры, i18n, пресеты уроков).
+
 ## Project overview
 
-Интерактивное приложение для построения и анализа электрических схем с
-физически-корректной визуализацией полей и дрейфа электронов внутри проводов.
-
-**Текущее состояние**: приложение запускается, умеет редактировать схему (узлы, провода, резисторы, источник напряжения, земля), решать MNA (Modified Nodal Analysis) с конфигурируемой распределённой моделью провода (`segments`, `R / unit`), визуализировать потенциал, ток, E-поле, дрейф электронов, поверхностные заряды, магнитное поле, тепловыделение и мощность. Во втором инженерном проходе вычисления E-field / drift / surface charge / magnetic field вынесены в чистые header-only модели в `src/physics/`, а `node/component` ID больше не обязаны совпадать с индексом в `vector`.
+Интерактивное обучающее приложение для электрических цепей: единая `CircuitModel`, MNA-солвер (DC + transient), три честные проекции одной модели (Circuit / Physics / Spintronics), обучающий модуль на science of learning с AI-resilience предохранителями в коде.
 
 ## Quick commands
 
 ```bash
 cd /home/dima/Desktop/electricity/current-lab
-
-# Build (both app + tests)
-cmake --build build -j$(nproc)
-
-# Tests (138 tests, 10 suites, all pass)
-./build/current-lab-tests
-
-# Run (Wayland-only, must set DISPLAY)
-DISPLAY=:0 ./build/current-lab
-
-# Background (for current session)
-# Uses background_process tool with DISPLAY=:0 build/current-lab
+cmake --build build -j$(nproc)     # build app + tests
+./build/current-lab-tests          # 240 tests, 40 suites, all green
+DISPLAY=:0 ./build/current-lab     # run the app
 ```
 
-## Architecture
+CMake: app sources подхватываются GLOB'ом; тестовые исходники в `TEST_SOURCES` перечислены ЯВНО (новые тесты/чистые .cpp добавлять туда).
 
-```
-current-lab/
-├── CMakeLists.txt          # C++20, FetchContent: GLFW 3.4, GLM 1.0.1, ImGui v1.91.7-docking, GTest v1.14.0
-├── src/
-│   ├── main.cpp            # GLFW + OpenGL 3.3 COMPAT + ImGui init, main loop → MainWindow::render()
-│   ├── gl_setup.h          # OpenGL loader (glad/gl3w built-in)
-│   ├── app/                # App lifecycle (minimal)
-│   ├── circuit/
-│   │   └── Circuit.h       # Node, Component, Circuit struct — no .cpp (header-only)
-│   │                       # ComponentType: Wire/Resistor/VoltageSource/Ground
-│   │                       # Circuit::toDistributed(N) — splits Wire into N resistor segments
-│   ├── solver/
-│   │   └── CircuitSolver.h/cpp  # MNA solver, builds linear system, solves via Gauss-Jordan
-│   │                       # Output: CircuitSolution { nodePotentials, branches }
-│   ├── math/
-│   │   ├── Vec2.h          # 2D vector (double), operator overloads
-│   │   └── LinearSystem.h  # Gauss-Jordan elimination
-│   ├── physics/
-│   │   ├── PhysicalUnits.h
-│   │   ├── WirePhysics.h
-│   │   ├── FieldModel.h
-│   │   ├── DriftModel.h
-│   │   ├── SurfaceChargeModel.h
-│   │   ├── MagneticFieldModel.h
-│   │   └── PowerModel.h
-│   ├── visualization/
-│   │   └── VisualizationStatus.h
-│   ├── ui/
-│   │   ├── MainWindow.h/cpp    # Top-level layout (3-column: toolbar | canvas | inspector), toolbar with checkboxes
-│   │   ├── CircuitCanvas.h/cpp # Input + rendering coordinator; consumes physics samples
-│   │   ├── InspectorPanel.h/cpp # Properties panel + physical probe readout
-│   │   └── Format.h            # milliamps(), milliwatts() formatting
-│   └── render/ simulation/     # Empty — placeholders for future modules
-├── tests/
-│   ├── test_canvas.cpp         # 530 lines — canvas state, camera, wire geometry, visualization toggles
-│   ├── test_circuit.cpp        # Node/component add/remove, graph integrity
-│   ├── test_solver.cpp         # MNA solver correctness, KCL, Ohm's law
-│   ├── test_consistency.cpp    # Solver idempotency, circuit invariants
-│   └── test_linear_system.cpp  # Gauss-Jordan basics
-└── docs/
-    ├── electricity_model_notes.md
-    ├── model_assumptions.md
-    └── HANDOFF.md              # ← this file
+## Architecture (после рефакторинга)
+
+```text
+CircuitModel (src/circuit/Circuit.h, single source of truth, stable ComponentId)
+  -> CircuitSolver (src/solver/) : DC | stepTransient (companion BE/Trapezoidal) | solveTransientSnapshot
+       diode states: solveIterative (ideal PWL fixed point)
+  -> ProjectionBuilder (src/projection/) : ЕДИНСТВЕННЫЙ источник render-данных
+       ProjectionKind::{Schematic, Physics, Spintronics} -> ProjectionResult{RenderPrimitives, ElementState[]}
+       ElementGeometry.h (символы C/L), SpintronicsMapping.h (аналогия, P=V*I сохраняется точно)
+  -> PrimitiveRenderer (src/render/) : тупой ImGui-бэкенд; RenderPrimitives/ColorMaps — pure data
+  -> CanvasInteraction (src/ui/) : edit/hit-test, потребляет InteractionInput (без ImGui, тестируемо)
+  -> CircuitCanvas (src/ui/) : тонкая оболочка (камера + клок анимации + сборка ViewParams)
+  -> MainWindow : layout Single/Dual/Triple, transient-контролы, DualViewState (3 камеры, sync)
+Learning: src/learning/ (TaskGenerator: ground truth из солвера; LearningSession: предохранители 1-6 КОДОМ;
+          Lessons.h: арка вывода; AnkiExport: AnkiConnect addNotes, FSRS на стороне Anki)
+Assistant: src/assistant/LlmClient.* (OpenAI-compatible, llama.cpp/vLLM/API; критик-не-решатель)
+Net: src/net/HttpClient.* (POSIX, plain HTTP, localhost-сервисы)
 ```
 
-### Data flow
+Инвариант: один элемент модели = один ComponentId = N проекций из одной модели+solution. Никаких коллекций элементов на проекцию. Editing/selection/camera — через общую модель и DualViewState.
 
-```
-MainWindow.render()
-  ├── circuit.toDistributed(...)
-  ├── CircuitSolver.solve(...)
-  ├── canvas.setMode/show/... (sync toolbar + presets + animation state)
-  ├── canvas.render(circuit, solution)
-  │     └── physics/* sample generation
-  │           -> drawWire / drawResistor / drawVoltageSource / drawGround
-  │           -> drawEField / drawMagnetic / drawCurrent / drawDrift / drawSurfaceCharge
-  ├── inspector.render(circuit, solution, distributedWireParams, ...)
-  └── renderLog()
-```
+## Что сделано в этом проходе (этапы промпта)
 
-### Key types
+1. Арх-долг: DualViewProjection вживлён как ProjectionBuilder (реальный путь рендера), CircuitCanvas распилен (1151 -> ~130 строк), слой RenderPrimitives.
+2. Transient: companion-модели BE/Trapezoidal (старт трапеции = BE-шаг), режимы DC/Transient, UI Run/Pause/Step/Reset/dt/метод/скорость, снапшот t=0+. Тесты: RC/RL τ, энергия, Tellegen-баланс каждый шаг, устойчивость BE при dt=5τ, сходимость.
+3. C+L: полный комплект (модель, солвер, символы, физпроекция: заряды пластин/E в зазоре/энерго-glow, инспектор, редактор, плейсмент).
+4. Spintronics: цепь/тормоз/привод/пружина/маховик/якорь/шкивы/храповик/сцепка; маппинг в SpintronicsMapping.h; layout Triple + sync 3 камер.
+5. Learning: 6 семейств задач (ground truth из солвера/transient), LearningSession (attempt-first, predict-then-verify, tool-free, reliance-метрики), уроки, Anki-экспорт, панель.
+6. Assistant: LlmClient + сократический критик; gating в коде (LearningSession), не в промпте.
+7. Diode (ideal PWL + итерация) + Switch (open/closed).
+8. Доки: REALTIME_TRANSIENT_MODEL.md, SPINTRONICS_PROJECTION.md, ELEMENT_LIBRARY.md, LEARNING_MODULE.md (эпистемическая таблица), PHYSICS_VISUAL_LAYER_STATUS.md обновлён.
 
-- **Vec2**: `double` x,y — all world coordinates use double
-- **CanvasCamera**: offset + scale (0.05x–50x), `worldToScreen()` / `screenToWorld()`
-- **CanvasCallbacks**: `std::function` callbacks for wiring canvas actions to circuit model
-- **CircuitSolution**: `std::vector<SolutionPoint>` (nodeId→potential), `std::vector<BranchResult>` (componentId→current, voltageDrop, power)
+## Known limitations / Recommended next pass
 
-## Feature inventory
+- Нет AC-источника (синус) — без него диод не показывает выпрямление периодического сигнала; добавить `ComponentType::AcVoltageSource` (амплитуда+частота, MNA RHS = f(t) в transient).
+- Diode: только идеальная модель; Shockley (Ньютон) — отдельным флагом.
+- LLM-вызов блокирующий (UI замирает на время запроса) — вынести в поток.
+- extractAssistantReply — таргетный парсер, \uXXXX -> '?'; при желании заменить мини-JSON-парсером.
+- HttpClient — plain HTTP (для https нужен локальный прокси); сознательное решение для портативности.
+- Учебная панель не навязывает FSRS-расписание tool-free сессий внутри приложения — расписание у Anki.
+- Поле/поверхностные заряды остаются эвристикой (см. PHYSICS_VISUAL_LAYER_STATUS.md).
+- Приложение визуально не прогонялось в этом проходе (headless-сессия): сборка и 240 тестов зелёные, но стоит запустить `DISPLAY=:0 ./build/current-lab` и глазами проверить triple-layout, transient-анимацию C/L, spintronics-вид, Learning-панель.
 
-### Core editing
-- [x] Node placement with drag
-- [x] Wire, Resistor, VoltageSource, Ground placement (click two nodes)
-- [x] Delete (Del key) — component or node with connected components
-- [x] Mode switching (Select, PlaceNode, PlaceWire, PlaceResistor, PlaceVoltageSource, PlaceGround)
-- [x] Pan (middle-drag), zoom (scroll, 0.05x–50x clamped)
-- [x] Wire length display, potential labels at nodes
-- [x] "Run Solver", "Clear Circuit", "Reset Demo" buttons
+## Тесты
 
-### Solver (MNA)
-- [x] DC steady-state linear solver
-- [x] Gaussian elimination with partial pivoting
-- [x] Ground node handling (one ground per circuit)
-- [x] Distributed wire model (`toDistributed(8)`) — splits Wire into 8 resistor segments
-- [x] Branch results: current, voltage drop, power for each component
-- [x] Solver idempotency verified by tests
-
-### Physics visualization (drawn on CircuitCanvas, computed in `src/physics/`)
-| Feature | Toggle | Default | Description |
-|---|---|---|---|
-| Current arrows | Show Current | ON | Solver current with animated visual speed |
-| Electron flow | Electron Flow | OFF | Switches visual convention to electron direction |
-| Potential gradient | Show Potential | ON | Full cross-section scalar field with calmer multi-stop palette |
-| Drift particles | Show Drift | ON | Amplified pedagogical drift + qualitative thermal motion |
-| E-field arrows | Show E-field | ON | `E ~= -dV/dx` sample arrows, multi-row at high zoom |
-| Heat map | Show Heat | ON | Glow from dissipated power only |
-| Power display | Show Power | ON | P=…mW labels with sign convention from solver |
-| Magnetic field | Show Magnetic | OFF | Local `B ~ I/r` page-normal glyphs, qualitative quasi-static layer |
-| Surface charges | Surface Charge | ON | Heuristic edge samples `sigma ~ (V − V_avg)` |
-
-### Wire as physical conductor
-- Default thickness: 8.0 wu (world units), slider range [2.0, 50.0] wu
-- `wireScreenWidth() = m_wireThickness * m_camera.scale` — scales proportionally with zoom
-- Wire body: filled dark quad (RGB 38,42,50), green outline (120,180,120)
-- Gradient strips: full halfB-wide quads (not 72% core), N capped at 1000, visible when `screenW > 1.0f`
-- Rounded endpoint circles (outlines only, not filled — filled circles caused "dead zone" visual bug at wire ends)
-- Surface charge dots: offset `halfW * 0.92f` from centerline, red = positive σ, blue = negative σ, dot radius ∝ screenW
-- E-field arrows: at `screenW > 24px`, drawn in up to 5 rows across wire cross-section
-
-### Wire connection rounding (drawWire/drawLead/drawBar)
-- `AddCircle` outline at each endpoint with radius `screenHW = halfW * scale` and outline color `(120,180,120,1.5f)`
-- `AddQuad` outline along the body edges
-- Combined effect: pill-shaped (rounded rectangle) wire appearance at junctions
-- **No AddCircleFilled** — these were removed after causing visible dark semicircular "cut-outs" beyond the gradient quads
-
-### Tests
-- `CanvasModeSwitch` (5 tests): mode-clears-drag/place behavior
-- `CanvasVisualization` (38 tests): toggle defaults, wire thickness, wire screen width, surface charge geometry, particle radius, no-dead-zone verification
-- `CanvasCamera` (4): world↔screen roundtrip, zoom clamp, pan accumulation
-- `CircuitModel` (2): click-without-drag invariance, node move
-- `CanvasPlacement` (9): component creation, placement, callback wiring
-- `SolverIdempotent` (1): re-solving same circuit = same result
-- `Consistency` (4): circuit invariants
-- `LinearSystem` (3): Gauss-Jordan basics
-- `Solver` (12): KCL, Ohm's law, potential distribution, power
-- `Circuit` (60): add/remove nodes and components, graph operations
-- Second-pass source updates add tests for ID gaps, distributed source mapping and pure visualization models; a fresh rebuild is still required to execute them in this environment
-
-## Key design decisions
-
-1. **`double` for physics quantities, `float` for graphics** — all world-space coordinates and potentials use double; only final pixel positions use float.
-2. **Wire thickness in world units × camera.scale** — wire is NOT a fixed pixel width; it's a physical conductor that grows with zoom. At scale=1 an 8wu wire is 8px wide; at scale=50 it's 400px.
-3. **Potential gradient fills full cross-section** — like a CFD/heat simulation color map, not a thin strip. This enables fluid-sim-style visualization at any zoom.
-4. **Surface charge model**: σ ∝ (V − V_avg_wire) / V_swing, NOT pure d²V/dx² (which is 0 for uniform wires). Laplacian term added as a weak junction detector. Dots on BOTH edges (top and bottom).
-5. **Particle count ∝ wire volume**: N = max(12, min(1200, volume/40)). Replaced old pixel-density-based count for physical consistency.
-6. **Thermal motion**: 3-frequency sine/cosine combos deterministically seeded by particle index — looks like Brownian motion but is deterministic per particle.
-7. **Gradient threshold**: `screenW > 1.0f` (was 12.0f) to show potential at all zoom levels.
-8. **E-field spread at high zoom**: ≤5 rows of arrows across wire cross-section when screenW > 24px.
-9. **No filled circles at wire endpoints** (see bug fix below).
-
-## Bugs fixed this session
-1. **Dark endpoint circles as "cut-outs"**: `AddCircleFilled` at wire ends extended past the rectangular gradient quads, creating visible dark semicircles that looked like dead zones. **Fix**: removed all 6 `AddCircleFilled` calls, kept only `AddCircle` outlines for rounding.
-2. **`int a` shadowing `Vec2 a`**: in `drawWire` for-loop, `int a` in color extraction `(pc >> 24) & 0xFF` shadowed the function parameter `Vec2 a`. **Fix**: renamed to `int aa`.
-3. **Laplacian calculation**: `dtInv * segmentLen` gave wrong neighbor distances in `drawSurfaceCharge`. **Fix**: replaced with correct `segmentLen` computation.
-4. **Potential gradient barely visible**: `screenW < 12.0f` threshold filtered everything at default zoom. **Fix**: lowered to `screenW > 1.0f`.
-
-## UI layout
-
-```
-┌──────────┬──────────────────────────────────────┬──────────┐
-│ Toolbar  │                                      │Inspector │
-│  Mode    │          Canvas (circuit)            │  Panel   │
-│  Buttons │                                      │          │
-│  Toggles │                                      │          │
-│  Slider  │                                      │          │
-├──────────┴──────────────────────────────────────┴──────────┤
-│                       Log Panel                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
-- Left: 160px (resizable) — toolbar with mode selector, solver buttons, visualization checkboxes, Wire Width slider (2–50 wu), Distrib.Wire checkbox
-- Center: flexible — canvas
-- Right: 280px (resizable) — inspector (component properties)
-- Bottom: 120px — log
-
-## Known limitations / caveats
-
-1. **README.md was updated in second pass** — prefer it over older milestone notes
-2. **No circuit save/load** — no serialization of any kind
-3. **Only one ground node** — MNA solver expects exactly one
-4. **No capacitor/inductor** — DC steady-state only, no transient simulation
-5. **Surface charge model is heuristic** — V-based sigma is a visual approximation, not a physical surface charge calculation from Maxwell's equations
-6. **Particle thermal motion is deterministic** — uses sine/cosine combos, not actual random noise. Looks good but particles always follow the same path for the same configuration.
-7. **Magnetic field is still qualitative** — sign follows right-hand rule and magnitude follows `B ~ I/r`, but this is not a full 3D solve
-8. **No energy conservation tracking** — only shows instantaneous power
-9. **Resistor body width in screen pixels**: `(wireW * 2.8) / m_camera.scale` — this formula couples resistor appearance to wire thickness but is a bit unphysical.
-10. **`CircuitCanvas` is still large** — physics is extracted, but input/render orchestration still lives in one file
-
-## Build system notes
-
-- **CMake FetchContent** for ALL non-system dependencies (GLFW, GLM, ImGui, GTest)
-- **Separate test executable** (`current-lab-tests`) — does NOT link GLFW/OpenGL, only links circuit+solver+math sources and GTest. ImGui headers are included (for IM_COL32 etc.) but imgui.cpp is NOT compiled into tests.
-- **GLM is fetched but barely used** — the project has its own `Vec2.h` which serves all 2D math needs.
-- **C++20** required, GCC 14 on Ubuntu 24.04.
-
-## Potential next tasks
-
-### High priority
-1. **Fix magnetic field toggle feedback** — the ring rendering doesn't look right at all zoom levels
-2. **Update README.md** to reflect current feature state
-3. **Add circuit save/load** (JSON serialization - Circuit + Solution)
-4. **Add undo/redo** for editing operations
-
-### Medium priority
-5. **Replace surface charge heuristic with physical model** — compute σ from ∇·E at wire surface (requires solving Laplace's equation or using charge relaxation method)
-6. **Add capacitor and transient RC simulation** (requires time-stepping solver)
-7. **Energy conservation visualization** — Sankey diagram or flow-based
-8. **Replace deterministic thermal motion with seeded PRNG** for more realistic Brownian motion
-9. **Add proper Biot-Savart magnetic field computation** for accurate ring visualization
-10. **Add inductor** — requires mutual inductance matrix in MNA
-
-### Low priority
-11. **Water analogy overlay** (educational mode)
-12. **Hole visualization** (educational semiconductor model)
-13. **Multiple reference nodes** — demonstrate relativity of voltage
-14. **Port to Wayland native** (currently XWayland via DISPLAY=:0)
-
-## Questions for the next agent
-
-1. **Distributed wire ownership**: `toDistributed(...)` is still created from `Circuit` directly. Should the next pass introduce a dedicated `DistributedWireBuilder` / validator module so the transform is no longer a responsibility of the circuit container?
-
-2. **Resistor body width**: `rectH = (wireW * 2.8) / m_camera.scale` — this makes resistor body width scale inversely with zoom (wider at low zoom, narrower at high zoom). Was this intentional (to keep the resistor visible at overview) or should it be a fixed world-unit size like the wire?
-
-3. **Particle trail mode**: drift particles currently jump every frame. Should particles be drawn with a trail (last N positions) for a more fluid-like visualization? This requires storing per-particle history (which we don't currently have).
-
-4. **Gradient strip optimization**: at high zoom with large wires (e.g., thickness=50, scale=50 → screenW=2500px), the N=1000 gradient strips are rendered every frame. Should we consider caching the gradient to a texture or ImGui image? Performance seems OK currently but could degrade.
-
-5. **Test coverage for physics rendering**: the current tests cover canvas state and geometry but don't test actual rendering output (pixel colors, particle positions). Should we add image-diff tests (compare screenshots with golden images)? This would require a headless GL context or a software rasterizer.
+240 тестов / 40 сьютов, все зелёные. Чистая логика, без ImGui-рендера (CircuitCanvas.cpp и PrimitiveRenderer.cpp в тестовый таргет не входят). Файлы: test_linear_system, test_circuit, test_solver, test_consistency, test_canvas, test_dual_view, test_projection, test_transient, test_elements, test_spintronics, test_learning, test_diode_switch.

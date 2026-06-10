@@ -124,6 +124,11 @@ inline PresetInfo presetInfo(VisualizationPreset preset)
     return info;
 }
 
+// The preset fully drives the physics-pane layers, so switching presets is
+// always a visible change. The startup default is Current / Drift, which has
+// the animated layers on out of the box.
+constexpr VisualizationPreset kDefaultPreset = VisualizationPreset::CurrentDrift;
+
 inline bool isLearnerPreset(VisualizationPreset preset)
 {
     return preset != VisualizationPreset::Debug && preset != VisualizationPreset::Count;
