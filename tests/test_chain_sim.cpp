@@ -1,8 +1,12 @@
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <cmath>
+#include "circuit/Circuit.h"
 #include "circuit/DemoCircuits.h"
 #include "physics/ChainGeometry.h"
 #include "physics/ChainSim.h"
+#include "projection/MechanicsMapping.h"
+#include "solver/CircuitSolver.h"
 
 using namespace current_lab::physics;
 
@@ -16,6 +20,47 @@ ChainSpec loopSpec(double target, bool brake = false) {
     spec.halfWidth = 5.0;
     spec.targetSpeed = target;
     spec.brake = brake;
+    return spec;
+}
+
+Circuit singleLoadLoop(int& sourceId, int& resistorId, int& wireId) {
+    Circuit c;
+    int gnd = c.addNode(Vec2(0, 180), "GND");
+    int n1 = c.addNode(Vec2(0, 0), "N1");
+    int n2 = c.addNode(Vec2(260, 0), "N2");
+    c.groundNodeId = gnd;
+    c.addComponent(ComponentType::Ground, gnd, gnd, 0.0);
+    sourceId = c.addComponent(ComponentType::VoltageSource, n1, gnd, 5.0);
+    resistorId = c.addComponent(ComponentType::Resistor, n1, n2, 100.0);
+    wireId = c.addComponent(ComponentType::Wire, n2, gnd, 0.0);
+    return c;
+}
+
+double branchCurrent(const CircuitSolution& solution, int componentId) {
+    for (const auto& branch : solution.branches)
+        if (branch.componentId == componentId)
+            return branch.current;
+    return 0.0;
+}
+
+ChainSpec resistorChainSpecFromSolvedLoop(const Circuit& c,
+                                          const CircuitSolution& solution,
+                                          int resistorId) {
+    const Component* resistor = c.findComponent(resistorId);
+    const Node* a = c.findNode(resistor->nodeA);
+    const Node* b = c.findNode(resistor->nodeB);
+    double current = branchCurrent(solution, resistorId);
+
+    ChainSpec spec;
+    spec.componentId = resistorId;
+    spec.a = a->position;
+    spec.b = b->position;
+    spec.halfWidth = chain_geometry::chainHalfWidth(8.0);
+    spec.targetSpeed = std::clamp(
+        current_lab::mechanics::chainSpeedFromCurrent(current) *
+            current_lab::mechanics::kVisualChainSpeed * 100.0,
+        -120.0, 120.0);
+    spec.brake = true;
     return spec;
 }
 
@@ -95,6 +140,52 @@ double signedPhaseDelta(double before, double after) {
     if (delta > 0.5) delta -= 1.0;
     if (delta < -0.5) delta += 1.0;
     return delta;
+}
+
+struct LapRunStats {
+    double signedLaps = 0.0;
+    int movingWindows = 0;
+    int windows = 0;
+};
+
+LapRunStats runMarkedLinkLapCounter(ChainSim& sim, const ChainSpec& spec,
+                                    double linkRadius, int markedIndex,
+                                    double seconds) {
+    ChainOvalProbe probe(spec, linkRadius);
+    auto links = sim.links();
+    const ChainLink* link = markedLink(links, spec.componentId, markedIndex);
+    if (!link) return {};
+
+    double prevPhase = probe.phaseOf(link->pos);
+    double total = 0.0;
+    double window = 0.0;
+    LapRunStats stats;
+
+    int frames = static_cast<int>(seconds * 60.0);
+    for (int frame = 0; frame < frames; ++frame) {
+        sim.step(1.0 / 60.0);
+        links = sim.links();
+        link = markedLink(links, spec.componentId, markedIndex);
+        if (!link) break;
+        if (!std::isfinite(link->pos.x) || !std::isfinite(link->pos.y))
+            break;
+
+        double phase = probe.phaseOf(link->pos);
+        double delta = signedPhaseDelta(prevPhase, phase);
+        total += delta;
+        window += delta;
+        prevPhase = phase;
+
+        if ((frame + 1) % 60 == 0) {
+            if (std::abs(window) > 0.015)
+                ++stats.movingWindows;
+            ++stats.windows;
+            window = 0.0;
+        }
+    }
+
+    stats.signedLaps = total;
+    return stats;
 }
 
 } // namespace
@@ -186,6 +277,28 @@ TEST(ChainSim, BrakeZoneIsOvercomeButResists) {
     double brakedTravel = travel(brakedBefore, brakedAfter);
     EXPECT_GT(brakedTravel, 1.0);          // still squeezes through the brake
     EXPECT_LT(brakedTravel, freeTravel);   // but friction visibly costs motion
+}
+
+TEST(ChainSim, MarkedResistorLinkCompletesTenLapsWithoutStopping) {
+    int sourceId, resistorId, wireId;
+    Circuit c = singleLoadLoop(sourceId, resistorId, wireId);
+    (void)sourceId;
+    (void)wireId;
+
+    CircuitSolver solver;
+    auto solution = solver.solve(c);
+    ChainSpec spec = resistorChainSpecFromSolvedLoop(c, solution, resistorId);
+    ASSERT_GT(spec.targetSpeed, 1.0);
+
+    double linkRadius = chain_geometry::linkRadius(8.0);
+    ChainSim sim;
+    sim.configure({spec}, linkRadius);
+
+    auto stats = runMarkedLinkLapCounter(sim, spec, linkRadius, 0, 70.0);
+    EXPECT_GT(std::abs(stats.signedLaps), 10.0);
+    ASSERT_GT(stats.windows, 0);
+    EXPECT_GE(stats.movingWindows, static_cast<int>(stats.windows * 0.90))
+        << "marked link stalled in too many one-second windows";
 }
 
 // --- rectangular autolayout -----------------------------------------------------

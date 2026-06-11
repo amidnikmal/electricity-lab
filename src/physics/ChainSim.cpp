@@ -74,6 +74,8 @@ struct Loop {
     ChainSpec spec;
     Oval oval;
     std::vector<b2Body*> bodies;
+    double phase = 0.0;
+    double spacing = 0.0;
 };
 
 class LoopContactFilter : public b2ContactFilter {
@@ -142,6 +144,7 @@ struct ChainSim::Impl {
         double spacing = chain_geometry::linkPitch(linkRadius);
         int count = std::max(8, static_cast<int>(loop.oval.perimeter() / spacing));
         spacing = loop.oval.perimeter() / count; // exact ring closure
+        loop.spacing = spacing;
 
         for (int i = 0; i < count; ++i) {
             Vec2 point, tangent;
@@ -215,6 +218,29 @@ struct ChainSim::Impl {
             }
         }
     }
+
+    void advanceGuidedChains(double dt) {
+        for (auto& loop : loops) {
+            double speed = loop.spec.targetSpeed;
+            if (loop.spec.brake)
+                speed *= 0.82; // friction brake resists but cannot lock the chain.
+            loop.phase += speed * dt;
+
+            double p = loop.oval.perimeter();
+            loop.phase = std::fmod(loop.phase, p);
+            if (loop.phase < 0.0) loop.phase += p;
+
+            for (size_t i = 0; i < loop.bodies.size(); ++i) {
+                Vec2 point, tangent;
+                loop.oval.at(loop.phase + loop.spacing * static_cast<double>(i),
+                             &point, &tangent);
+                b2Body* body = loop.bodies[i];
+                body->SetTransform(toSim(point), 0.0f);
+                Vec2 velocity = tangent * speed;
+                body->SetLinearVelocity(toSim(velocity));
+            }
+        }
+    }
 };
 
 ChainSim::ChainSim() : m_impl(std::make_unique<Impl>()) {}
@@ -270,6 +296,7 @@ void ChainSim::step(double dt) {
     while (m_impl->accumulator >= kSubStep && steps < 8) {
         m_impl->applyDrive();
         m_impl->world->Step(kSubStep, 6, 2);
+        m_impl->advanceGuidedChains(kSubStep);
         m_impl->accumulator -= kSubStep;
         ++steps;
     }
