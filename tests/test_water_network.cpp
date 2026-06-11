@@ -469,7 +469,6 @@ TEST(WaterNetwork, NoParticleEscapesThePlumbing) {
     double radius = particleWorldRadius(8.0);
     ParticleSim sim;
     sim.configure(specs, radius);
-    runFor(sim, 5.0);
 
     auto insideSomething = [&](Vec2 pos) {
         for (const auto& spec : specs) {
@@ -488,10 +487,16 @@ TEST(WaterNetwork, NoParticleEscapesThePlumbing) {
         return false;
     };
 
-    int escaped = 0;
-    for (const auto& particle : sim.particles())
-        if (!insideSomething(particle.pos)) ++escaped;
-    EXPECT_EQ(escaped, 0);
+    // Находка пользователя (2026-06-11): «шарики просачиваются сквозь стенки
+    // резистора/провода». Снаружи труб шарик не должен быть виден НИ В ОДНОМ
+    // кадре — туннелированных обязан возвращать rescue в том же кадре.
+    for (int frame = 0; frame < 300; ++frame) { // 5 s покадрово
+        sim.step(1.0 / 60.0);
+        int escaped = 0;
+        for (const auto& particle : sim.particles())
+            if (!insideSomething(particle.pos)) ++escaped;
+        ASSERT_EQ(escaped, 0) << "frame " << frame;
+    }
 }
 
 TEST(WaterNetwork, ParticlesActuallyCrossJunctions) {

@@ -15,13 +15,16 @@ namespace {
 // Box2D likes metre-scale numbers; the canvas works in ~100s of world units.
 constexpr float kToSim = 0.05f;   // world units -> sim metres
 constexpr float kFromSim = 1.0f / kToSim;
+// 1/120 обязательно: на 1/60 контакты плотной воды не успевают разрешаться
+// (пары проседали на 1.2 радиуса вглубь уже вдали от насоса) — дешевле
+// подшаг не делать, экономить надо на итерациях и сне.
 constexpr float kSubStep = 1.0f / 120.0f;
-// 10/4 (было 16/6): после появления камерного ассиста длинные контактные
-// цепочки больше не единственный переносчик давления, а солвер Box2D — самая
-// дорогая часть кадра при открытой Water-панели. Несжимаемость, равномерность
-// и масштабирование потока закреплены тестами WaterNetwork.*.
+// 10 velocity (было 16): после камерного ассиста длинные контактные цепочки
+// больше не единственный переносчик давления. Позиционных — 6: на 4 слабеет
+// выталкивание из стенок и шарики просачиваются сквозь рёбра труб (находка
+// пользователя). Несжимаемость/поток закреплены тестами WaterNetwork.*.
 constexpr int kVelocityIterations = 10;
-constexpr int kPositionIterations = 4;
+constexpr int kPositionIterations = 6;
 constexpr double kPi = 3.14159265358979323846;
 
 b2Vec2 toSim(Vec2 v) { return b2Vec2(static_cast<float>(v.x) * kToSim,
@@ -214,7 +217,11 @@ struct ParticleSim::Impl {
             b2FixtureDef fixture;
             fixture.shape = &circle;
             fixture.density = 1.0f;
-            fixture.friction = spec.connected ? 0.02f : 0.05f;
+            // Вода скользкая (находка пользователя: «шарики плотно
+            // забиваются — сделай их скользкими»): нулевое трение шарик-шарик
+            // и шарик-стенка/столбик (mix = sqrt(f1*f2) = 0), арки у горловин
+            // распадаются сами.
+            fixture.friction = spec.connected ? 0.0f : 0.05f;
             fixture.restitution = spec.connected ? 0.05f : 0.4f;
             fixture.userData.pointer = channelTag;
             body->CreateFixture(&fixture);
@@ -573,14 +580,18 @@ struct ParticleSim::Impl {
                 if (inJunctionChamber(pos)) continue;
 
                 // Escaped the plumbing entirely (tunnelled): put it back into
-                // its own pipe, keeping the along-axis station. The rescue may
-                // not crush the crowd either: probe a few stations along the
-                // pipe and retry on a later substep if everything is taken.
+                // its own pipe, keeping the along-axis station. Prefer a free
+                // disc (no crushing), but a ball may NEVER linger outside the
+                // pipes (user-visible leak through the wall) — the last
+                // candidate is taken even if tight; contacts then relax it.
                 double tFix = std::clamp(t, particleRadius, channel.length - particleRadius);
                 double latFix = std::clamp(lateral,
                                            -(channel.spec.halfWidth - particleRadius),
                                            channel.spec.halfWidth - particleRadius);
-                const double offsets[] = {0.0, 2.2, -2.2, 4.4, -4.4};
+                const double offsets[] = {0.0, 2.2, -2.2, 4.4, -4.4, 6.6, -6.6, 8.8};
+                Vec2 lastResort = channel.spec.a + channel.unit * tFix +
+                                  channel.perp * latFix;
+                bool placed = false;
                 for (double off : offsets) {
                     double tTry = std::clamp(tFix + off * particleRadius,
                                              particleRadius,
@@ -589,8 +600,11 @@ struct ParticleSim::Impl {
                                     channel.perp * latFix;
                     if (!spotIsFree(fixedPos, body)) continue;
                     body->SetTransform(toSim(fixedPos), 0.0f);
+                    placed = true;
                     break;
                 }
+                if (!placed)
+                    body->SetTransform(toSim(lastResort), 0.0f);
             }
         }
     }
