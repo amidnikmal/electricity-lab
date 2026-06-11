@@ -460,6 +460,18 @@ struct ParticleSim::Impl {
             double effectiveTarget = channel.spec.targetSpeed;
             if (channel.spec.connected && std::abs(effectiveTarget) < 1e-9)
                 effectiveTarget = pressureTargets[ci];
+            // Idle channel (no current, no spinning pump): no kicks, no
+            // assist — the bodies settle and Box2D puts the island to sleep,
+            // so still water costs (almost) nothing instead of burning a core
+            // on noise that wakes every body each substep.
+            bool active = std::abs(effectiveTarget) > 1e-9 ||
+                          std::abs(channel.spec.paddleSpeed) > 1e-6;
+            if (!active) {
+                bodyIndex += channel.bodies.size();
+                if (channel.paddleBody)
+                    channel.paddleBody->SetAngularVelocity(0.0f);
+                continue;
+            }
             float target = static_cast<float>(effectiveTarget) * kToSim;
             // Connected (water) mode: the PUMP is the cause of motion; the
             // per-channel drive is only a weak assist that calibrates the mean
