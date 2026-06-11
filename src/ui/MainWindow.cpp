@@ -13,6 +13,7 @@
 #include "physics/PowerModel.h"
 #include "physics/WirePhysics.h"
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 
@@ -511,7 +512,14 @@ void MainWindow::render() {
         ImGuiWindowFlags_NoSavedSettings);
 
     advanceTransient(ImGui::GetIO().DeltaTime);
+    auto perfBlend = [](double& slot, std::chrono::steady_clock::time_point t0) {
+        double ms = std::chrono::duration<double, std::milli>(
+                        std::chrono::steady_clock::now() - t0).count();
+        slot += (ms - slot) * 0.05; // EMA: читаемые, не дёргающиеся цифры
+    };
+    auto simT0 = std::chrono::steady_clock::now();
     updateParticleSim(ImGui::GetIO().DeltaTime);
+    perfBlend(m_perfSimMs, simT0);
 
     DistributedWireParameters params;
     params.segmentsPerWire = m_distributedSegments;
@@ -544,7 +552,9 @@ void MainWindow::render() {
     auto layout = current_lab::ui::computeDualViewLayout(remainingX, m_rightWidth,
                                                          m_showRightInspector,
                                                          m_paneTree.paneCount() > 1, gap);
+    auto panesT0 = std::chrono::steady_clock::now();
     renderDualCanvasArea(layout.canvasWidth, availY);
+    perfBlend(m_perfPanesMs, panesT0);
 
     if (layout.showInspector) {
         ImGui::SameLine();
@@ -1329,6 +1339,8 @@ void MainWindow::renderBottomAnalysis(const DistributedWireParameters& params) {
         ImGui::TextWrapped("%s", tr("Lumped circuit + distributed 1D wire"));
         ImGui::TextDisabled("Surface charge: %s", m_showSurfaceCharge ? "heuristic" : "hidden");
         ImGui::TextDisabled("Magnetic: %s", m_showMagnetic ? "qualitative" : "hidden");
+        ImGui::TextDisabled("%.0f FPS | sim %.2f ms | panes %.2f ms",
+                            ImGui::GetIO().Framerate, m_perfSimMs, m_perfPanesMs);
         ImGui::EndTable();
     }
 

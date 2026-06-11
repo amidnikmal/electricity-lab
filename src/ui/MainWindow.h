@@ -110,6 +110,10 @@ private:
     bool m_showRightInspector = true;
     bool m_fitDualViewsRequested = false;
     float m_wireThickness = 8.0f;
+    // Сглаженные тайминги кадра (EMA): внешние профилировщики в типичной
+    // системе заблокированы, поэтому цифры всегда видны в нижней полосе.
+    double m_perfSimMs = 0.0;   // updateParticleSim (все Box2D-миры)
+    double m_perfPanesMs = 0.0; // renderDualCanvasArea (проекции + канвасы)
     int m_visualPreset = 3; // Current / Drift: animated layers on by default
     int m_distributedSegments = current_lab::physics::kDefaultDistributedWireSegments;
     double m_wireResistancePerUnit = current_lab::physics::kDefaultWireResistancePerUnit;
