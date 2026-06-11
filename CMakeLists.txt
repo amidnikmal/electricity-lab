@@ -115,6 +115,7 @@ set(TEST_SOURCES
     tests/test_particle_sim.cpp
     tests/test_worlds_separation.cpp
     tests/test_chain_sim.cpp
+    tests/test_hydraulic_sim.cpp
     src/circuit/Circuit.cpp
     src/solver/CircuitSolver.cpp
     src/projection/ProjectionBuilder.cpp
@@ -128,6 +129,7 @@ set(TEST_SOURCES
     src/ui/MathTextParse.cpp
     src/physics/ParticleSim.cpp
     src/physics/ChainSim.cpp
+    src/physics/HydraulicSim.cpp
 )
 
 add_executable(current-lab-tests ${TEST_SOURCES})

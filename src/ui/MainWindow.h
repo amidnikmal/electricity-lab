@@ -10,6 +10,7 @@
 #include "ui/LearningPanel.h"
 #include "ui/PaneLayout.h"
 #include "physics/ParticleSim.h"
+#include "physics/HydraulicSim.h"
 #include <memory>
 #include <unordered_map>
 
@@ -70,7 +71,7 @@ private:
     // Two separate microdynamics worlds: electrons must not collide with the
     // water pump's impeller (no mechanical obstacles inside an EMF source).
     current_lab::physics::ParticleSim m_electronSim;
-    current_lab::physics::ParticleSim m_waterSim;
+    current_lab::physics::HydraulicSim m_hydraulicSim;
     current_lab::physics::ChainSim m_chainSim;
     std::vector<current_lab::physics::ChainLink> m_chainLinks;
     current_lab::projection::FlowIntegrals m_flowIntegrals;

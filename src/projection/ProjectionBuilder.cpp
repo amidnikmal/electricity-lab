@@ -843,6 +843,18 @@ double spinPhase(const BuildContext& ctx, int componentId, double current, doubl
 
 double chainHalfWidth(const BuildContext& ctx) { return ctx.p.wireThickness * 0.45; }
 
+// Bicycle-chain visual constants (fixed size, independent of wire thickness).
+constexpr double kChainRollerR = 3.8;
+constexpr double kChainOuterHalfW = 4.2;
+constexpr double kChainInnerHalfW = 2.2;
+constexpr double kChainPinR = 1.1;
+constexpr double kChainLinkSpacing = 12.0;
+constexpr uint32_t kChainRollerCol = packColor(165, 175, 188, 245);
+constexpr uint32_t kChainRollerOutline = packColor(110, 118, 128, 230);
+constexpr uint32_t kChainOuterPlateCol = packColor(195, 202, 212, 245);
+constexpr uint32_t kChainInnerPlateCol = packColor(160, 170, 182, 240);
+constexpr uint32_t kChainPinCol = packColor(75, 80, 88, 255);
+
 void emitChain(BuildContext& ctx, Vec2 a, Vec2 b, double va, double vb,
                double current, int compId) {
     Vec2 ab = b - a;
@@ -852,7 +864,6 @@ void emitChain(BuildContext& ctx, Vec2 a, Vec2 b, double va, double vb,
     Vec2 perp(-unit.y, unit.x);
     double half = chainHalfWidth(ctx);
 
-    // Tension colouring = the same solver potentials as every other view.
     if (ctx.p.layers.potential && ctx.hasPotentialRange()) {
         render::PrimGradient grad;
         grad.a = a; grad.b = b;
@@ -863,37 +874,77 @@ void emitChain(BuildContext& ctx, Vec2 a, Vec2 b, double va, double vb,
         ctx.out.gradients.push_back(grad);
     }
 
-    uint32_t rail = packColor(150, 160, 175, 210);
-    ctx.out.lines.push_back({a + perp * half, b + perp * half, 1.5, rail, true});
-    ctx.out.lines.push_back({a - perp * half, b - perp * half, 1.5, rail, true});
-
-    // REAL Box2D chain: rigid-jointed links from the mechanics world.
+    // Box2D chain: bicycle-chain pattern with alternating inner/outer plates.
     if (ctx.p.chainLinks) {
-        uint32_t linkCol = packColor(208, 214, 224, 230);
-        uint32_t barCol = packColor(150, 160, 175, 220);
-        const physics::ChainLink* prev = nullptr;
-        const physics::ChainLink* first = nullptr;
-        for (const auto& link : *ctx.p.chainLinks) {
-            if (link.componentId != compId) continue;
-            ctx.out.circles.push_back({link.pos, half * 0.62, linkCol, 1.7, false, false});
-            if (!first) first = &link;
-            if (prev)
-                ctx.out.lines.push_back({prev->pos, link.pos, 2.0, barCol, true});
-            prev = &link;
+        std::vector<const physics::ChainLink*> compLinks;
+        for (const auto& link : *ctx.p.chainLinks)
+            if (link.componentId == compId) compLinks.push_back(&link);
+        if (compLinks.empty()) return;
+
+        double off = mechanics::kChainOrbitRadius;
+        int arcSegs = 6;
+
+        for (size_t i = 0; i < compLinks.size(); ++i) {
+            const Vec2& p0 = compLinks[i]->pos;
+            const Vec2& p1 = compLinks[(i + 1) % compLinks.size()]->pos;
+            bool isOuter = (i % 2 == 0);
+            double hw = isOuter ? kChainOuterHalfW : kChainInnerHalfW;
+            uint32_t plateCol = isOuter ? kChainOuterPlateCol : kChainInnerPlateCol;
+
+            Vec2 d = p1 - p0;
+            double segLen = d.length();
+            if (segLen < 0.5) continue;
+            Vec2 u = d / segLen;
+            Vec2 n(-u.y, u.x);
+
+            bool nearA = (p0 - a).length() < off * 1.8 && (p1 - a).length() < off * 1.8;
+            bool nearB = (p0 - b).length() < off * 1.8 && (p1 - b).length() < off * 1.8;
+
+            if (nearA || nearB) {
+                Vec2 center = nearA ? a : b;
+                Vec2 r0 = p0 - center, r1 = p1 - center;
+                double ang0 = std::atan2(r0.y, r0.x), ang1 = std::atan2(r1.y, r1.x);
+                double dang = ang1 - ang0;
+                if (dang > kPi) dang -= 2.0 * kPi;
+                if (dang < -kPi) dang += 2.0 * kPi;
+                std::vector<Vec2> pts;
+                for (int s = 0; s <= arcSegs; ++s) {
+                    double a_ = ang0 + dang * s / arcSegs;
+                    pts.push_back(center + Vec2(std::cos(a_), std::sin(a_)) * off);
+                }
+                if (!pts.empty()) { pts.front() = p0; pts.back() = p1; }
+                ctx.out.polylines.push_back({pts, 2.5, plateCol, true});
+            } else {
+                ctx.out.quads.push_back({p0 + n * hw, p1 + n * hw,
+                                         p1 - n * hw, p0 - n * hw,
+                                         plateCol, true, 0.0});
+            }
         }
-        if (prev && first && prev != first)
-            ctx.out.lines.push_back({prev->pos, first->pos, 2.0, barCol, true});
+
+        // Roller circles on every link.
+        for (size_t i = 0; i < compLinks.size(); ++i) {
+            const Vec2& p = compLinks[i]->pos;
+            ctx.out.circles.push_back({p, kChainRollerR, kChainRollerCol, 0.0, true, false});
+            ctx.out.circles.push_back({p, kChainRollerR, kChainRollerOutline, 1.5, false, false});
+            // Pin dots on outer links.
+            if (i % 2 == 0) {
+                Vec2 d = compLinks[(i + 1) % compLinks.size()]->pos - p;
+                if (d.length() > 0.5) {
+                    Vec2 n(-d.y / d.length(), d.x / d.length());
+                    ctx.out.circles.push_back({p + n * kChainOuterHalfW, kChainPinR, kChainPinCol, 0.0, true, false});
+                    ctx.out.circles.push_back({p - n * kChainOuterHalfW, kChainPinR, kChainPinCol, 0.0, true, false});
+                }
+            }
+        }
         return;
     }
 
-    // Fallback (no sim): phase animation. Bicycle-chain look.
+    // Fallback (no sim): phase-animated bicycle chain.
     double speed = mechanics::chainSpeedFromCurrent(current);
-    double spacing = std::max(half * 2.4, 10.0);
+    double spacing = kChainLinkSpacing;
     double phase = std::fmod(ctx.p.time * speed * kVisualChainSpeed, spacing * 2.0);
     if (phase < 0.0) phase += spacing * 2.0;
 
-    uint32_t linkCol = packColor(208, 214, 224, 230);
-    uint32_t barCol = packColor(150, 160, 175, 220);
     int count = static_cast<int>(len / spacing) + 2;
     Vec2 prev;
     bool hasPrev = false;
@@ -902,10 +953,25 @@ void emitChain(BuildContext& ctx, Vec2 a, Vec2 b, double va, double vb,
         t = std::fmod(t, len);
         if (t < 0.0) t += len;
         Vec2 p = a + unit * t;
-        ctx.out.circles.push_back({p, half * 0.78, linkCol, 1.8, false, false});
+        bool isOuter = (i % 2 == 0);
+        double hw = isOuter ? kChainOuterHalfW : kChainInnerHalfW;
+        uint32_t plateCol = isOuter ? kChainOuterPlateCol : kChainInnerPlateCol;
+
+        ctx.out.circles.push_back({p, kChainRollerR, kChainRollerCol, 0.0, true, false});
+        ctx.out.circles.push_back({p, kChainRollerR, kChainRollerOutline, 1.5, false, false});
+
+        if (isOuter) {
+            ctx.out.circles.push_back({p + perp * kChainOuterHalfW, kChainPinR, kChainPinCol, 0.0, true, false});
+            ctx.out.circles.push_back({p - perp * kChainOuterHalfW, kChainPinR, kChainPinCol, 0.0, true, false});
+        }
+
         if (hasPrev && (p - prev).length() < spacing * 1.5) {
-            ctx.out.lines.push_back({prev + unit * (half * 0.5), p - unit * (half * 0.5),
-                                     2.2, barCol, true});
+            bool prevOuter = ((i - 1) % 2 == 0);
+            double pw = prevOuter ? kChainOuterHalfW : kChainInnerHalfW;
+            uint32_t pc = prevOuter ? kChainOuterPlateCol : kChainInnerPlateCol;
+            ctx.out.quads.push_back({prev + perp * pw, p + perp * pw,
+                                     p - perp * pw, prev - perp * pw,
+                                     pc, true, 0.0});
         }
         prev = p;
         hasPrev = true;
@@ -967,31 +1033,51 @@ void emitCrank(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
     emitChain(ctx, a, b, va, vb, current, comp.id);
 
     Vec2 mid((a.x + b.x) * 0.5, (a.y + b.y) * 0.5);
-    double r = 15.0;
-    ctx.out.circles.push_back({mid, r, packColor(255, 255, 255), 2.5, false, false});
 
-    // Spokes spin with the integral of the mapped chain speed: continuous
-    // even while the hand crank changes the current every frame.
+    double flywheelR = 22.0;
+    double gearBodyR = mechanics::kChainOrbitRadius * 0.7;
+    double gearToothR = mechanics::kChainOrbitRadius;
+
     double angle0 = spinPhase(ctx, comp.id, mechanics::chainSpeedFromCurrent(current),
                               kVisualSpinRate);
-    uint32_t spokeCol = packColor(255, 196, 110, 235);
-    for (int s = 0; s < 3; ++s) {
-        double angle = angle0 + s * (kPi * 2.0 / 3.0);
-        Vec2 dir(std::cos(angle), std::sin(angle));
-        ctx.out.lines.push_back({mid - dir * (r * 0.85), mid + dir * (r * 0.85), 2.0, spokeCol, true});
-    }
-    ctx.out.circles.push_back({mid, r * 0.18, spokeCol, 0.0, true, false});
 
-    // Grab knob on the rim: the handle you can drag (dynamo).
-    Vec2 knobDir(std::cos(angle0), std::sin(angle0));
-    ctx.out.circles.push_back({mid + knobDir * (r * 0.82), 4.0,
-                               packColor(255, 220, 130, 245), 0.0, true, true});
+    // Flywheel disk — large, dark metallic.
+    ctx.out.circles.push_back({mid, flywheelR, packColor(35, 40, 48, 255), 0.0, true, false});
+    ctx.out.circles.push_back({mid, flywheelR, packColor(110, 118, 130, 230), 2.8, false, false});
+    ctx.out.circles.push_back({mid, flywheelR * 0.85, packColor(140, 148, 160, 180), 1.2, false, false});
+
+    // Crank handle — line from center to rim + knob.
+    Vec2 handleDir(std::cos(angle0), std::sin(angle0));
+    uint32_t handleCol = packColor(220, 195, 140, 240);
+    ctx.out.lines.push_back({mid + handleDir * gearBodyR * 0.45,
+                             mid + handleDir * flywheelR * 0.92,
+                             3.5, handleCol, true});
+    ctx.out.circles.push_back({mid + handleDir * flywheelR * 0.92, 5.0,
+                               packColor(240, 215, 150, 245), 0.0, true, true});
+
+    // Hub dot.
+    ctx.out.circles.push_back({mid, 3.5, packColor(200, 180, 130, 240), 0.0, true, false});
+    ctx.out.circles.push_back({mid, 3.5, packColor(140, 125, 90, 255), 1.5, false, false});
+
+    // Meshing gear (on top of flywheel).
+    uint32_t gearCol = packColor(230, 170, 105, 245);
+    ctx.out.circles.push_back({mid, gearBodyR, packColor(48, 54, 64, 255), 0.0, true, false});
+    ctx.out.circles.push_back({mid, gearBodyR, gearCol, 2.2, false, false});
+
+    int teeth = 10;
+    for (int tooth = 0; tooth < teeth; ++tooth) {
+        double angle = angle0 + tooth * (2.0 * kPi / teeth);
+        Vec2 dir(std::cos(angle), std::sin(angle));
+        ctx.out.lines.push_back({mid + dir * gearBodyR,
+                                 mid + dir * gearToothR,
+                                 2.8, gearCol, true});
+    }
 
     char buf[48];
     std::snprintf(buf, sizeof(buf), "%.1f %s", comp.value, tr("V drive"));
     Vec2 dir = (b - a).normalized();
     Vec2 perp(-dir.y, dir.x);
-    ctx.out.labels.push_back({mid + perp * 24.0, buf, packColor(200, 200, 200), false});
+    ctx.out.labels.push_back({mid + perp * 30.0, buf, packColor(200, 200, 200), false});
 }
 
 void emitAnchor(BuildContext& ctx, Vec2 pos) {
@@ -1101,7 +1187,10 @@ void emitFlywheel(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
 // Toothed gears at junction nodes; teeth rotate with the local chain speed,
 // visually coupling every branch that meets here (one chain, one motion).
 void emitGears(BuildContext& ctx) {
-    double radius = chainHalfWidth(ctx) * 1.6;
+    double halfW = ctx.p.wireThickness * 0.5;
+    double orbitR = mechanics::kChainOrbitRadius;
+    double gearBodyR = orbitR * 0.65;
+    double gearToothR = orbitR + halfW * 0.3;
     for (const auto& node : ctx.circuit.nodes) {
         int connected = 0;
         double meanCurrent = 0.0;
@@ -1115,23 +1204,27 @@ void emitGears(BuildContext& ctx) {
         if (connected < 2) continue;
         meanCurrent /= connected;
 
-        uint32_t col = packColor(170, 178, 190, 230);
-        ctx.out.circles.push_back({node.position, radius, packColor(48, 54, 64, 255), 0.0, true, false});
-        ctx.out.circles.push_back({node.position, radius, col, 1.8, false, false});
-        ctx.out.circles.push_back({node.position, radius * 0.22, col, 0.0, true, false});
+        uint32_t bodyCol = packColor(42, 48, 56, 255);
+        uint32_t rimCol = packColor(170, 178, 190, 230);
+        uint32_t toothCol = packColor(180, 186, 196, 235);
+        uint32_t hubCol = packColor(140, 148, 158, 225);
 
-        // Teeth: phase follows the INTEGRated chain travel over the radius.
+        ctx.out.circles.push_back({node.position, gearBodyR, bodyCol, 0.0, true, false});
+        ctx.out.circles.push_back({node.position, gearBodyR, rimCol, 2.0, false, false});
+        ctx.out.circles.push_back({node.position, gearBodyR * 0.18, hubCol, 0.0, true, false});
+        ctx.out.circles.push_back({node.position, gearBodyR * 0.18, rimCol, 1.0, false, false});
+
         double phase = ctx.p.flowIntegrals
-            ? nodeIntegral(ctx.p.flowIntegrals, node.id) * kVisualChainSpeed / radius
+            ? nodeIntegral(ctx.p.flowIntegrals, node.id) * kVisualChainSpeed / orbitR
             : ctx.p.time * mechanics::chainSpeedFromCurrent(meanCurrent) *
-                  kVisualChainSpeed / radius;
-        int teeth = 8;
+                  kVisualChainSpeed / orbitR;
+        int teeth = 10;
         for (int tooth = 0; tooth < teeth; ++tooth) {
             double angle = phase + tooth * (2.0 * kPi / teeth);
             Vec2 dir(std::cos(angle), std::sin(angle));
-            ctx.out.lines.push_back({node.position + dir * radius,
-                                     node.position + dir * (radius * 1.28),
-                                     2.2, col, true});
+            ctx.out.lines.push_back({node.position + dir * gearBodyR,
+                                     node.position + dir * gearToothR,
+                                     2.5, toothCol, true});
         }
     }
 }
@@ -1550,6 +1643,16 @@ void buildHydraulic(BuildContext& ctx) {
         if (connected < 2) continue;
         ctx.out.circles.push_back({node.position, radius, packColor(26, 36, 52), 0.0, true, false});
         ctx.out.circles.push_back({node.position, radius, packColor(110, 150, 200, 230), 1.6, false, false});
+    }
+
+    // Loop-global hydraulic particles (HydraulicSim: componentId=-1).
+    if (ctx.p.simParticles) {
+        double pRadius = physics::particleWorldRadius(ctx.p.wireThickness) * 1.25;
+        uint32_t pColor = packColor(96, 170, 255, 185);
+        for (const auto& sp : *ctx.p.simParticles) {
+            if (sp.componentId == -1)
+                ctx.out.particles.push_back({sp.pos, pRadius, pColor, false});
+        }
     }
 
     emitNodes(ctx);

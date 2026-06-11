@@ -275,8 +275,23 @@ void MainWindow::updateParticleSim(float realDt) {
     };
 
     runWorld(m_electronSim, /*waterWorld=*/false, m_electronParticles);
-    runWorld(m_waterSim, /*waterWorld=*/true, m_waterParticles);
-    m_waterPaddles = m_waterSim.paddles();
+    runWorld(m_electronSim, /*waterWorld=*/false, m_electronParticles);
+
+    // Hydraulic: unified closed-loop water pipe (HydraulicSim replaces ParticleSim).
+    if (m_hydraulicSim.configured())
+        m_hydraulicSim.setFlow(m_circuit, solution);
+    else
+        m_hydraulicSim.configure(m_circuit, solution, m_wireThickness * 0.5);
+    if (dt > 0.0)
+        m_hydraulicSim.step(dt);
+
+    // Convert HydraulicSim output to legacy SimParticle / PaddleState for rendering.
+    m_waterParticles.clear();
+    for (const auto& hp : m_hydraulicSim.particles())
+        m_waterParticles.push_back({hp.pos, hp.vel, -1}); // componentId=-1 = loop-global
+    m_waterPaddles.clear();
+    for (const auto& hp : m_hydraulicSim.paddles())
+        m_waterPaddles.push_back({hp.componentId, hp.angle});
 
     // Mechanics chain: rigid-jointed loops, one per component.
     std::vector<current_lab::physics::ChainSpec> chainSpecs;

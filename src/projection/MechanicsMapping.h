@@ -23,8 +23,9 @@ namespace current_lab::mechanics {
 constexpr double kTensionPerVolt = 1.0;
 // Visual amplification constants (animation only, magnitudes stay honest):
 constexpr double kVisualChainSpeed = 40.0; // world units per (chain-speed unit * s)
-constexpr double kVisualSpinRate = 6.0;    // rad per (angular-momentum unit * s)  // tension units per volt
+constexpr double kVisualSpinRate = 6.0;    // rad per (angular-momentum unit * s)
 constexpr double kLinkSpeedPerAmp = 1.0; // chain speed units per ampere
+constexpr double kChainOrbitRadius = 7.0;  // fixed px offset of chain from axis (straight & arc)
 
 inline double chainSpeedFromCurrent(double current) {
     return kLinkSpeedPerAmp * current; // signed: direction follows current sign

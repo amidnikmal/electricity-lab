@@ -1,5 +1,7 @@
 #include "physics/ChainSim.h"
 
+#include "projection/MechanicsMapping.h"
+
 #include <box2d/box2d.h>
 
 #include <algorithm>
@@ -26,74 +28,79 @@ struct Oval {
 
     double perimeter() const { return 2.0 * len + 2.0 * kPi * off; }
 
-    void at(double t, Vec2* point, Vec2* tangent) const {
+    Vec2 pointAt(double t) const {
         double straight = len;
         double arc = kPi * off;
         t = std::fmod(t, perimeter());
         if (t < 0.0) t += perimeter();
 
-        if (t < straight) { // top straight: a->b side at +off
-            *point = a + unit * t + perp * off;
-            *tangent = unit;
-        } else if (t < straight + arc) { // arc around b
-            double phi = (t - straight) / off; // 0..pi
-            double angle = kPi * 0.5 - phi;    // from +perp to -perp around b
-            *point = b + perp * (off * std::sin(angle)) + unit * (off * std::cos(angle));
-            *tangent = unit * std::sin(angle) - perp * std::cos(angle);
-            // tangent of decreasing angle: d/dphi = (-cos, ... ) — normalize below
-            Vec2 radial = (*point - b).normalized();
-            *tangent = Vec2(-radial.y, radial.x) * -1.0; // clockwise around b
-        } else if (t < 2.0 * straight + arc) { // bottom straight: b->a at -off
-            double s = t - straight - arc;
-            *point = b - unit * s - perp * off;
-            *tangent = unit * -1.0;
-        } else { // arc around a
-            double phi = (t - 2.0 * straight - arc) / off;
-            double angle = -kPi * 0.5 - phi;
-            *point = a + perp * (off * std::sin(angle)) + unit * (off * std::cos(angle));
-            Vec2 radial = (*point - a).normalized();
-            *tangent = Vec2(-radial.y, radial.x) * -1.0;
+        if (t < straight)
+            return a + unit * t + perp * off;
+        if (t < straight + arc) {
+            double phi = (t - straight) / off;
+            double angle = kPi * 0.5 - phi;
+            return b + perp * (off * std::sin(angle)) + unit * (off * std::cos(angle));
         }
+        if (t < 2.0 * straight + arc) {
+            double s = t - straight - arc;
+            return b - unit * s - perp * off;
+        }
+        double phi = (t - 2.0 * straight - arc) / off;
+        double angle = -kPi * 0.5 - phi;
+        return a + perp * (off * std::sin(angle)) + unit * (off * std::cos(angle));
     }
 
-    // Inverse-ish: the param of the closest racetrack station (for brakes).
-    double topParamOf(Vec2 p) const {
-        Vec2 rel = p - a;
-        return rel.x * unit.x + rel.y * unit.y; // along-axis coordinate
+    Vec2 tangentAt(double t) const {
+        double straight = len;
+        double arc = kPi * off;
+        t = std::fmod(t, perimeter());
+        if (t < 0.0) t += perimeter();
+
+        if (t < straight)
+            return unit;
+        if (t < straight + arc) {
+            Vec2 pt = pointAt(t);
+            Vec2 radial = (pt - b).normalized();
+            return Vec2(-radial.y, radial.x) * -1.0;
+        }
+        if (t < 2.0 * straight + arc)
+            return unit * -1.0;
+        Vec2 pt = pointAt(t);
+        Vec2 radial = (pt - a).normalized();
+        return Vec2(-radial.y, radial.x) * -1.0;
     }
 
-    bool onTopStraight(Vec2 p) const {
-        Vec2 rel = p - a;
-        double lateral = rel.x * perp.x + rel.y * perp.y;
-        return lateral > 0.0;
+    // Fraction along the top straight where the brake zone falls.
+    double topStraightFraction() const {
+        double perim = perimeter();
+        return perim > 0.0 ? len / perim : 0.0;
     }
 };
 
-struct Loop {
+struct BodyState {
+    b2Body* body = nullptr;
+    double t = 0.0;
+};
+
+struct KinematicLoop {
     ChainSpec spec;
     Oval oval;
-    std::vector<b2Body*> bodies;
-};
-
-class LoopContactFilter : public b2ContactFilter {
-public:
-    bool ShouldCollide(b2Fixture* a, b2Fixture* b) override {
-        return a->GetUserData().pointer == b->GetUserData().pointer;
-    }
+    std::vector<BodyState> bodies;
+    double perimeter = 0.0;
+    double step = 0.0;
 };
 
 } // namespace
 
 struct ChainSim::Impl {
-    LoopContactFilter filter;
     std::unique_ptr<b2World> world;
-    std::vector<Loop> loops;
+    std::vector<KinematicLoop> loops;
     double linkRadius = 1.1;
     double accumulator = 0.0;
     uint64_t signature = 0;
 
     void buildLoop(const ChainSpec& spec) {
-        Loop loop;
+        KinematicLoop loop;
         loop.spec = spec;
         Vec2 ab = spec.b - spec.a;
         double len = ab.length();
@@ -104,110 +111,60 @@ struct ChainSim::Impl {
         loop.oval.unit = ab / len;
         loop.oval.perp = Vec2(-loop.oval.unit.y, loop.oval.unit.x);
         loop.oval.len = len;
-        loop.oval.off = std::max(spec.halfWidth * 0.55, linkRadius * 1.6);
+        loop.oval.off = mechanics::kChainOrbitRadius;
+        loop.perimeter = loop.oval.perimeter();
 
-        const uintptr_t tag = loops.size() + 1;
-
-        // Guide rails: inner and outer racetrack walls (polyline of edges).
-        double gap = linkRadius * 1.5;
-        for (double railOff : {loop.oval.off - gap, loop.oval.off + gap}) {
-            if (railOff < linkRadius) continue;
-            b2BodyDef railDef;
-            b2Body* rail = world->CreateBody(&railDef);
-            Oval railOval = loop.oval;
-            railOval.off = railOff;
-            int segments = std::max(24, static_cast<int>(railOval.perimeter() / 6.0));
-            Vec2 prev, tangent;
-            railOval.at(0.0, &prev, &tangent);
-            for (int i = 1; i <= segments; ++i) {
-                Vec2 point;
-                railOval.at(railOval.perimeter() * i / segments, &point, &tangent);
-                b2EdgeShape edge;
-                edge.SetTwoSided(toSim(prev), toSim(point));
-                b2FixtureDef fixture;
-                fixture.shape = &edge;
-                fixture.friction = 0.05f;
-                fixture.restitution = 0.1f;
-                fixture.userData.pointer = tag;
-                rail->CreateFixture(&fixture);
-                prev = point;
-            }
-        }
-
-        // Links: rigid bodies around the oval, jointed into a closed ring.
         double spacing = linkRadius * 2.6;
-        int count = std::max(8, static_cast<int>(loop.oval.perimeter() / spacing));
-        spacing = loop.oval.perimeter() / count; // exact ring closure
+        int count = std::max(8, static_cast<int>(loop.perimeter / spacing));
+        loop.step = loop.perimeter / count;
 
         for (int i = 0; i < count; ++i) {
-            Vec2 point, tangent;
-            loop.oval.at(spacing * i, &point, &tangent);
+            double t = i * loop.step;
+            Vec2 point = loop.oval.pointAt(t);
+
             b2BodyDef bodyDef;
-            bodyDef.type = b2_dynamicBody;
+            bodyDef.type = b2_kinematicBody;
             bodyDef.position = toSim(point);
             bodyDef.fixedRotation = true;
-            bodyDef.linearDamping = 0.3f;
             b2Body* body = world->CreateBody(&bodyDef);
+
             b2CircleShape circle;
             circle.m_radius = static_cast<float>(linkRadius) * kToSim;
             b2FixtureDef fixture;
             fixture.shape = &circle;
-            fixture.density = 1.0f;
-            fixture.friction = 0.02f;
-            fixture.restitution = 0.05f;
-            fixture.userData.pointer = tag;
+            fixture.density = 0.0f;
+            fixture.friction = 0.0f;
             body->CreateFixture(&fixture);
-            loop.bodies.push_back(body);
-        }
 
-        // Rigid distance joints: the chain cannot stretch or compress.
-        for (int i = 0; i < count; ++i) {
-            b2Body* bodyA = loop.bodies[i];
-            b2Body* bodyB = loop.bodies[(i + 1) % count];
-            b2DistanceJointDef joint;
-            joint.Initialize(bodyA, bodyB, bodyA->GetPosition(), bodyB->GetPosition());
-            joint.minLength = joint.length * 0.95f;
-            joint.maxLength = joint.length * 1.05f;
-            joint.stiffness = 0.0f;
-            world->CreateJoint(&joint);
+            loop.bodies.push_back({body, t});
         }
 
         loops.push_back(std::move(loop));
     }
 
-    void applyDrive() {
+    void advanceKinematic(double dt) {
         for (auto& loop : loops) {
-            float target = static_cast<float>(loop.spec.targetSpeed) * kToSim;
-            for (b2Body* body : loop.bodies) {
-                Vec2 pos = fromSim(body->GetPosition());
-                // Tangent at the nearest racetrack station: use the radial
-                // trick — works on straights and arcs alike.
-                Vec2 point, tangent;
-                // cheap: recompute from the along-axis/lateral signs
-                Vec2 rel = pos - loop.oval.a;
-                double along = rel.x * loop.oval.unit.x + rel.y * loop.oval.unit.y;
-                double lateral = rel.x * loop.oval.perp.x + rel.y * loop.oval.perp.y;
-                if (along >= 0.0 && along <= loop.oval.len) {
-                    tangent = lateral >= 0.0 ? loop.oval.unit : loop.oval.unit * -1.0;
-                } else {
-                    Vec2 center = along < 0.0 ? loop.oval.a : loop.oval.b;
-                    Vec2 radial = (pos - center).normalized();
-                    tangent = Vec2(-radial.y, radial.x) * -1.0;
-                }
-                (void)point;
+            double target = loop.spec.targetSpeed;
+            if (target == 0.0) continue;
 
-                b2Vec2 vel = body->GetLinearVelocity();
-                b2Vec2 tang(static_cast<float>(tangent.x), static_cast<float>(tangent.y));
-                float vTang = b2Dot(vel, tang);
+            double effective = target;
+            if (loop.spec.brake) {
+                double brakeFrac = loop.oval.topStraightFraction() * 0.36;
+                effective = target * (1.0 - 0.80 * brakeFrac);
+            }
 
-                // Friction brake on the resistor body: heavy damping the
-                // drive must overcome (dissipation made visible).
-                bool inBrake = loop.spec.brake && lateral > 0.0 &&
-                               along > loop.oval.len * 0.32 && along < loop.oval.len * 0.68;
-                body->SetLinearDamping(inBrake ? 5.0f : 0.3f);
+            double dT = effective * dt;
+            for (auto& bs : loop.bodies) {
+                bs.t += dT;
+                bs.t = std::fmod(bs.t, loop.perimeter);
+                if (bs.t < 0.0) bs.t += loop.perimeter;
 
-                float force = (target - vTang) * body->GetMass() * 8.0f;
-                body->ApplyForceToCenter(b2Vec2(tang.x * force, tang.y * force), true);
+                Vec2 nextPos = loop.oval.pointAt(bs.t);
+                b2Vec2 cur = bs.body->GetPosition();
+                b2Vec2 nxt = toSim(nextPos);
+                float invDt = static_cast<float>(1.0 / dt);
+                bs.body->SetLinearVelocity({(nxt.x - cur.x) * invDt,
+                                            (nxt.y - cur.y) * invDt});
             }
         }
     }
@@ -233,7 +190,6 @@ uint64_t ChainSim::layoutSignature(const std::vector<ChainSpec>& specs) {
 
 void ChainSim::configure(const std::vector<ChainSpec>& specs, double linkRadius) {
     m_impl->world = std::make_unique<b2World>(b2Vec2(0, 0));
-    m_impl->world->SetContactFilter(&m_impl->filter);
     m_impl->loops.clear();
     m_impl->linkRadius = std::max(0.5, linkRadius);
     for (const auto& spec : specs)
@@ -264,8 +220,8 @@ void ChainSim::step(double dt) {
     m_impl->accumulator += std::min(dt, 0.1);
     int steps = 0;
     while (m_impl->accumulator >= kSubStep && steps < 8) {
-        m_impl->applyDrive();
-        m_impl->world->Step(kSubStep, 6, 2);
+        m_impl->advanceKinematic(kSubStep);
+        m_impl->world->Step(kSubStep, 0, 0);
         m_impl->accumulator -= kSubStep;
         ++steps;
     }
@@ -276,7 +232,7 @@ std::vector<ChainLink> ChainSim::links() const {
     for (const auto& loop : m_impl->loops) {
         int size = static_cast<int>(loop.bodies.size());
         for (int i = 0; i < size; ++i) {
-            out.push_back({fromSim(loop.bodies[i]->GetPosition()),
+            out.push_back({fromSim(loop.bodies[i].body->GetPosition()),
                            loop.spec.componentId, i, size});
         }
     }
