@@ -1,5 +1,6 @@
 #include "physics/ParticleSim.h"
 #include "physics/ChannelSpecs.h"
+#include "physics/ResistiveElementModel.h"
 
 #include <box2d/box2d.h>
 
@@ -25,7 +26,7 @@ constexpr float kSubStep = 1.0f / 120.0f;
 // пользователя). Несжимаемость/поток закреплены тестами WaterNetwork.*.
 constexpr int kVelocityIterations = 10;
 constexpr int kPositionIterations = 6;
-constexpr double kPi = 3.14159265358979323846;
+// kPi приходит из PhysicalUnits.h (через ResistiveElementModel.h).
 
 b2Vec2 toSim(Vec2 v) { return b2Vec2(static_cast<float>(v.x) * kToSim,
                                      static_cast<float>(v.y) * kToSim); }
@@ -97,8 +98,13 @@ struct ParticleSim::Impl {
         // resistor is ALWAYS passable — particles squeeze through, they never
         // wall up (regression: frozen electrons in the resistor).
         if (spec.scatterers) {
-            double start = channel.length * 0.32;
-            double end = channel.length * 0.68;
+            // Pillars sit ONLY under the drawn resistive body
+            // (resistorBodySpan == the ResistiveBody section of
+            // resistorPathSections); the leads are drawn as plain wire and
+            // must not hide obstacles.
+            AxialSpan span = resistorBodySpan(channel.length, spec.halfWidth * 2.0);
+            double start = span.start;
+            double end = span.end;
             // Connected (water) mode keeps a wider corridor: dense granular
             // flow arches and clogs at narrow throats, electrons do not.
             // 5.0 radii: at 4.2 the loop flow saturated at the arch-breaking

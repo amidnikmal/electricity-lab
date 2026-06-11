@@ -96,6 +96,25 @@ inline std::vector<ConductivePathSection> resistorPathSections(Vec2 a,
     return sections;
 }
 
+// Axial interval of the resistive body along the a->b channel. The Drude
+// scatterer lattice in ParticleSim must live exactly here: an invisible
+// pillar under a section drawn as a plain lead reads as electrons bouncing
+// off nothing (review finding 2026-06-12).
+struct AxialSpan
+{
+    double start = 0.0;
+    double end = 0.0;
+};
+
+inline AxialSpan resistorBodySpan(double channelLength, double wireThickness)
+{
+    double bodyLength = resistorBodyLength(channelLength, wireThickness);
+    if (bodyLength <= kMinimumPhysicalLength)
+        return {0.0, channelLength}; // degenerate: the whole channel is body
+    double mid = channelLength * 0.5;
+    return {mid - bodyLength * 0.5, mid + bodyLength * 0.5};
+}
+
 inline double resistorBodyElectricFieldMagnitude(Vec2 a,
                                                  Vec2 b,
                                                  double voltageA,
