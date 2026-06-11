@@ -94,7 +94,9 @@ struct ParticleSim::Impl {
             double end = channel.length * 0.68;
             // Connected (water) mode keeps a wider corridor: dense granular
             // flow arches and clogs at narrow throats, electrons do not.
-            double corridor = spec.connected ? 4.2 : 2.8;
+            // 5.0 radii: at 4.2 the loop flow saturated at the arch-breaking
+            // rate and stopped scaling with the solver current.
+            double corridor = spec.connected ? 5.0 : 2.8;
             double maxR = (2.0 * spec.halfWidth - corridor * particleRadius) / 2.0;
             double baseFrac = spec.connected ? 0.32 : 0.45;
             double pillarR = std::clamp(spec.halfWidth * baseFrac, 0.6, std::max(0.6, maxR));
@@ -377,6 +379,65 @@ struct ParticleSim::Impl {
         return targets;
     }
 
+    // Chamber assist: a particle inside a node fitting gets a gentle pull
+    // toward the core of the pipe its flow continues into, so fittings are
+    // flow-through and no teleporting is needed. Scales with the calibrated
+    // channel speed: zero current — water rests, the pump-only mode is not
+    // faked (circulation may only come from the impeller or the assist).
+    void steerThroughChamber(b2Body* body, int ownChannel, int nodeId, Vec2 pos) {
+        const Channel& own = channels[ownChannel];
+        int exitNode = own.spec.targetSpeed >= 0.0 ? own.spec.nodeB
+                                                   : own.spec.nodeA;
+        int targetChannel = ownChannel;
+        if (nodeId == exitNode) {
+            // Leaving the own pipe: continue into the strongest outgoing pipe.
+            int best = -1;
+            double bestSpeed = 0.0;
+            for (size_t i = 0; i < channels.size(); ++i) {
+                if (static_cast<int>(i) == ownChannel) continue;
+                const auto& spec = channels[i].spec;
+                int entry = spec.targetSpeed >= 0.0 ? spec.nodeA : spec.nodeB;
+                if (entry != nodeId) continue;
+                if (best < 0 || std::abs(spec.targetSpeed) > std::abs(bestSpeed)) {
+                    best = static_cast<int>(i);
+                    bestSpeed = spec.targetSpeed;
+                }
+            }
+            if (best < 0) return; // dead end: the chamber arc holds the water
+            targetChannel = best;
+        }
+
+        const Channel& to = channels[targetChannel];
+        double speed = std::abs(to.spec.targetSpeed);
+        if (speed < 1e-9) return; // no flow — no push, water rests
+
+        // Funnel field, not a point target (converging on one spot makes the
+        // crowd jam at the mouth and the flow arrive in bursts): the axial
+        // component carries the stream into the pipe, a lateral component
+        // bends it toward the pipe axis so the whole mouth width feeds.
+        bool forward = to.spec.targetSpeed >= 0.0;
+        Vec2 axisDir = forward ? to.unit : to.unit * -1.0;
+        Vec2 relTo = pos - to.spec.a;
+        double latTo = relTo.x * to.perp.x + relTo.y * to.perp.y;
+        double centering =
+            std::clamp(-latTo / std::max(1.0, to.spec.halfWidth), -1.0, 1.0);
+        Vec2 desired = axisDir + to.perp * (centering * 0.8);
+        double norm = desired.length();
+        if (norm < 1e-9) return;
+        Vec2 want = desired / norm * speed;
+
+        b2Vec2 vel = body->GetLinearVelocity();
+        // Stronger than the in-pipe assist (1.5): the fitting has no pressure
+        // gradient of its own, and an underfed mouth makes the flow downstream
+        // arrive in bursts (temporal-uniformity test). But not too strong:
+        // overfeeding hardens granular arches at the throats downstream.
+        float gain = 2.0f;
+        body->ApplyForceToCenter(
+            b2Vec2((static_cast<float>(want.x * kToSim) - vel.x) * body->GetMass() * gain,
+                   (static_cast<float>(want.y * kToSim) - vel.y) * body->GetMass() * gain),
+            true);
+    }
+
     void applyDriveForces() {
         std::vector<double> pressureTargets = pumpPressureTargets();
         uint32_t noiseSeed = static_cast<uint32_t>(stepCount * 2246822519u);
@@ -409,11 +470,20 @@ struct ParticleSim::Impl {
                     body->ApplyForceToCenter(
                         b2Vec2(std::cos(angle) * kick, std::sin(angle) * kick), true);
 
-                    // No field force inside junction chambers.
-                    Vec2 rel = fromSim(body->GetPosition()) - channel.spec.a;
+                    // No axis field inside junction chambers — but the water
+                    // must keep moving THROUGH the fitting: steer it toward
+                    // the mouth of the pipe it is headed into. (The previous
+                    // teleport handoff either crushed balls into the packed
+                    // pipe or, gated on free spots, released them in bursts.)
+                    Vec2 pos = fromSim(body->GetPosition());
+                    Vec2 rel = pos - channel.spec.a;
                     double t = rel.x * channel.unit.x + rel.y * channel.unit.y;
-                    if (t < channel.trimA || t > channel.length - channel.trimB)
+                    if (t < channel.trimA || t > channel.length - channel.trimB) {
+                        int nodeId = t < channel.trimA ? channel.spec.nodeA
+                                                       : channel.spec.nodeB;
+                        steerThroughChamber(body, static_cast<int>(ci), nodeId, pos);
                         continue;
+                    }
                 }
                 b2Vec2 vel = body->GetLinearVelocity();
                 float along = b2Dot(vel, axis);
@@ -496,23 +566,27 @@ struct ParticleSim::Impl {
                 }
 
                 // Inside a junction chamber: legitimate transit, keep owner.
-                bool inJunction = false;
-                for (const auto& j : junctions) {
-                    if ((pos - j.pos).length() <= j.radius + particleRadius * 2.0) {
-                        inJunction = true;
-                        break;
-                    }
-                }
-                if (inJunction) continue;
+                if (inJunctionChamber(pos)) continue;
 
                 // Escaped the plumbing entirely (tunnelled): put it back into
-                // its own pipe, keeping the along-axis station.
+                // its own pipe, keeping the along-axis station. The rescue may
+                // not crush the crowd either: probe a few stations along the
+                // pipe and retry on a later substep if everything is taken.
                 double tFix = std::clamp(t, particleRadius, channel.length - particleRadius);
                 double latFix = std::clamp(lateral,
                                            -(channel.spec.halfWidth - particleRadius),
                                            channel.spec.halfWidth - particleRadius);
-                Vec2 fixedPos = channel.spec.a + channel.unit * tFix + channel.perp * latFix;
-                body->SetTransform(toSim(fixedPos), 0.0f);
+                const double offsets[] = {0.0, 2.2, -2.2, 4.4, -4.4};
+                for (double off : offsets) {
+                    double tTry = std::clamp(tFix + off * particleRadius,
+                                             particleRadius,
+                                             channel.length - particleRadius);
+                    Vec2 fixedPos = channel.spec.a + channel.unit * tTry +
+                                    channel.perp * latFix;
+                    if (!spotIsFree(fixedPos, body)) continue;
+                    body->SetTransform(toSim(fixedPos), 0.0f);
+                    break;
+                }
             }
         }
     }
@@ -541,15 +615,65 @@ struct ParticleSim::Impl {
 
     uint32_t pickState = 12345u;
 
-    void relocate(b2Body* body, Channel& to, double lateralFrac, double speed) {
+    // Any teleport into densely packed water must land on a FREE disc —
+    // materialising inside another ball crushes the pair ~1.5 radii deep
+    // (user finding: «область сжатия, утрамбовываются на полрадиуса»).
+    class FreeSpotQuery : public b2QueryCallback {
+    public:
+        b2Vec2 center;
+        const b2Body* self = nullptr;
+        float minDist = 0.0f;
+        bool occupied = false;
+        bool ReportFixture(b2Fixture* fixture) override {
+            const b2Body* other = fixture->GetBody();
+            if (other == self || other->GetType() != b2_dynamicBody) return true;
+            if ((other->GetPosition() - center).Length() < minDist) {
+                occupied = true;
+                return false;
+            }
+            return true;
+        }
+    };
+
+    bool spotIsFree(Vec2 pos, const b2Body* self) {
+        FreeSpotQuery query;
+        query.center = toSim(pos);
+        query.self = self;
+        query.minDist = static_cast<float>(particleRadius * 1.9 * kToSim);
+        b2AABB box;
+        b2Vec2 extent(query.minDist, query.minDist);
+        box.lowerBound = query.center - extent;
+        box.upperBound = query.center + extent;
+        world->QueryAABB(&query, box);
+        return !query.occupied;
+    }
+
+    bool inJunctionChamber(Vec2 pos) const {
+        for (const auto& j : junctions)
+            if ((pos - j.pos).length() <= j.radius + particleRadius * 2.0)
+                return true;
+        return false;
+    }
+
+    // Returns false (and leaves the body untouched) when every candidate
+    // entry spot is occupied — the particle stays in the chamber and the
+    // contacts push it through on a later substep instead of a crush.
+    bool relocate(b2Body* body, Channel& to, double lateralFrac, double speed,
+                  bool requireFreeSpot) {
         bool forward = to.spec.targetSpeed >= 0.0;
         double entryT = forward ? particleRadius * 1.5 : to.length - particleRadius * 1.5;
         double maxLat = std::max(0.0, to.spec.halfWidth - particleRadius - 0.3);
-        Vec2 pos = to.spec.a + to.unit * entryT + to.perp * (lateralFrac * maxLat);
-        Vec2 vel = to.unit * (forward ? speed : -speed);
-        body->SetTransform(toSim(pos), 0.0f);
-        body->SetLinearVelocity(b2Vec2(static_cast<float>(vel.x * kToSim),
-                                       static_cast<float>(vel.y * kToSim)));
+        const double fracs[] = {lateralFrac, 0.0, 0.5, -0.5, 0.9, -0.9};
+        for (double frac : fracs) {
+            Vec2 pos = to.spec.a + to.unit * entryT + to.perp * (frac * maxLat);
+            if (requireFreeSpot && !spotIsFree(pos, body)) continue;
+            Vec2 vel = to.unit * (forward ? speed : -speed);
+            body->SetTransform(toSim(pos), 0.0f);
+            body->SetLinearVelocity(b2Vec2(static_cast<float>(vel.x * kToSim),
+                                           static_cast<float>(vel.y * kToSim)));
+            return true;
+        }
+        return false;
     }
 
     void wrapParticles() {
@@ -563,17 +687,26 @@ struct ParticleSim::Impl {
                 double t = rel.x * channel.unit.x + rel.y * channel.unit.y;
                 double lateral = rel.x * channel.perp.x + rel.y * channel.perp.y;
 
+                bool connected = channel.spec.connected;
+                // Connected water transits fittings PHYSICALLY: the chamber
+                // assist (steerThroughChamber) pushes it into the next pipe and
+                // flowOwnership re-tags it by position. A teleport handoff here
+                // either crushes balls into the packed pipe (the user-visible
+                // «область сжатия») or, gated on free spots, releases bursts.
+                if (connected && inJunctionChamber(pos)) continue;
+
                 int exitNode = -1;
                 if (t > channel.length) exitNode = channel.spec.nodeB;
                 else if (t < 0.0) exitNode = channel.spec.nodeA;
 
                 double speed = fromSim(body->GetLinearVelocity()).length();
                 double lateralFrac = maxLat > 1e-9 ? std::clamp(lateral / maxLat, -1.0, 1.0) : 0.0;
-                if (exitNode >= 0) {
+                if (exitNode >= 0 && !connected) {
                     int next = pickOutgoing(exitNode, static_cast<int>(ci));
                     if (next >= 0) {
                         Channel& to = channels[next];
-                        relocate(body, to, lateralFrac, std::max(speed, 2.0));
+                        relocate(body, to, lateralFrac, std::max(speed, 2.0),
+                                 /*requireFreeSpot=*/false);
                         to.bodies.push_back(body);
                         channel.bodies.erase(channel.bodies.begin() + bi);
                         --bi;
@@ -582,8 +715,10 @@ struct ParticleSim::Impl {
                 }
 
                 bool moved = false;
-                if (t > channel.length || t < 0.0) {
-                    // wrap within the same channel (either dead-end node or no node defined)
+                if ((t > channel.length || t < 0.0) && !connected) {
+                    // wrap within the same channel (either dead-end node or no
+                    // node defined). Connected pipes never wrap onto themselves:
+                    // out-of-plumbing escapees are rescued by flowOwnership.
                     t = t > channel.length ? t - channel.length : t + channel.length;
                     moved = true;
                 }
@@ -593,6 +728,7 @@ struct ParticleSim::Impl {
                 }
                 if (moved) {
                     Vec2 fixedPos = channel.spec.a + channel.unit * t + channel.perp * lateral;
+                    if (connected && !spotIsFree(fixedPos, body)) continue;
                     body->SetTransform(toSim(fixedPos), 0.0f);
                 }
             }

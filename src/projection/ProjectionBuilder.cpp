@@ -1347,7 +1347,11 @@ void emitWaterFlow(BuildContext& ctx, Vec2 a, Vec2 b, double current, int compId
     config.time = ctx.p.time;
     config.componentId = compId;
 
-    double radius = physics::particleWorldRadius(config.wireThickness) * 1.25;
+    // Water balls are drawn at the EXACT Box2D collider size: the water world
+    // is configured with particleWorldRadius(p.wireThickness) (MainWindow), so
+    // any inflation here makes touching colliders (2r apart) read as balls
+    // squashed half a radius into each other (user finding, 2026-06-11).
+    double radius = physics::particleWorldRadius(ctx.p.wireThickness);
     uint32_t color = packColor(96, 170, 255, 185);
 
     if (ctx.p.simParticles) {

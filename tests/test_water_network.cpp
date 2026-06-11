@@ -528,3 +528,41 @@ TEST(WaterNetwork, ParticlesActuallyCrossJunctions) {
         if (n != before[id]) anyChanged = true;
     EXPECT_TRUE(anyChanged) << "no particle ever crossed a junction";
 }
+
+TEST(WaterNetwork, WaterBallsStayEssentiallyIncompressible) {
+    // Находка пользователя (2026-06-11): «у шариков есть область сжатия —
+    // утрамбовываются почти на полрадиуса». Видимая половина бага — рендер
+    // 1.25x коллайдера (см. HydraulicProjection.WaterBallsAreDrawnAtTheColliderSize);
+    // здесь закрепляем физическую часть: упругие шарики не должны устойчиво
+    // проминаться. После прогона худшая пара во всей сети не глубже 25%
+    // радиуса (слоп контактов Box2D ~0.1 wu + динамический запас).
+    int srcId, resId, wire1Id, wire2Id;
+    Circuit c = makeLoop(srcId, resId, wire1Id, wire2Id, 100.0);
+    CircuitSolver solver;
+    auto sol = solver.solve(c);
+    auto specs = makeChannelSpecs(c, &sol, 8.0, /*waterWorld=*/true);
+    double radius = particleWorldRadius(8.0);
+
+    ParticleSim sim;
+    sim.configure(specs, radius);
+    runFor(sim, 4.0);
+
+    auto ps = sim.particles();
+    ASSERT_GT(ps.size(), 100u);
+    double minD = 1e18;
+    Vec2 worst;
+    for (size_t i = 0; i < ps.size(); ++i)
+        for (size_t j = i + 1; j < ps.size(); ++j) {
+            double d = (ps[i].pos - ps[j].pos).length();
+            if (d < minD) {
+                minD = d;
+                worst = (ps[i].pos + ps[j].pos) * 0.5;
+            }
+        }
+    const ChannelSpec& pump = specFor(specs, srcId);
+    Vec2 pumpCenter = pumpImpellerCenter(pump.a, pump.b, pump.halfWidth);
+    EXPECT_GE(minD, 2.0 * radius * 0.75)
+        << "worst pair sits " << (2.0 * radius - minD) / radius
+        << " radii deep into each other at (" << worst.x << ", " << worst.y
+        << "), " << (worst - pumpCenter).length() << " wu from the impeller";
+}

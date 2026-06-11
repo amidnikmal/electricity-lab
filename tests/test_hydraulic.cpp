@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 #include <cmath>
 #include "circuit/Circuit.h"
+#include "physics/DriftModel.h"
+#include "physics/ParticleSim.h"
 #include "projection/HydraulicMapping.h"
 #include "projection/ProjectionBuilder.h"
 #include "solver/CircuitSolver.h"
@@ -148,4 +150,52 @@ TEST(HydraulicProjection, GateValveShowsOpenAndClosedStates) {
     // Open valve splits the pipe -> more pipe shells; closed passes flow.
     EXPECT_GT(open.prims.quads.size(), closed.prims.quads.size());
     EXPECT_GT(closed.prims.particles.size(), open.prims.particles.size());
+}
+
+TEST(HydraulicProjection, WaterBallsAreDrawnAtTheColliderSize) {
+    // Regression (user, 2026-06-11): water balls looked squashed half a radius
+    // into each other. The renderer inflated them 1.25x over the Box2D
+    // collider, so TOUCHING colliders (centres 2r apart) were drawn
+    // overlapping. The drawn radius must BE the collider radius the water
+    // world is configured with: particleWorldRadius(wireThickness).
+    Circuit c;
+    int gnd = c.addNode(Vec2(0, 100));
+    int n1 = c.addNode(Vec2(0, 0));
+    int n2 = c.addNode(Vec2(300, 0));
+    c.groundNodeId = gnd;
+    c.addComponent(ComponentType::Ground, gnd, gnd, 0.0);
+    c.addComponent(ComponentType::VoltageSource, n1, gnd, 5.0);
+    int resId = c.addComponent(ComponentType::Resistor, n1, n2, 100.0);
+    c.addComponent(ComponentType::Wire, n2, gnd, 0.0);
+
+    CircuitSolver solver;
+    auto solution = solver.solve(c);
+    ViewParams params = waterParams();
+    params.time = 0.01;
+
+    double r = current_lab::physics::particleWorldRadius(params.wireThickness);
+    std::vector<current_lab::physics::SimParticle> touching(2);
+    touching[0].id = 1;
+    touching[0].pos = Vec2(150.0 - r, 0.0); // a touching pair on the resistor
+    touching[0].componentId = resId;
+    touching[1].id = 2;
+    touching[1].pos = Vec2(150.0 + r, 0.0);
+    touching[1].componentId = resId;
+    params.simParticles = &touching;
+
+    auto res = buildProjection(ProjectionKind::Hydraulic, c, &solution, params);
+
+    int found = 0;
+    for (const auto& prim : res.prims.particles) {
+        for (const auto& sp : touching) {
+            if ((prim.pos - sp.pos).length() > 1e-9) continue;
+            ++found;
+            EXPECT_FALSE(prim.screenSpaceRadius);
+            // Drawn circles of touching colliders may meet, never overlap.
+            EXPECT_NEAR(prim.radius, r, 1e-9)
+                << "water ball drawn " << prim.radius / r
+                << "x its physical size";
+        }
+    }
+    EXPECT_EQ(found, 2);
 }

@@ -31,13 +31,18 @@ inline Vec2 pumpImpellerCenter(Vec2 a, Vec2 b, double halfWidth) {
     return (a + b) * 0.5 + perp * (-halfWidth);
 }
 
-inline double pumpImpellerRadius(double halfWidth) { return halfWidth * 1.05; }
+// 0.95: corridor over the tips = 1.64 ball diameters. At 1.05 (1.48 diam,
+// single file) the wheel throat was the arch-limited bottleneck of the loop —
+// the flow saturated and stopped scaling with current.
+inline double pumpImpellerRadius(double halfWidth) { return halfWidth * 0.95; }
 
 // Impeller angular velocity for a wanted flow along a->b. Tip velocity on the
 // exposed (+perp) side of an offset wheel is omega * (-unit), so positive
 // flow needs NEGATIVE omega. Sign verified by test_water_network.
+// Cap 6.0: at omega 9 the blade chops through the dense pack and squeezes
+// balls visibly into each other near the wheel (incompressibility test).
 inline double pumpOmegaForFlow(double current) {
-    return -std::clamp(current * 400.0, -9.0, 9.0);
+    return -std::clamp(current * 400.0, -6.0, 6.0);
 }
 
 inline std::vector<ChannelSpec> makeChannelSpecs(const Circuit& circuit,
