@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <cmath>
 #include "circuit/DemoCircuits.h"
+#include "physics/ChainGeometry.h"
 #include "physics/ChainSim.h"
 
 using namespace current_lab::physics;
@@ -22,6 +23,78 @@ void runFor(ChainSim& sim, double seconds) {
     int frames = static_cast<int>(seconds * 60.0);
     for (int i = 0; i < frames; ++i)
         sim.step(1.0 / 60.0);
+}
+
+struct ChainOvalProbe {
+    Vec2 a;
+    Vec2 b;
+    Vec2 unit;
+    Vec2 perp;
+    double len = 0.0;
+    double off = 0.0;
+
+    explicit ChainOvalProbe(const ChainSpec& spec, double linkRadius)
+        : a(spec.a),
+          b(spec.b),
+          unit((spec.b - spec.a).normalized()),
+          perp(Vec2(-unit.y, unit.x)),
+          len((spec.b - spec.a).length()),
+          off(chain_geometry::sprocketPitchRadius(spec.halfWidth, linkRadius)) {}
+
+    double perimeter() const { return 2.0 * len + 2.0 * 3.14159265358979323846 * off; }
+
+    Vec2 pointAt(double t) const {
+        double p = perimeter();
+        t = std::fmod(t, p);
+        if (t < 0.0) t += p;
+        double arc = 3.14159265358979323846 * off;
+
+        if (t < len)
+            return a + unit * t + perp * off;
+        if (t < len + arc) {
+            double phi = (t - len) / off;
+            double angle = 3.14159265358979323846 * 0.5 - phi;
+            return b + perp * (off * std::sin(angle)) + unit * (off * std::cos(angle));
+        }
+        if (t < 2.0 * len + arc) {
+            double s = t - len - arc;
+            return b - unit * s - perp * off;
+        }
+
+        double phi = (t - 2.0 * len - arc) / off;
+        double angle = -3.14159265358979323846 * 0.5 - phi;
+        return a + perp * (off * std::sin(angle)) + unit * (off * std::cos(angle));
+    }
+
+    double phaseOf(Vec2 pos) const {
+        double bestT = 0.0;
+        double bestD2 = 1e300;
+        constexpr int kSamples = 720;
+        for (int i = 0; i < kSamples; ++i) {
+            double t = perimeter() * i / kSamples;
+            Vec2 d = pointAt(t) - pos;
+            double d2 = d.x * d.x + d.y * d.y;
+            if (d2 < bestD2) {
+                bestD2 = d2;
+                bestT = t;
+            }
+        }
+        return bestT / perimeter();
+    }
+};
+
+const ChainLink* markedLink(const std::vector<ChainLink>& links, int componentId, int index) {
+    for (const auto& link : links)
+        if (link.componentId == componentId && link.indexInLoop == index)
+            return &link;
+    return nullptr;
+}
+
+double signedPhaseDelta(double before, double after) {
+    double delta = after - before;
+    if (delta > 0.5) delta -= 1.0;
+    if (delta < -0.5) delta += 1.0;
+    return delta;
 }
 
 } // namespace
@@ -64,6 +137,28 @@ TEST(ChainSim, LoopMovesWithTheTargetAndStaysFinite) {
         moved += (after[i].pos - before[i].pos).length();
     }
     EXPECT_GT(moved / after.size(), 5.0); // the loop is really running
+}
+
+TEST(ChainSim, PhaseProbeSeesMarkedLinkAdvance) {
+    double radius = 1.1;
+    ChainSpec spec = loopSpec(40.0);
+    ChainSim sim;
+    sim.configure({spec}, radius);
+    ChainOvalProbe probe(spec, radius);
+
+    auto beforeLinks = sim.links();
+    const ChainLink* before = markedLink(beforeLinks, spec.componentId, 0);
+    ASSERT_NE(before, nullptr);
+    double beforePhase = probe.phaseOf(before->pos);
+
+    runFor(sim, 2.0);
+
+    auto afterLinks = sim.links();
+    const ChainLink* after = markedLink(afterLinks, spec.componentId, 0);
+    ASSERT_NE(after, nullptr);
+    double afterPhase = probe.phaseOf(after->pos);
+
+    EXPECT_GT(std::abs(signedPhaseDelta(beforePhase, afterPhase)), 0.01);
 }
 
 TEST(ChainSim, BrakeZoneIsOvercomeButResists) {
