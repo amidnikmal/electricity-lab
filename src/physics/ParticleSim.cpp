@@ -16,8 +16,12 @@ namespace {
 constexpr float kToSim = 0.05f;   // world units -> sim metres
 constexpr float kFromSim = 1.0f / kToSim;
 constexpr float kSubStep = 1.0f / 120.0f;
-constexpr int kVelocityIterations = 16; // long contact chains: pump pressure must cross the whole loop
-constexpr int kPositionIterations = 6;
+// 10/4 (было 16/6): после появления камерного ассиста длинные контактные
+// цепочки больше не единственный переносчик давления, а солвер Box2D — самая
+// дорогая часть кадра при открытой Water-панели. Несжимаемость, равномерность
+// и масштабирование потока закреплены тестами WaterNetwork.*.
+constexpr int kVelocityIterations = 10;
+constexpr int kPositionIterations = 4;
 constexpr double kPi = 3.14159265358979323846;
 
 b2Vec2 toSim(Vec2 v) { return b2Vec2(static_cast<float>(v.x) * kToSim,
