@@ -333,7 +333,11 @@ void emitCapacitorPhysics(BuildContext& ctx, const Component& comp, Vec2 a, Vec2
         emitCurrentArrows(ctx, a, g.leadAEnd, branchCurrent, -1.0);
         emitCurrentArrows(ctx, g.leadBEnd, b, branchCurrent, -1.0);
     }
-    if (ctx.p.layers.drift && std::abs(branchCurrent) > 1e-12) {
+    // Sampling fallback only: the Box2D world has no capacitor channel
+    // (charges cannot cross the gap), so with simParticles active there is
+    // nothing to draw — and the pseudo-ids must not reach the sim filter,
+    // where a collision with a real component id would draw alien particles.
+    if (!ctx.p.simParticles && ctx.p.layers.drift && std::abs(branchCurrent) > 1e-12) {
         emitDriftParticles(ctx, a, g.leadAEnd, branchCurrent, comp.id * 31 + 1, -1.0, 1.0);
         emitDriftParticles(ctx, g.leadBEnd, b, branchCurrent, comp.id * 31 + 2, -1.0, 1.0);
     }
