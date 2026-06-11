@@ -23,6 +23,39 @@ ChainSpec loopSpec(double target, bool brake = false) {
     return spec;
 }
 
+ChainSpec specAt(double x1, double y1, double x2, double y2, int id,
+                 double target, double halfW = 5.0, bool brake = false) {
+    ChainSpec s;
+    s.componentId = id;
+    s.a = Vec2(x1, y1);
+    s.b = Vec2(x2, y2);
+    s.halfWidth = halfW;
+    s.targetSpeed = target;
+    s.brake = brake;
+    return s;
+}
+
+// Lateral distance from p to the oval track around segment a->b at radius
+// `off` (0 = exactly on track): |lateral - ±off| on the straights,
+// ||p-center| - off| on the arcs around the nodes.
+double trackLateralError(Vec2 p, Vec2 a, Vec2 b, double off) {
+    Vec2 ab = b - a;
+    double len = ab.length();
+    if (len < 1e-6) return (p - a).length() - off;
+    Vec2 unit = ab / len;
+    Vec2 perp(-unit.y, unit.x);
+    Vec2 rel = p - a;
+    double along = rel.x * unit.x + rel.y * unit.y;
+    double lateral = rel.x * perp.x + rel.y * perp.y;
+
+    if (along >= 0.0 && along <= len) {
+        double desired = lateral >= 0.0 ? off : -off;
+        return std::abs(lateral - desired);
+    }
+    Vec2 center = along < 0.0 ? a : b;
+    return std::abs((p - center).length() - off);
+}
+
 Circuit singleLoadLoop(int& sourceId, int& resistorId, int& wireId) {
     Circuit c;
     int gnd = c.addNode(Vec2(0, 180), "GND");
@@ -299,6 +332,141 @@ TEST(ChainSim, MarkedResistorLinkCompletesTenLapsWithoutStopping) {
     ASSERT_GT(stats.windows, 0);
     EXPECT_GE(stats.movingWindows, static_cast<int>(stats.windows * 0.90))
         << "marked link stalled in too many one-second windows";
+}
+
+// --- track integrity & robustness (портировано из ветки kilo, d6e2226) ----------
+
+TEST(ChainSim, ChainStaysOnTrack) {
+    // Regression: "цепь слетает с шестерёнок". Every link must stay on the
+    // sprocket pitch circle (the guided chain pins links to the oval exactly,
+    // so a whole link radius of drift already means something broke).
+    ChainSim sim;
+    double lr = 1.1;
+    ChainSpec spec = loopSpec(40.0);
+    sim.configure({spec}, lr);
+    runFor(sim, 5.0);
+
+    double off = chain_geometry::sprocketPitchRadius(spec.halfWidth, lr);
+    for (const auto& link : sim.links()) {
+        double err = trackLateralError(link.pos, spec.a, spec.b, off);
+        EXPECT_LT(err, lr)
+            << "link " << link.indexInLoop << " drifted " << err
+            << " px off track (pitch radius " << off << ")";
+    }
+}
+
+TEST(ChainSim, ChainLinksNeverInfiniteOrNaN) {
+    ChainSim sim;
+    sim.configure({loopSpec(120.0)}, 1.1);                 // high speed stress
+    for (int i = 0; i < 600; ++i) sim.step(1.0 / 60.0);   // 10 s
+
+    for (const auto& link : sim.links()) {
+        EXPECT_TRUE(std::isfinite(link.pos.x));
+        EXPECT_TRUE(std::isfinite(link.pos.y));
+    }
+}
+
+TEST(ChainSim, ChainDoesNotCollapse) {
+    // Under zero drive a static chain stays spread around the oval,
+    // not collapsed into one point.
+    ChainSim sim;
+    sim.configure({loopSpec(0.0)}, 1.1);
+    runFor(sim, 2.0);
+
+    auto links = sim.links();
+    ASSERT_GE(links.size(), 4u);
+    Vec2 sum(0, 0);
+    for (auto& l : links) sum = sum + l.pos;
+    Vec2 centroid = sum / static_cast<double>(links.size());
+    double rmsFromCentroid = 0.0;
+    for (auto& l : links) {
+        Vec2 d = l.pos - centroid;
+        rmsFromCentroid += d.x * d.x + d.y * d.y;
+    }
+    rmsFromCentroid = std::sqrt(rmsFromCentroid / links.size());
+    EXPECT_GT(rmsFromCentroid, 10.0);
+}
+
+TEST(ChainSim, ChainSpeedApproximatesTarget) {
+    // Average tangential speed should be within a factor of two of the target.
+    ChainSim sim;
+    double target = 60.0;
+    sim.configure({loopSpec(target)}, 1.1);
+    auto before = sim.links();
+    runFor(sim, 1.0);
+    auto after = sim.links();
+
+    ASSERT_EQ(before.size(), after.size());
+    double total = 0.0;
+    for (size_t i = 0; i < after.size(); ++i)
+        total += (after[i].pos - before[i].pos).length();
+    double avgSpeed = total / after.size();               // px/s
+    EXPECT_GT(avgSpeed, target * 0.25);
+    EXPECT_LT(avgSpeed, target * 2.0);
+}
+
+TEST(ChainSim, ChainHandlesZeroSpeed) {
+    // Static chain should not drift (positions change negligibly).
+    ChainSim sim;
+    sim.configure({loopSpec(0.0)}, 1.1);
+    auto before = sim.links();
+    runFor(sim, 2.0);
+    auto after = sim.links();
+    ASSERT_EQ(before.size(), after.size());
+    double total = 0.0;
+    for (size_t i = 0; i < after.size(); ++i)
+        total += (after[i].pos - before[i].pos).length();
+    EXPECT_LT(total / after.size(), 1.0);
+}
+
+TEST(ChainSim, ChainWorksForVerticalComponent) {
+    ChainSim sim;
+    sim.configure({specAt(100, 0, 100, 300, 1, 40.0)}, 1.3);
+    runFor(sim, 3.0);
+    auto links = sim.links();
+    ASSERT_GE(links.size(), 8u);
+    for (const auto& link : links) {
+        EXPECT_TRUE(std::isfinite(link.pos.x));
+        EXPECT_TRUE(std::isfinite(link.pos.y));
+    }
+}
+
+TEST(ChainSim, ShortComponentIsSkipped) {
+    // Very short component (length < 8*linkRadius) produces no bodies.
+    ChainSim sim;
+    sim.configure({specAt(0, 0, 2, 0, 1, 40.0)}, 1.5);    // len=2 < 8*1.5=12
+    EXPECT_TRUE(sim.configured());
+    EXPECT_EQ(sim.links().size(), 0u);
+}
+
+TEST(ChainSim, ReconfigurationPreservesCount) {
+    ChainSim sim;
+    sim.configure({loopSpec(40.0)}, 1.1);
+    auto n = sim.links().size();
+    // setTargets with same layout but different speed — should keep bodies
+    sim.setTargets({loopSpec(80.0)});
+    // step to ensure nothing was destroyed
+    sim.step(0.0);
+    EXPECT_EQ(sim.links().size(), n);
+}
+
+TEST(ChainSim, MultipleLoopsAreIndependent) {
+    // Two components' chains must not collide or interfere.
+    ChainSim sim;
+    sim.configure({
+        specAt(0, 0, 300, 0, 10, 30.0),
+        specAt(0, 60, 300, 60, 20, -30.0),                 // opposite direction, adjacent
+    }, 1.2);
+    ASSERT_TRUE(sim.configured());
+    auto before = sim.links();
+    ASSERT_GE(before.size(), 16u);
+    runFor(sim, 3.0);
+    auto after = sim.links();
+    ASSERT_EQ(before.size(), after.size());
+    for (const auto& link : after) {
+        EXPECT_TRUE(std::isfinite(link.pos.x));
+        EXPECT_TRUE(std::isfinite(link.pos.y));
+    }
 }
 
 // --- rectangular autolayout -----------------------------------------------------

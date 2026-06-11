@@ -135,6 +135,7 @@ set(TEST_SOURCES
     tests/test_chain_gear.cpp
     tests/test_water_network.cpp
     tests/test_app_path_directions.cpp
+    tests/test_hydraulic_sim.cpp   # ВАРИАНТ Б гидравлики (карантин, см. src/physics/HydraulicSim.h)
     src/circuit/Circuit.cpp
     src/solver/CircuitSolver.cpp
     src/projection/ProjectionBuilder.cpp
@@ -148,6 +149,7 @@ set(TEST_SOURCES
     src/ui/MathTextParse.cpp
     src/physics/ParticleSim.cpp
     src/physics/ChainSim.cpp
+    src/physics/HydraulicSim.cpp   # ВАРИАНТ Б — живёт только в тестах, в приложение не линкуется
 )
 
 add_executable(current-lab-tests ${TEST_SOURCES})
