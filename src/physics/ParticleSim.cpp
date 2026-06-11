@@ -812,18 +812,16 @@ void ParticleSim::step(double dt) {
     while (m_impl->accumulator >= kSubStep && steps < 8) {
         m_impl->applyDriveForces();
         m_impl->world->Step(kSubStep, kVelocityIterations, kPositionIterations);
-        if (m_impl->connectedMode) {
-            m_impl->flowOwnership(); // physical transit, bookkeeping only
-            // Keep the stream continuous through node chambers. Without this
-            // handoff particles can sit in a junction with no channel drive,
-            // which visually reads as water reaching a steady value and then
-            // no longer flowing through the loop.
-            m_impl->wrapParticles();
-        } else {
+        if (!m_impl->connectedMode)
             m_impl->wrapParticles(); // legacy teleport wrap/transfer
-        }
         m_impl->accumulator -= kSubStep;
         ++steps;
+    }
+    if (m_impl->connectedMode && steps > 0) {
+        // Bookkeeping, not physics (ownership re-tags, escapee rescue, chamber
+        // skips) — once per frame is enough and it is O(bodies x channels).
+        m_impl->flowOwnership();
+        m_impl->wrapParticles();
     }
 }
 

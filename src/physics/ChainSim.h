@@ -5,13 +5,12 @@
 #include <memory>
 #include <vector>
 
-// Box2D chain for the Mechanics view: every component carries a CLOSED loop
-// of rigid-jointed links running around an oval guide (two gears = the two
-// nodes). The joints make the chain inextensible — the mechanical image of
-// "one series loop, one current": brake one spot and the WHOLE loop slows.
-// Link spacing is enforced by the joints, drive is a force toward the
-// solver-calibrated loop speed, the resistor section adds heavy damping
-// (friction brake) the drive has to work against.
+// Guided chain for the Mechanics view: every component carries a CLOSED loop
+// of links running around an oval racetrack (two sprockets = the two nodes).
+// Link positions come straight from the loop phase, so the chain is
+// inextensible and never drifts off the sprockets by construction — the
+// mechanical image of "one series loop, one current": brake one spot and the
+// WHOLE loop slows (the resistor section scales the loop speed down).
 namespace current_lab::physics {
 
 struct ChainSpec {

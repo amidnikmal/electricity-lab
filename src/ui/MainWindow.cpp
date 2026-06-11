@@ -258,6 +258,18 @@ void MainWindow::updateParticleSim(float realDt) {
     double particleRadius = current_lab::physics::particleWorldRadius(m_wireThickness);
     double dt = m_animationPaused ? 0.0 : static_cast<double>(realDt) * m_animationSpeed;
 
+    // Each Box2D world is expensive (hundreds of bodies at 120 Hz substeps);
+    // step only the worlds some visible pane actually renders. A world keeps
+    // its state while hidden and resumes seamlessly when its pane returns.
+    bool needElectrons = false, needWater = false, needChains = false;
+    for (int paneId : m_paneTree.paneIds()) {
+        auto kind = static_cast<current_lab::projection::ProjectionKind>(
+            m_paneTree.projectionOf(paneId));
+        needElectrons |= kind == current_lab::projection::ProjectionKind::Physics;
+        needWater |= kind == current_lab::projection::ProjectionKind::Hydraulic;
+        needChains |= kind == current_lab::projection::ProjectionKind::Mechanical;
+    }
+
     auto runWorld = [&](current_lab::physics::ParticleSim& sim, bool waterWorld,
                         std::vector<current_lab::physics::SimParticle>& outParticles) {
         auto specs = current_lab::physics::makeChannelSpecs(m_circuit, solution,
@@ -275,12 +287,20 @@ void MainWindow::updateParticleSim(float realDt) {
         outParticles = sim.particles();
     };
 
-    runWorld(m_electronSim, /*waterWorld=*/false, m_electronParticles);
-    runWorld(m_waterSim, /*waterWorld=*/true, m_waterParticles);
-    m_waterPaddles = m_waterSim.paddles();
+    if (needElectrons)
+        runWorld(m_electronSim, /*waterWorld=*/false, m_electronParticles);
+    if (needWater) {
+        runWorld(m_waterSim, /*waterWorld=*/true, m_waterParticles);
+        m_waterPaddles = m_waterSim.paddles();
+    }
 
     // Mechanics chain: rigid-jointed loops, one per component.
     std::vector<current_lab::physics::ChainSpec> chainSpecs;
+    if (!needChains) {
+        current_lab::projection::advanceFlowIntegrals(m_flowIntegrals, m_circuit,
+                                                      solution, dt);
+        return;
+    }
     for (const auto& comp : m_circuit.components) {
         if (comp.type == ComponentType::Ground || comp.type == ComponentType::Capacitor)
             continue;
