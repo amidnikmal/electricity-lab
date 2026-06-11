@@ -1696,6 +1696,15 @@ void buildCircuitShapes(BuildContext& ctx, bool physicsLayers) {
                 emitCapacitorPhysics(ctx, comp, a, b, va, vb, branchCurrent);
             } else if (comp.type == ComponentType::Resistor) {
                 auto sections = physics::resistorPathSections(a, b, va, vb, ctx.p.wireThickness);
+                // Box2D particles are tagged with the REAL component id (one
+                // channel per component, makeChannelSpecs) — the per-section
+                // pseudo-ids below never match them, so the sim path emits
+                // once for the whole conductor, at the collider size
+                // (regression: «в проводнике с резистором не виден поток
+                // электронов»). The pseudo-ids stay as phase seeds for the
+                // stateless sampling fallback.
+                if (ctx.p.simParticles && ctx.p.layers.drift && std::abs(branchCurrent) > 1e-12)
+                    emitDriftParticles(ctx, a, b, branchCurrent, comp.id);
                 for (size_t si = 0; si < sections.size(); ++si) {
                     const auto& section = sections[si];
                     bool isBody = section.material == physics::VisualMaterial::ResistiveBody;
@@ -1706,7 +1715,7 @@ void buildCircuitShapes(BuildContext& ctx, bool physicsLayers) {
                                          section.voltageStart, section.voltageEnd, section.halfWidth);
                     if (ctx.p.layers.current && std::abs(branchCurrent) > 1e-12)
                         emitCurrentArrows(ctx, section.start, section.end, branchCurrent, section.halfWidth);
-                    if (ctx.p.layers.drift && std::abs(branchCurrent) > 1e-12)
+                    if (!ctx.p.simParticles && ctx.p.layers.drift && std::abs(branchCurrent) > 1e-12)
                         emitDriftParticles(ctx, section.start, section.end, branchCurrent, sectionId,
                                            section.halfWidth * 2.0, section.driftSpeedScale);
                     if (ctx.p.layers.surfaceCharge && isBody)
