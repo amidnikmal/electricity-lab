@@ -518,6 +518,10 @@ void emitCurrentArrows(BuildContext& ctx, Vec2 a, Vec2 b, double current,
 
     double speed = std::max(absI * 20.0, 5.0);
     double phase = std::fmod(ctx.p.time * speed, arrowSpacing);
+    // The march must go where the glyphs point: the current sign and the
+    // electron-flow toggle flip flowDir, so the animation phase flips too
+    // (regression: source arrows pointed up the branch but marched down).
+    if (flowDir.x * unit.x + flowDir.y * unit.y < 0.0) phase = -phase;
 
     Vec2 perp(-unit.y, unit.x);
     double halfWidth = conductorHalfWidth > 0.0 ? conductorHalfWidth : 0.0;

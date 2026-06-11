@@ -177,6 +177,53 @@ TEST(AppPathDirections, CurrentArrowsFollowOneCirculation) {
     EXPECT_LT(meanArrowAlong(app.srcId), -0.5);
 }
 
+TEST(AppPathDirections, CurrentArrowsMarchWhereTheyPoint) {
+    // Regression (user, 2026-06-11): source arrows POINTED up the branch but
+    // MARCHED down — the glyph direction honoured the current sign, the
+    // animation phase did not. Invariant: every arrow that moves between two
+    // close frames moves along its own glyph direction. Holds in both the
+    // conventional-current and electron-flow modes.
+    AppSolution app = solveAppPath();
+    for (bool electrons : {false, true}) {
+        ViewParams p0;
+        p0.layers.current = true;
+        p0.layers.electronFlow = electrons;
+        p0.time = 1.0;
+        ViewParams p1 = p0;
+        p1.time = 1.0 + 0.01; // marches <= ~0.1 px, far below arrow spacing
+
+        ProjectionResult f0 = buildProjection(ProjectionKind::Physics, app.circuit,
+                                              &app.mapped, p0);
+        ProjectionResult f1 = buildProjection(ProjectionKind::Physics, app.circuit,
+                                              &app.mapped, p1);
+        ASSERT_FALSE(f0.prims.arrows.empty());
+
+        int marching = 0;
+        for (const auto& a0 : f0.prims.arrows) {
+            // Nearest arrow in the next frame is this arrow a tick later
+            // (the step is tiny compared to the spacing between arrows).
+            double bestD2 = 1e300;
+            Vec2 bestPos = a0.pos;
+            for (const auto& a1 : f1.prims.arrows) {
+                Vec2 d = a1.pos - a0.pos;
+                double d2 = d.x * d.x + d.y * d.y;
+                if (d2 < bestD2) { bestD2 = d2; bestPos = a1.pos; }
+            }
+            Vec2 delta = bestPos - a0.pos;
+            double dist = delta.length();
+            if (dist < 1e-9 || dist > 2.0) continue; // static glyph or wrapped
+            double along = delta.x * a0.dir.x + delta.y * a0.dir.y;
+            EXPECT_GT(along, 0.0)
+                << (electrons ? "electron" : "conventional") << " arrow at ("
+                << a0.pos.x << ", " << a0.pos.y << ") points ("
+                << a0.dir.x << ", " << a0.dir.y << ") but moved ("
+                << delta.x << ", " << delta.y << ")";
+            ++marching;
+        }
+        EXPECT_GT(marching, 10) << "animation produced no moving arrows";
+    }
+}
+
 TEST(AppPathDirections, DriftAndWaterCirculateConsistentlyFromMappedSolution) {
     AppSolution app = solveAppPath();
     for (bool waterWorld : {false, true}) {
