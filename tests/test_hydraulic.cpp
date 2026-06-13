@@ -1,8 +1,12 @@
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <vector>
 #include "circuit/Circuit.h"
 #include "physics/DriftModel.h"
 #include "physics/ParticleSim.h"
+#include "projection/ElementGeometry.h"
 #include "projection/HydraulicMapping.h"
 #include "projection/ProjectionBuilder.h"
 #include "solver/CircuitSolver.h"
@@ -77,10 +81,33 @@ TEST(HydraulicProjection, ElementsMatchPhysicsProjectionExactly) {
     }
 }
 
-TEST(HydraulicProjection, TankLevelRisesAsCapacitorCharges) {
+TEST(HydraulicProjection, CapacitorTankFillsAndMembraneRespondsToCharge) {
+    // Конденсатор в воде = бак с упругой МЕМБРАНОЙ (а не пустая полоска уровня):
+    // бак физически наполнен водяными шариками, заряд выгибает мембрану и
+    // «заряжает» A-сторону. Поэтому картина бака зависит от Vc, а число шариков
+    // постоянно (вода несжимаема). Позиции шариков от Vc НЕ зависят — меняется
+    // только цвет (сторона мембраны), что и проверяем.
     int capId;
     Circuit c = makeRlcCircuit(capId);
     CircuitSolver solver;
+
+    const Component* cap = c.findComponent(capId);
+    ASSERT_NE(cap, nullptr);
+    Vec2 a = c.findNode(cap->nodeA)->position;
+    Vec2 b = c.findNode(cap->nodeB)->position;
+    auto g = capacitorGeometry(a, b, waterParams().wireThickness);
+    ASSERT_TRUE(g.valid);
+
+    // Цвета шариков ВНУТРИ бака (рядом с центром — только сетка бака, поток труб
+    // R/L идёт по верхней кромке в ~100 wu отсюда).
+    auto capColors = [&](const ProjectionResult& res) {
+        std::vector<uint32_t> cols;
+        for (const auto& prt : res.prims.particles)
+            if ((prt.pos - g.mid).length() <= g.plateHalf * 1.2)
+                cols.push_back(prt.color);
+        std::sort(cols.begin(), cols.end());
+        return cols;
+    };
 
     TransientState empty;
     auto unchargedSolution = solver.solveTransientSnapshot(c, empty);
@@ -91,8 +118,14 @@ TEST(HydraulicProjection, TankLevelRisesAsCapacitorCharges) {
     auto chargedSolution = solver.solveTransientSnapshot(c, charged);
     auto full = buildProjection(ProjectionKind::Hydraulic, c, &chargedSolution, waterParams());
 
-    // A charged tank adds the water-fill quad and the level line.
-    EXPECT_GT(full.prims.quads.size(), uncharged.prims.quads.size());
+    auto unchargedCols = capColors(uncharged);
+    auto chargedCols = capColors(full);
+
+    EXPECT_GT(unchargedCols.size(), 0u) << "бак не наполнен водяными шариками";
+    EXPECT_EQ(unchargedCols.size(), chargedCols.size())
+        << "вода несжимаема — число шариков в баке должно быть постоянным";
+    EXPECT_NE(unchargedCols, chargedCols)
+        << "вид бака не реагирует на заряд (мембрана/заряженная сторона не двигаются)";
 }
 
 TEST(HydraulicProjection, WaterFlowFollowsCurrentSign) {

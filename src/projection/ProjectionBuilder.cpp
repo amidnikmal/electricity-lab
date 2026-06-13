@@ -1470,38 +1470,82 @@ void emitPump(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
     ctx.out.labels.push_back({mid + perp * 24.0, buf, packColor(200, 200, 200), false});
 }
 
+// Hydraulic capacitor = a sealed tank split by an ELASTIC MEMBRANE. Water from
+// terminal A bows the membrane toward B (displacing B-water out the B terminal),
+// and vice versa — NO water ever crosses the membrane. Charge Q ∝ how far the
+// membrane is bowed ∝ Vc; current through the cap = the SPEED the membrane moves,
+// so a fully charged cap (membrane at rest) passes no DC — shown honestly here.
+// During an RLC ring the membrane springs back and forth, visualising the
+// oscillation. The tank is drawn wider than the schematic plate gap so the
+// membrane motion is legible; both chambers stay FULL (water is incompressible),
+// and the A-side balls tint "charged" as the membrane bows, so the growing
+// charged region reads as filling.
 void emitTank(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
               double va, double vb) {
     auto g = capacitorGeometry(a, b, ctx.p.wireThickness);
     if (!g.valid) return;
+    Vec2 unit = g.unit, perp = g.perp;
+
+    double ph = g.plateHalf;
+    double tankHalfAxis = std::max(ph * 0.9, g.gap * 0.5);
+    Vec2 mouthA = g.mid - unit * tankHalfAxis;
+    Vec2 mouthB = g.mid + unit * tankHalfAxis;
 
     double halfW = pipeHalfWidth(ctx);
-    emitPipe(ctx, a, g.leadAEnd, va, va, halfW);
-    emitPipe(ctx, g.leadBEnd, b, vb, vb, halfW);
+    emitPipe(ctx, a, mouthA, va, va, halfW);
+    emitPipe(ctx, mouthB, b, vb, vb, halfW);
 
-    // Tank box between the lead ends, spanning the plate height.
-    Vec2 boxA1 = g.leadAEnd + g.perp * g.plateHalf;
-    Vec2 boxA2 = g.leadAEnd - g.perp * g.plateHalf;
-    Vec2 boxB2 = g.leadBEnd - g.perp * g.plateHalf;
-    Vec2 boxB1 = g.leadBEnd + g.perp * g.plateHalf;
-    ctx.out.quads.push_back({boxA1, boxA2, boxB2, boxB1, packColor(20, 30, 44), true, 0.0});
-    ctx.out.quads.push_back({boxA1, boxA2, boxB2, boxB1, packColor(110, 150, 200, 230), false, 1.8});
+    // Tank shell (filled, drawn under the water balls).
+    Vec2 A1 = mouthA + perp * ph, A2 = mouthA - perp * ph;
+    Vec2 B2 = mouthB - perp * ph, B1 = mouthB + perp * ph;
+    ctx.out.quads.push_back({A1, A2, B2, B1, packColor(20, 30, 44), true, 0.0});
 
-    // Water level: fill fraction is the honest mapping of Vc.
+    // Membrane bow from Vc (signed): flat at Vc=0, bows toward B as Vc rises
+    // (toward A if negative). Parabolic, pinned to the tank walls at top/bottom.
     double vc = va - vb;
-    double fill = hydraulic::tankFillFraction(vc, ctx.vMax - ctx.vMin);
-    if (fill > 0.01) {
-        // Fill rises from the -perp side toward +perp.
-        Vec2 levelA = g.leadAEnd + g.perp * (-g.plateHalf + 2.0 * g.plateHalf * fill);
-        Vec2 levelB = g.leadBEnd + g.perp * (-g.plateHalf + 2.0 * g.plateHalf * fill);
-        ctx.out.quads.push_back({levelA, boxA2, boxB2, levelB,
-                                 packColor(70, 140, 230, 150), true, 0.0});
-        ctx.out.lines.push_back({levelA, levelB, 1.6, packColor(150, 200, 255, 220), true});
+    double range = std::max(ctx.vMax - ctx.vMin, 1e-9);
+    double disp = std::clamp(vc / range, -1.0, 1.0);
+    double bow = disp * tankHalfAxis * 0.82;
+    auto membraneAxial = [&](double f) { return bow * (1.0 - f * f); }; // f in [-1,1]
+
+    // Both chambers stay full (incompressible). Tint by side of the membrane:
+    // A-side = "charged" (brightens with |Vc|), B-side = plain water.
+    double r = std::max(1.0, physics::particleWorldRadius(ctx.p.wireThickness) * 0.85);
+    double pitch = r * 2.15;
+    double chargeI = std::clamp(std::abs(disp), 0.0, 1.0);
+    uint32_t plain = packColor(96, 170, 255, 175);
+    uint32_t charged = packColor(140, static_cast<unsigned>(205 + 40 * chargeI), 255, 215);
+    int nAx = std::max(2, static_cast<int>(std::floor((2.0 * tankHalfAxis - r) / pitch)));
+    int nPp = std::max(2, static_cast<int>(std::floor((2.0 * ph - r) / pitch)));
+    for (int i = 0; i < nAx; ++i) {
+        double ax = -tankHalfAxis + r +
+                    (2.0 * tankHalfAxis - 2.0 * r) * (nAx > 1 ? double(i) / (nAx - 1) : 0.5);
+        for (int j = 0; j < nPp; ++j) {
+            double pp = -ph + r + (2.0 * ph - 2.0 * r) * (nPp > 1 ? double(j) / (nPp - 1) : 0.5);
+            double f = pp / std::max(ph, 1e-9);
+            bool aSide = ax < membraneAxial(f); // left of the bowed membrane
+            Vec2 pos = g.mid + unit * ax + perp * pp;
+            ctx.out.particles.push_back({pos, r, aSide ? charged : plain, false});
+        }
     }
+
+    // Membrane: a bold bowed polyline — a SOLID elastic barrier balls never cross.
+    const int seg = 10;
+    Vec2 prev;
+    for (int s = 0; s <= seg; ++s) {
+        double f = -1.0 + 2.0 * s / seg;
+        Vec2 p = g.mid + unit * membraneAxial(f) + perp * (f * ph);
+        if (s > 0)
+            ctx.out.lines.push_back({prev, p, 2.6, packColor(235, 185, 120, 245), true});
+        prev = p;
+    }
+
+    // Tank outline on top.
+    ctx.out.quads.push_back({A1, A2, B2, B1, packColor(110, 150, 200, 230), false, 1.8});
 
     char buf[32];
     formatCapacitance(comp.value, buf, sizeof(buf));
-    ctx.out.labels.push_back({g.mid + g.perp * (g.plateHalf + 9.0 / ctx.safeScale()), buf,
+    ctx.out.labels.push_back({g.mid + perp * (ph + 9.0 / ctx.safeScale()), buf,
                               packColor(200, 200, 200), false});
 }
 
