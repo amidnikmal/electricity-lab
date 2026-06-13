@@ -1373,34 +1373,43 @@ void emitWaterFlow(BuildContext& ctx, Vec2 a, Vec2 b, double current, int compId
 
 void emitConstriction(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
                       double va, double vb, double power) {
-    auto sections = physics::resistorPathSections(a, b, va, vb, ctx.p.wireThickness);
-    const physics::ConductivePathSection* body = nullptr;
-    for (const auto& s : sections)
-        if (s.material == physics::VisualMaterial::ResistiveBody) { body = &s; break; }
-    if (!body) return;
-
-    Vec2 unit = (body->end - body->start).normalized();
+    Vec2 ab = b - a;
+    double len = ab.length();
+    if (len < 1.0) return;
+    Vec2 unit = ab / len;
     Vec2 perp(-unit.y, unit.x);
-    double wide = pipeHalfWidth(ctx);
-    double narrow = wide * 0.45; // the viscous restriction
 
-    // Funnel walls into and out of the narrow throat.
-    ctx.out.lines.push_back({body->start + perp * wide, body->start + unit * 4.0 + perp * narrow,
-                             1.8, packColor(110, 150, 200, 230), true});
-    ctx.out.lines.push_back({body->start - perp * wide, body->start + unit * 4.0 - perp * narrow,
-                             1.8, packColor(110, 150, 200, 230), true});
-    ctx.out.lines.push_back({body->end + perp * wide, body->end - unit * 4.0 + perp * narrow,
-                             1.8, packColor(110, 150, 200, 230), true});
-    ctx.out.lines.push_back({body->end - perp * wide, body->end - unit * 4.0 - perp * narrow,
-                             1.8, packColor(110, 150, 200, 230), true});
-    emitPipe(ctx, body->start + unit * 4.0, body->end - unit * 4.0, body->voltageStart,
-             body->voltageEnd, narrow);
+    // ONE geometry with the Box2D collider (ParticleSim addWalls): the drawn
+    // funnel sits a hair (drawMargin) OUTSIDE the collider wall, so a ball
+    // resting on the collider is still inside the drawn throat. Without this
+    // shared profile the water flows in a wider channel than the throat necked
+    // around it and rides outside the funnel (user finding 2026-06-13).
+    double simHalf = ctx.p.wireThickness * 0.5;
+    physics::HydraulicThrottle th = physics::hydraulicThrottle(len, simHalf);
+    double margin = physics::hydraulicWallDrawMargin(simHalf);
+    uint32_t wall = packColor(110, 150, 200, 230);
 
+    auto wallPt = [&](double t, int side) {
+        return a + unit * t + perp * (side * (th.halfWidthAt(t) + margin));
+    };
+    // Funnel walls: inlet cone -> throat -> outlet cone (piecewise-linear).
+    for (int side : {1, -1}) {
+        ctx.out.lines.push_back({wallPt(th.leadIn, side), wallPt(th.throatStart, side),
+                                 1.8, wall, true});
+        ctx.out.lines.push_back({wallPt(th.throatStart, side), wallPt(th.throatEnd, side),
+                                 1.8, wall, true});
+        ctx.out.lines.push_back({wallPt(th.throatEnd, side), wallPt(th.leadOut, side),
+                                 1.8, wall, true});
+    }
+    // The necked flow region reads as a narrow pipe: shell + pressure gradient.
+    emitPipe(ctx, a + unit * th.throatStart, a + unit * th.throatEnd, va, vb,
+             th.throatHalfWidth + margin);
+
+    Vec2 bodyMid = a + unit * ((th.leadIn + th.leadOut) * 0.5);
     double heat = hydraulic::frictionHeatFromPower(comp.type, power);
     double frac = ctx.maxP > 1e-12 ? std::clamp(heat / ctx.maxP, 0.0, 1.0) : 0.0;
     if (ctx.p.layers.heat && frac > 0.02) {
-        Vec2 mid = (body->start + body->end) * 0.5;
-        ctx.out.glows.push_back({mid, (body->end - body->start).length() * 0.7, frac,
+        ctx.out.glows.push_back({bodyMid, (th.leadOut - th.leadIn) * 0.7, frac,
                                  packColor(255, 140, 60, static_cast<unsigned>(10 + 36 * frac))});
     }
 
@@ -1409,8 +1418,7 @@ void emitConstriction(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
         std::snprintf(buf, sizeof(buf), "%.1f %s", comp.value / 1000.0, tr("k\xCE\xA9"));
     else
         std::snprintf(buf, sizeof(buf), "%.0f %s", comp.value, tr("\xCE\xA9"));
-    Vec2 mid = (body->start + body->end) * 0.5;
-    ctx.out.labels.push_back({mid + perp * (wide + 10.0 / ctx.safeScale()), buf,
+    ctx.out.labels.push_back({bodyMid + perp * (simHalf + margin + 10.0 / ctx.safeScale()), buf,
                               packColor(200, 200, 200), false});
 }
 

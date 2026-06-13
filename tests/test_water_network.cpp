@@ -8,6 +8,7 @@
 #include "physics/ChannelSpecs.h"
 #include "physics/DriftModel.h"
 #include "physics/ParticleSim.h"
+#include "physics/ResistiveElementModel.h"
 #include "solver/CircuitSolver.h"
 
 // Water-network mode: pipes joined through junction chambers, dense packing,
@@ -394,6 +395,58 @@ TEST(WaterNetwork, ResistorFlowIsTemporallyUniform) {
 
     EXPECT_GE(nonzero, 9);
     EXPECT_LT(cv, 1.25) << "resistor flow should not arrive only in bursts";
+}
+
+TEST(WaterNetwork, WaterStaysInsideTheNarrowedResistorChannel) {
+    // Регрессия (пользователь, 2026-06-13): «канал резистора сужается, но шарики
+    // воды выходят за стенки суженного канала». Рендер рисует вентури-воронку
+    // (emitConstriction), сим ОБЯЗАН держать тот же профиль (hydraulicThrottle)
+    // — иначе вода течёт в полноширинном канале, шире нарисованной горловины, и
+    // шары огибают сужение «снаружи». СТРОГО: ни один шарик канала резистора в
+    // зоне сужения [leadIn, leadOut] не торчит за нарисованную стенку
+    // (halfWidthAt(t) + drawMargin) НИ В ОДНОМ кадре. До сужения коллайдера
+    // падает (шары на ±halfWidth против горловины ~0.6*halfWidth), после — зелёный.
+    int srcId, resId, w1, w2;
+    Circuit c = makeLoop(srcId, resId, w1, w2, 100.0);
+    CircuitSolver solver;
+    CircuitSolution sol = solver.solve(c);
+    const double wt = 8.0;
+    auto specs = makeChannelSpecs(c, &sol, wt, /*waterWorld=*/true);
+    const ChannelSpec& res = specFor(specs, resId);
+    double radius = particleWorldRadius(wt);
+
+    Vec2 unit = (res.b - res.a).normalized();
+    Vec2 perp(-unit.y, unit.x);
+    double len = (res.b - res.a).length();
+    HydraulicThrottle th = hydraulicThrottle(len, res.halfWidth);
+    double drawMargin = hydraulicWallDrawMargin(res.halfWidth);
+    ASSERT_LT(th.throatHalfWidth, res.halfWidth * 0.9)
+        << "throat must be a real narrowing, else the test proves nothing";
+    // Допуск = контактный слоп Box2D (шарик слегка проникает в стенку, ~0.1 wu).
+    // Мал против зазора рисунка drawMargin, так что пост-фикс зелено с запасом,
+    // а до-фикс шары торчат на ~radius глубже — ловится уверенно.
+    const double kSlop = 0.5;
+
+    ParticleSim sim;
+    sim.configure(specs, radius);
+
+    for (int frame = 0; frame < 360; ++frame) { // 6 s покадрово
+        sim.step(1.0 / 60.0);
+        for (const auto& p : sim.particles()) {
+            if (p.componentId != resId) continue;
+            Vec2 rel = p.pos - res.a;
+            double t = rel.x * unit.x + rel.y * unit.y;
+            if (t < th.leadIn || t > th.leadOut) continue; // только зона сужения
+            double lat = rel.x * perp.x + rel.y * perp.y;
+            double drawnHalf = th.halfWidthAt(t) + drawMargin;
+            ASSERT_LE(std::abs(lat) + radius, drawnHalf + kSlop)
+                << "frame " << frame << ": шарик воды на осевой " << t
+                << " торчит на " << (std::abs(lat) + radius - drawnHalf)
+                << " wu за нарисованную стенку горловины (drawnHalf=" << drawnHalf
+                << ", throatHalf=" << th.throatHalfWidth << ", |lat|=" << std::abs(lat)
+                << ")";
+        }
+    }
 }
 
 TEST(WaterNetwork, PumpAloneDrivesTheLoop) {

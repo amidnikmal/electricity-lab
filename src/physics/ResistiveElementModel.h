@@ -115,6 +115,70 @@ inline AxialSpan resistorBodySpan(double channelLength, double wireThickness)
     return {mid - bodyLength * 0.5, mid + bodyLength * 0.5};
 }
 
+// Hydraulic resistor = a venturi (converging-diverging nozzle). The Box2D
+// collider walls (ParticleSim, water world) AND the drawn funnel
+// (ProjectionBuilder, Hydraulic view) MUST follow this ONE profile — otherwise
+// the water flows in a wider channel than the throat drawn around it and the
+// balls ride outside the necked walls (user finding 2026-06-13). Same lesson
+// as ChainGeometry / resistorBodySpan: never compute the shape twice.
+//
+// Throat fraction of the pipe half-width. 0.6 is a clearly visible necking that
+// the dense granular pack still passes: a SMOOTH throat arches far less than the
+// old staggered Drude pillars did at the same minimum width. Tuned to keep all
+// WaterNetwork.* (flow conservation / temporal uniformity / incompressibility)
+// green — widen if a tighter throat clogs.
+inline constexpr double kHydraulicThroatFraction = 0.6;
+
+struct HydraulicThrottle
+{
+    double leadIn = 0.0;     // axial t (from channel start a) where the inlet cone begins
+    double throatStart = 0.0;
+    double throatEnd = 0.0;
+    double leadOut = 0.0;    // axial t where the outlet cone ends
+    double mouthHalfWidth = 0.0;  // = pipe (channel) half-width
+    double throatHalfWidth = 0.0; // narrowed throat
+
+    // Channel half-width at axial position t (piecewise linear: lead -> cone ->
+    // throat -> cone -> lead). Outside [leadIn, leadOut] it is the full pipe.
+    double halfWidthAt(double t) const
+    {
+        if (t <= leadIn || t >= leadOut) return mouthHalfWidth;
+        if (t >= throatStart && t <= throatEnd) return throatHalfWidth;
+        if (t < throatStart) {
+            double f = (t - leadIn) / std::max(throatStart - leadIn, 1e-9);
+            return mouthHalfWidth + (throatHalfWidth - mouthHalfWidth) * f;
+        }
+        double f = (t - throatEnd) / std::max(leadOut - throatEnd, 1e-9);
+        return throatHalfWidth + (mouthHalfWidth - throatHalfWidth) * f;
+    }
+};
+
+inline HydraulicThrottle hydraulicThrottle(double channelLength, double halfWidth)
+{
+    AxialSpan body = resistorBodySpan(channelLength, halfWidth * 2.0);
+    HydraulicThrottle th;
+    th.mouthHalfWidth = halfWidth;
+    th.throatHalfWidth = halfWidth * kHydraulicThroatFraction;
+    double bodyLen = body.end - body.start;
+    // Long gentle cones + a SHORT central pinch: gradual convergence eases the
+    // granular pack in, the brief narrow run avoids a long single-file column
+    // that would clog.
+    double throatLen = std::min(halfWidth * 2.0, bodyLen * 0.35);
+    double cone = std::max(0.0, (bodyLen - throatLen) * 0.5);
+    th.leadIn = body.start;
+    th.throatStart = body.start + cone;
+    th.throatEnd = body.end - cone;
+    th.leadOut = body.end;
+    if (th.throatEnd < th.throatStart) // degenerate short body: single throat point
+        th.throatStart = th.throatEnd = (body.start + body.end) * 0.5;
+    return th;
+}
+
+// The drawn funnel wall sits this far OUTSIDE the collider wall — the same gap
+// the plain pipe already uses (drawn 0.55*wt vs collider 0.5*wt) — so a ball
+// resting against the collider is still just inside the drawn wall.
+inline double hydraulicWallDrawMargin(double halfWidth) { return halfWidth * 0.1; }
+
 inline double resistorBodyElectricFieldMagnitude(Vec2 a,
                                                  Vec2 b,
                                                  double voltageA,

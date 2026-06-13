@@ -97,7 +97,11 @@ struct ParticleSim::Impl {
         // corridor past every bump is kept >= 1.4 particle diameters, so the
         // resistor is ALWAYS passable — particles squeeze through, they never
         // wall up (regression: frozen electrons in the resistor).
-        if (spec.scatterers) {
+        // ELECTRON world only: for charges the Drude lattice IS the resistance
+        // metaphor. Water uses a smooth venturi throat instead (addWalls /
+        // hydraulicThrottle) — pillars at the walls let balls slip around them
+        // by the opposite wall and ride outside the drawn funnel (user 2026-06-13).
+        if (spec.scatterers && !spec.connected) {
             // Pillars sit ONLY under the drawn resistive body
             // (resistorBodySpan == the ResistiveBody section of
             // resistorPathSections); the leads are drawn as plain wire and
@@ -105,13 +109,12 @@ struct ParticleSim::Impl {
             AxialSpan span = resistorBodySpan(channel.length, spec.halfWidth * 2.0);
             double start = span.start;
             double end = span.end;
-            // Connected (water) mode keeps a wider corridor: dense granular
-            // flow arches and clogs at narrow throats, electrons do not.
-            // 5.0 radii: at 4.2 the loop flow saturated at the arch-breaking
-            // rate and stopped scaling with the solver current.
-            double corridor = spec.connected ? 5.0 : 2.8;
+            // Electron world only (water gets the smooth venturi throat, not
+            // pillars): the free corridor past every staggered bump stays 2.8
+            // particle radii so charges always squeeze through and never wall up.
+            double corridor = 2.8;
             double maxR = (2.0 * spec.halfWidth - corridor * particleRadius) / 2.0;
-            double baseFrac = spec.connected ? 0.32 : 0.45;
+            double baseFrac = 0.45;
             double pillarR = std::clamp(spec.halfWidth * baseFrac, 0.6, std::max(0.6, maxR));
             double stepAlong = std::max(pillarR * 3.0, particleRadius * 3.2);
             int row = 0;
@@ -209,6 +212,16 @@ struct ParticleSim::Impl {
                 t = (i + 0.5) / count * channel.length;
                 lateral = usableHalf * std::sin(i * 2.39996); // golden-angle spread
             }
+            // Water resistor: a grid row that falls outside the necked venturi
+            // wall is SKIPPED, not squeezed to the wall — clamping would stack
+            // several rows on the throat centreline, and Box2D blasting the
+            // overlap apart turns the throat into a contact hotspot (3x slower
+            // step). Skipping thins the throat to its real capacity.
+            if (spec.scatterers && spec.connected) {
+                HydraulicThrottle th = hydraulicThrottle(channel.length, spec.halfWidth);
+                double localUsable = std::max(0.0, th.halfWidthAt(t) - particleRadius - 0.3);
+                if (std::abs(lateral) > localUsable) continue;
+            }
             Vec2 pos = spec.a + channel.unit * t + channel.perp * lateral;
 
             b2BodyDef bodyDef;
@@ -250,19 +263,43 @@ struct ParticleSim::Impl {
         const ChannelSpec& spec = channel.spec;
         b2BodyDef wallDef;
         b2Body* walls = world->CreateBody(&wallDef);
-        Vec2 startBase = spec.a + channel.unit * channel.trimA;
-        Vec2 endBase = spec.b - channel.unit * channel.trimB;
+        double t0 = channel.trimA;
+        double t1 = channel.length - channel.trimB;
+        if (t1 <= t0) return;
+
+        // Water resistor = venturi throat: the walls follow the SAME profile the
+        // renderer draws (hydraulicThrottle), so water can never flow in a wider
+        // channel than the throat necked around it (user finding 2026-06-13).
+        // Other channels: two straight edges along the axis.
+        bool funnel = spec.scatterers && spec.connected;
+        HydraulicThrottle th = funnel ? hydraulicThrottle(channel.length, spec.halfWidth)
+                                      : HydraulicThrottle{};
+        auto halfAt = [&](double t) { return funnel ? th.halfWidthAt(t) : spec.halfWidth; };
+
+        // Axial stations: ends, plus the funnel breakpoints (piecewise-linear
+        // profile, so vertices at the breakpoints reproduce it exactly).
+        std::vector<double> ts = {t0};
+        if (funnel) {
+            for (double s : {th.leadIn, th.throatStart, th.throatEnd, th.leadOut}) {
+                double cs = std::clamp(s, t0, t1);
+                if (std::abs(cs - ts.back()) > 1e-6) ts.push_back(cs);
+            }
+        }
+        if (std::abs(t1 - ts.back()) > 1e-6) ts.push_back(t1);
+
         for (int side : {1, -1}) {
-            b2EdgeShape edge;
-            Vec2 p0 = startBase + channel.perp * (spec.halfWidth * side);
-            Vec2 p1 = endBase + channel.perp * (spec.halfWidth * side);
-            edge.SetTwoSided(toSim(p0), toSim(p1));
-            b2FixtureDef fixture;
-            fixture.shape = &edge;
-            fixture.friction = 0.05f;
-            fixture.restitution = spec.connected ? 0.05f : 0.35f;
-            fixture.userData.pointer = tagFor(channelIndex);
-            walls->CreateFixture(&fixture);
+            for (size_t k = 0; k + 1 < ts.size(); ++k) {
+                Vec2 p0 = spec.a + channel.unit * ts[k]     + channel.perp * (halfAt(ts[k]) * side);
+                Vec2 p1 = spec.a + channel.unit * ts[k + 1] + channel.perp * (halfAt(ts[k + 1]) * side);
+                b2EdgeShape edge;
+                edge.SetTwoSided(toSim(p0), toSim(p1));
+                b2FixtureDef fixture;
+                fixture.shape = &edge;
+                fixture.friction = 0.05f;
+                fixture.restitution = spec.connected ? 0.05f : 0.35f;
+                fixture.userData.pointer = tagFor(channelIndex);
+                walls->CreateFixture(&fixture);
+            }
         }
         // Legacy mode keeps open ends (teleport wrap handles them); connected
         // dead ends are capped by the single-mouth junction arc instead.
