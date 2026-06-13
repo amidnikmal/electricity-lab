@@ -18,19 +18,30 @@ TEST(DemoCircuits, EveryDemoIsSolvableAndFinite) {
     }
 }
 
-TEST(DemoCircuits, EachElementHasItsDemo) {
+TEST(DemoCircuits, EachFunctionalElementHasItsMinimalDemo) {
+    // user 2026-06-13: «минимальный контур на каждый функциональный элемент
+    // палитры». Source/Resistor/Capacitor/Inductor/Diode/Switch — у каждого
+    // своё минимальное демо; Wire/Ground структурные (есть в каждом контуре).
     auto hasType = [](DemoCircuit d, ComponentType t) {
         Circuit c = buildDemo(d);
         for (const auto& comp : c.components)
             if (comp.type == t) return true;
         return false;
     };
-    EXPECT_TRUE(hasType(DemoCircuit::SeriesResistor, ComponentType::Resistor));
+    EXPECT_TRUE(hasType(DemoCircuit::SourceResistor, ComponentType::VoltageSource));
+    EXPECT_TRUE(hasType(DemoCircuit::ResistorDivider, ComponentType::Resistor));
     EXPECT_TRUE(hasType(DemoCircuit::RcCapacitor, ComponentType::Capacitor));
     EXPECT_TRUE(hasType(DemoCircuit::RlInductor, ComponentType::Inductor));
     EXPECT_TRUE(hasType(DemoCircuit::DiodeResistor, ComponentType::Diode));
-    EXPECT_TRUE(hasType(DemoCircuit::SwitchedRc, ComponentType::Switch));
-    EXPECT_TRUE(hasType(DemoCircuit::SwitchedRc, ComponentType::Capacitor));
+    EXPECT_TRUE(hasType(DemoCircuit::SwitchResistor, ComponentType::Switch));
+
+    // Минимальность: per-element демо не тащат лишние активные/реактивные
+    // элементы (это уже комбо SwitchedRc / RLC / пик-детектор).
+    EXPECT_FALSE(hasType(DemoCircuit::SwitchResistor, ComponentType::Capacitor));
+    EXPECT_FALSE(hasType(DemoCircuit::SwitchResistor, ComponentType::Inductor));
+    EXPECT_FALSE(hasType(DemoCircuit::SourceResistor, ComponentType::Capacitor));
+    EXPECT_FALSE(hasType(DemoCircuit::SourceResistor, ComponentType::Diode));
+    EXPECT_FALSE(hasType(DemoCircuit::ResistorDivider, ComponentType::Inductor));
 }
 
 TEST(DemoCircuits, CombosCombineSeveralElementTypes) {
@@ -50,6 +61,16 @@ TEST(DemoCircuits, CombosCombineSeveralElementTypes) {
         hasC2 = hasC2 || comp.type == ComponentType::Capacitor;
     }
     EXPECT_TRUE(hasD && hasC2);
+
+    // SwitchedRc — комбо ключ + RC (переходный по щелчку), отдельно от
+    // минимального демо ключа (SwitchResistor).
+    Circuit swrc = buildDemo(DemoCircuit::SwitchedRc);
+    bool hasSw = false, hasC3 = false;
+    for (const auto& comp : swrc.components) {
+        hasSw = hasSw || comp.type == ComponentType::Switch;
+        hasC3 = hasC3 || comp.type == ComponentType::Capacitor;
+    }
+    EXPECT_TRUE(hasSw && hasC3);
 
     // Peak detector actually holds the peak in transient.
     CircuitSolver solver;

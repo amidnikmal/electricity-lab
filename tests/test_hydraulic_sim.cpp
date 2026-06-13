@@ -27,7 +27,7 @@ void runFor(HydraulicSim& sim, double seconds) {
 
 TEST(HydraulicSim, ParticlesCountStaysConstant) {
     // Mass conservation: fixed particle pool, count never changes.
-    Circuit c = current_lab::demos::buildDemo(current_lab::demos::DemoCircuit::SeriesResistor);
+    Circuit c = current_lab::demos::buildDemo(current_lab::demos::DemoCircuit::SourceResistor);
     auto sol = solveSimple(c);
 
     HydraulicSim sim;
@@ -43,7 +43,7 @@ TEST(HydraulicSim, ParticlesCountStaysConstant) {
 }
 
 TEST(HydraulicSim, ParticlesAreFiniteAndMove) {
-    Circuit c = current_lab::demos::buildDemo(current_lab::demos::DemoCircuit::SeriesResistor);
+    Circuit c = current_lab::demos::buildDemo(current_lab::demos::DemoCircuit::SourceResistor);
     auto sol = solveSimple(c);
 
     HydraulicSim sim;
@@ -63,7 +63,7 @@ TEST(HydraulicSim, ParticlesAreFiniteAndMove) {
 }
 
 TEST(HydraulicSim, PaddlesCreatedForSource) {
-    Circuit c = current_lab::demos::buildDemo(current_lab::demos::DemoCircuit::SeriesResistor);
+    Circuit c = current_lab::demos::buildDemo(current_lab::demos::DemoCircuit::SourceResistor);
     // Ohm's Law demo has ONE voltage source.
     auto sol = solveSimple(c);
 

@@ -8,22 +8,29 @@
 namespace current_lab::demos {
 
 enum class DemoCircuit {
-    SeriesResistor,
-    RcCapacitor,
-    RlInductor,
-    DiodeResistor,
-    SwitchedRc,
-    RlcSeries,
-    PeakDetector,
+    // Минимальный контур на КАЖДЫЙ функциональный элемент палитры
+    // (Wire/Ground структурные — присутствуют в каждом демо, отдельных нет):
+    SourceResistor,   // Source: источник + один резистор (простейший замкнутый контур)
+    ResistorDivider,  // Resistor: делитель из двух резисторов (сложение сопротивлений)
+    RcCapacitor,      // Capacitor: RC-заряд
+    RlInductor,       // Inductor: RL-нарастание тока
+    DiodeResistor,    // Diode: диод + резистор (односторонняя проводимость)
+    SwitchResistor,   // Switch: ключ + резистор (ток включается щелчком)
+    // Комбинации нескольких элементов:
+    SwitchedRc,       // ключ + RC (переходный процесс запускает щелчок)
+    RlcSeries,        // R + L + C последовательно
+    PeakDetector,     // диод + RC (пик-детектор)
     Count,
 };
 
 inline const char* demoName(DemoCircuit demo) {
     switch (demo) {
-        case DemoCircuit::SeriesResistor: return "Demo: resistor loop";
+        case DemoCircuit::SourceResistor: return "Demo: source + resistor";
+        case DemoCircuit::ResistorDivider: return "Demo: resistor divider";
         case DemoCircuit::RcCapacitor: return "Demo: RC charging";
         case DemoCircuit::RlInductor: return "Demo: RL current rise";
         case DemoCircuit::DiodeResistor: return "Demo: diode + resistor";
+        case DemoCircuit::SwitchResistor: return "Demo: switch + resistor";
         case DemoCircuit::SwitchedRc: return "Demo: switched RC";
         case DemoCircuit::RlcSeries: return "Demo: RLC series";
         case DemoCircuit::PeakDetector: return "Demo: diode peak detector";
@@ -53,10 +60,23 @@ inline Circuit buildDemo(DemoCircuit demo) {
     c.addComponent(ComponentType::VoltageSource, n1, gnd, 5.0);
 
     switch (demo) {
-        case DemoCircuit::SeriesResistor: {
+        case DemoCircuit::SourceResistor: {
+            // Source: ЭДС гонит ток через ЕДИНСТВЕННЫЙ резистор — простейший
+            // замкнутый контур, фундамент всех остальных демо.
             int n2 = c.addNode(Vec2(480, 140), "N2");
             c.addComponent(ComponentType::Resistor, n1, n2, 1000.0);
             closeLoopRect(c, n2, Vec2(480, 140), gnd, Vec2(200, 320));
+            break;
+        }
+        case DemoCircuit::ResistorDivider: {
+            // Resistor: два резистора последовательно образуют делитель
+            // напряжения (V(N2) = 5В * 2k/(1k+2k) ≈ 3.33В) — наглядное
+            // сложение сопротивлений и деление напряжения.
+            int n2 = c.addNode(Vec2(400, 140), "N2");
+            int n3 = c.addNode(Vec2(600, 140), "N3");
+            c.addComponent(ComponentType::Resistor, n1, n2, 1000.0);
+            c.addComponent(ComponentType::Resistor, n2, n3, 2000.0);
+            closeLoopRect(c, n3, Vec2(600, 140), gnd, Vec2(200, 320));
             break;
         }
         case DemoCircuit::RcCapacitor: {
@@ -81,6 +101,17 @@ inline Circuit buildDemo(DemoCircuit demo) {
             c.addComponent(ComponentType::Diode, n1, n2, 0.0);
             c.addComponent(ComponentType::Resistor, n2, n3, 1000.0);
             closeLoopRect(c, n3, Vec2(620, 140), gnd, Vec2(200, 320));
+            break;
+        }
+        case DemoCircuit::SwitchResistor: {
+            // Switch: ключ + резистор — ток включается/выключается щелчком по
+            // ключу. Стартует РАЗОМКНУТЫМ (как SwitchedRc): в живом режиме
+            // замыкание цепи студентом и есть начало процесса.
+            int n2 = c.addNode(Vec2(400, 140), "N2");
+            int n3 = c.addNode(Vec2(600, 140), "N3");
+            c.addComponent(ComponentType::Switch, n1, n2, 0.0);
+            c.addComponent(ComponentType::Resistor, n2, n3, 1000.0);
+            closeLoopRect(c, n3, Vec2(600, 140), gnd, Vec2(200, 320));
             break;
         }
         case DemoCircuit::SwitchedRc: {
