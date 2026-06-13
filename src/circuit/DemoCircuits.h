@@ -18,7 +18,10 @@ enum class DemoCircuit {
     SwitchResistor,   // Switch: ключ + резистор (ток включается щелчком)
     // Комбинации нескольких элементов:
     SwitchedRc,       // ключ + RC (переходный процесс запускает щелчок)
-    RlcSeries,        // R + L + C последовательно
+    RlcSeries,        // R + L + C ПОСЛЕДОВАТЕЛЬНО: C блокирует DC -> в стационаре
+                      // ток=0, вода (в Water-виде) правильно ОСТАНАВЛИВАЕТСЯ
+    RlcCirculating,   // RLC с ШУНТОВЫМ C: путь DC через R-L сохранён -> вода
+                      // ЦИРКУЛИРУЕТ по контуру и после устаканивания тока
     PeakDetector,     // диод + RC (пик-детектор)
     Count,
 };
@@ -33,6 +36,7 @@ inline const char* demoName(DemoCircuit demo) {
         case DemoCircuit::SwitchResistor: return "Demo: switch + resistor";
         case DemoCircuit::SwitchedRc: return "Demo: switched RC";
         case DemoCircuit::RlcSeries: return "Demo: RLC series";
+        case DemoCircuit::RlcCirculating: return "Demo: RLC (circulating water)";
         case DemoCircuit::PeakDetector: return "Demo: diode peak detector";
         case DemoCircuit::Count: break;
     }
@@ -134,6 +138,28 @@ inline Circuit buildDemo(DemoCircuit demo) {
             c.addComponent(ComponentType::Inductor, n2, n3, 1.0);
             c.addComponent(ComponentType::Capacitor, n3, n4, 1e-3);
             closeLoopRect(c, n4, Vec2(740, 140), gnd, Vec2(200, 320));
+            break;
+        }
+        case DemoCircuit::RlcCirculating: {
+            // RLC, где C стоит ШУНТОМ (а не последовательно): путь постоянного
+            // тока через R1-L-R2 сохранён, поэтому ток I = V/(R1+R2) течёт и в
+            // стационаре -> в Water-виде вода ЦИРКУЛИРУЕТ по всему контуру даже
+            // после устаканивания. C тапнут в среднюю точку (узел n2) и заряжается
+            // как «бак» до напряжения делителя (~2.5 В), не неся постоянного тока
+            // и НЕ разрывая контур (в отличие от RlcSeries, где C его рвёт и
+            // поток правильно встаёт). Прямоугольная раскладка без диагоналей:
+            //   gnd-(источник)-n1-(R1)-n2-(L)-n3-(R2)-corner-(низ)-mid-(низ)-gnd,
+            //   C: n2 -> mid (вертикальный шунт в среднюю точку нижней шины).
+            int n2 = c.addNode(Vec2(400, 140), "N2");
+            int n3 = c.addNode(Vec2(600, 140), "N3");
+            int corner = c.addNode(Vec2(600, 320));
+            int mid = c.addNode(Vec2(400, 320));
+            c.addComponent(ComponentType::Resistor, n1, n2, 50.0);
+            c.addComponent(ComponentType::Inductor, n2, n3, 1.0);
+            c.addComponent(ComponentType::Resistor, n3, corner, 50.0);
+            c.addComponent(ComponentType::Capacitor, n2, mid, 1e-3); // шунт
+            c.addComponent(ComponentType::Wire, corner, mid, 0.0);
+            c.addComponent(ComponentType::Wire, mid, gnd, 0.0);
             break;
         }
         case DemoCircuit::PeakDetector: {

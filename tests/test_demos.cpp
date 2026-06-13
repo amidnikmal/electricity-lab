@@ -83,6 +83,42 @@ TEST(DemoCircuits, CombosCombineSeveralElementTypes) {
     EXPECT_GT(held, 4.5);
 }
 
+TEST(DemoCircuits, RlcCirculatingActuallyCirculatesAtSteadyState) {
+    // user 2026-06-13: последовательный RLC правильно ОСТАНАВЛИВАЕТ воду
+    // (последовательный C блокирует постоянный ток). Этот вариант с ШУНТОВЫМ C
+    // сохраняет путь DC через R-L, поэтому в стационаре течёт заметный ток и
+    // вода (Water-вид) циркулирует по всему контуру.
+    CircuitSolver solver;
+
+    Circuit circ = buildDemo(DemoCircuit::RlcCirculating);
+    auto sol = solver.solve(circ); // DC = установившийся режим
+    double maxAbsI = 0.0;
+    for (const auto& br : sol.branches)
+        maxAbsI = std::max(maxAbsI, std::abs(br.current));
+    EXPECT_GT(maxAbsI, 0.01)
+        << "RLC-циркуляция: нет установившегося тока — вода не потечёт по контуру";
+
+    // Все три реактивных/диссипативных типа присутствуют.
+    bool hasR = false, hasL = false, hasC = false;
+    for (const auto& comp : circ.components) {
+        hasR = hasR || comp.type == ComponentType::Resistor;
+        hasL = hasL || comp.type == ComponentType::Inductor;
+        hasC = hasC || comp.type == ComponentType::Capacitor;
+    }
+    EXPECT_TRUE(hasR && hasL && hasC) << "в демо должны быть R, L и C";
+
+    // Контраст с последовательным RLC: тот в стационаре почти не проводит
+    // (C в разрыве), поэтому вода там правильно встаёт.
+    Circuit series = buildDemo(DemoCircuit::RlcSeries);
+    auto solS = solver.solve(series);
+    double maxAbsSeries = 0.0;
+    for (const auto& br : solS.branches)
+        maxAbsSeries = std::max(maxAbsSeries, std::abs(br.current));
+    EXPECT_LT(maxAbsSeries, maxAbsI * 0.1)
+        << "последовательный RLC должен почти не проводить DC (поток стоит), "
+           "иначе контраст с циркуляцией теряется";
+}
+
 TEST(DemoCircuits, EveryDemoNameIsTranslated) {
     current_lab::i18n::setLanguage(current_lab::i18n::Language::Russian);
     for (int d = 0; d < static_cast<int>(DemoCircuit::Count); ++d) {

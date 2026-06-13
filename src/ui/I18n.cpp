@@ -241,6 +241,7 @@ const std::unordered_map<std::string_view, const char*>& dictionary() {
         {"Demo: switch + resistor", "Демо: ключ + резистор"},
         {"Demo: switched RC", "Демо: RC с ключом"},
         {"Demo: RLC series", "Демо: последовательный RLC"},
+        {"Demo: RLC (circulating water)", "Демо: RLC с циркуляцией воды"},
         {"Demo: diode peak detector", "Демо: пик-детектор на диоде"},
         {"no C/L", "нет C/L"},
         {"No capacitor or inductor: the transient equals the DC state.\nAdd C/L or load the RC demo.",
