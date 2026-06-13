@@ -11,7 +11,7 @@ A third projection of the same `CircuitModel`: the circuit rendered as a mechani
 | Current I | chain linear speed (sign = direction) | moving chain links |
 | Potential V | chain tension / "height" vs anchor | tension colour (same palette as Potential layer) |
 | Resistor R | friction brake | pads clamping the chain + heat glow |
-| Voltage source | drive sprocket | toothed source gear with chain rollers seated on the pitch circle |
+| Voltage source | drive crank | spinning spoked wheel, pump direction follows I |
 | Capacitor C | spring | movable plate, displacement proportional to Vc |
 | Inductor L | flywheel | spinning wheel, angular momentum proportional to Il |
 | Diode | ratchet | pawl triangle, single allowed direction (A -> B) |
@@ -43,23 +43,6 @@ Metaphor / visualization:
 - the on-screen animation rates (`kVisualChainSpeed`, `kVisualSpinRate`) are amplified for visibility, like drift particles;
 - geometry (pulley sizes, pad shapes, spring teeth) is symbolic;
 - "tension" maps potential, but a real chain cannot have negative tension — sign is carried by colour and direction, not by slack chain.
-
-## Source drive sprocket
-
-The voltage source is not rendered as a decorative crank beside the chain. Its
-mechanical body is the drive sprocket itself: `ChainSim` routes the source loop
-over a central pitch circle, and the renderer draws the same pitch circle as a
-toothed gear under the rollers. The no-slip visual contract is:
-
-- source gear pitch radius comes from `chain_geometry::driveSprocketPitchRadius`,
-- source rollers sit on that pitch radius,
-- source teeth use the same chain pitch (`one roller per tooth gap`),
-- the drive pitch radius is only slightly larger than the straight chain run
-  offset, so the chain has limited contact patches and stays visually taut,
-- positive chain travel spins the source gear with phase `-travel / pitchR`
-  (the tooth surface moves with the chain, not against it),
-- the mouse grab handle is on the drive sprocket rim and still maps angular
-  speed to temporary EMF through `emfFromCrankSpeed`.
 
 ## Applicability limits
 

@@ -19,7 +19,6 @@ struct ChainSpec {
     double halfWidth = 4.0;   // guide offset from the axis
     double targetSpeed = 0.0; // tangential, signed (calibrated from I)
     bool brake = false;       // resistor: friction zone on the loop
-    bool driveSprocket = false; // voltage source: chain wraps the center gear
 };
 
 struct ChainLink {

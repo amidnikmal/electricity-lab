@@ -31,21 +31,6 @@ inline double sprocketPitchRadius(double halfWidth, double linkRadius) {
     return std::max(halfWidth, linkRadius * 2.2);
 }
 
-// Voltage sources are drive sprockets. The pitch circle is only slightly proud
-// of the straight chain runs: enough for real contact, but not so large that
-// the belt looks glued around the gear instead of pulled taut.
-inline double driveSprocketPitchRadius(double halfWidth, double linkRadius) {
-    double nodePitch = sprocketPitchRadius(halfWidth, linkRadius);
-    return std::max({nodePitch * 1.45, halfWidth * 1.45, linkRadius * 3.0});
-}
-
-// On the source gear, positive chain travel across the upper run moves over
-// the pitch circle clockwise, so the gear angle must decrease for no slip.
-inline double sourceDriveSprocketPhaseFromChainTravel(double chainTravel,
-                                                      double pitchRadius) {
-    return pitchRadius > 1e-9 ? -chainTravel / pitchRadius : 0.0;
-}
-
 // Tooth tips reach slightly past the rollers; the disc body sits under them.
 inline double sprocketTipRadius(double pitchRadius, double linkRadius) {
     return pitchRadius + linkRadius * 0.9;

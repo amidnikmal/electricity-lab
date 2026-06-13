@@ -351,7 +351,6 @@ void MainWindow::updateParticleSim(float realDt) {
                 current_lab::mechanics::kVisualChainSpeed * 100.0,
             -120.0, 120.0);
         spec.brake = comp.type == ComponentType::Resistor;
-        spec.driveSprocket = comp.type == ComponentType::VoltageSource;
         chainSpecs.push_back(spec);
     }
     if (chainSpecs.empty()) {

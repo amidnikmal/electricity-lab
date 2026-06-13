@@ -15,52 +15,22 @@ namespace {
 
 constexpr double kPi = 3.14159265358979323846;
 
-// Oval racetrack around the segment a->b at distance `off`. Voltage sources
-// insert a larger drive sprocket at the midpoint; both chain runs wrap the
-// source pitch circle, so source links are seated on gear teeth instead of
-// sliding under a decorative wheel.
+// Oval racetrack around the segment a->b at distance `off`:
 // param t in [0, perimeter) -> point (counter-clockwise).
 struct Oval {
     Vec2 a, b, unit, perp;
     double len = 0.0, off = 0.0;
-    bool driveSprocket = false;
-    double driveRadius = 0.0;
 
-    Vec2 local(double x, double y) const { return a + unit * x + perp * y; }
+    double perimeter() const { return 2.0 * len + 2.0 * kPi * off; }
 
-    bool hasDriveSprocket() const {
-        if (!driveSprocket || driveRadius <= off * 1.05) return false;
-        double xSpan = std::sqrt(std::max(0.0, driveRadius * driveRadius - off * off));
-        return xSpan > 1e-6 && xSpan < len * 0.5 - 1e-6;
-    }
-
-    double driveAlpha() const {
-        return std::asin(std::clamp(off / driveRadius, -1.0, 1.0));
-    }
-
-    double driveXSpan() const {
-        return std::sqrt(std::max(0.0, driveRadius * driveRadius - off * off));
-    }
-
-    double driveArcLength() const {
-        return driveRadius * (kPi - 2.0 * driveAlpha());
-    }
-
-    double perimeter() const {
-        if (!hasDriveSprocket())
-            return 2.0 * len + 2.0 * kPi * off;
-
-        double xSpan = driveXSpan();
-        double straightWithDrive = len - 2.0 * xSpan;
-        return 2.0 * straightWithDrive + 2.0 * driveArcLength() + 2.0 * kPi * off;
-    }
-
-    Vec2 normalAt(double t) const {
+    Vec2 at(double t) const {
         double straight = len;
         double arc = kPi * off;
+        t = std::fmod(t, perimeter());
+        if (t < 0.0) t += perimeter();
 
         if (t < straight) // top straight: a->b side at +off
-            return local(t, off);
+            return a + unit * t + perp * off;
         if (t < straight + arc) { // arc around b
             double phi = (t - straight) / off; // 0..pi
             double angle = kPi * 0.5 - phi;    // from +perp to -perp around b
@@ -71,72 +41,6 @@ struct Oval {
             return b - unit * s - perp * off;
         }
         double phi = (t - 2.0 * straight - arc) / off; // arc around a
-        double angle = -kPi * 0.5 - phi;
-        return a + perp * (off * std::sin(angle)) + unit * (off * std::cos(angle));
-    }
-
-    Vec2 at(double t) const {
-        t = std::fmod(t, perimeter());
-        if (t < 0.0) t += perimeter();
-
-        if (!hasDriveSprocket())
-            return normalAt(t);
-
-        const double centerX = len * 0.5;
-        const double xSpan = driveXSpan();
-        const double leftX = centerX - xSpan;
-        const double rightX = centerX + xSpan;
-        const double alpha = driveAlpha();
-        const double driveArc = driveArcLength();
-        const double nodeArc = kPi * off;
-
-        auto drivePoint = [&](double theta) {
-            return local(centerX + driveRadius * std::cos(theta),
-                         driveRadius * std::sin(theta));
-        };
-
-        // Top run: a -> drive sprocket -> b.
-        if (t < leftX)
-            return local(t, off);
-        t -= leftX;
-
-        if (t < driveArc) {
-            double theta = kPi - alpha - t / driveRadius;
-            return drivePoint(theta);
-        }
-        t -= driveArc;
-
-        double topRight = len - rightX;
-        if (t < topRight)
-            return local(rightX + t, off);
-        t -= topRight;
-
-        // Node b sprocket: top run -> bottom run.
-        if (t < nodeArc) {
-            double phi = t / off;
-            double angle = kPi * 0.5 - phi;
-            return b + perp * (off * std::sin(angle)) + unit * (off * std::cos(angle));
-        }
-        t -= nodeArc;
-
-        // Bottom run: b -> drive sprocket -> a.
-        double bottomRight = len - rightX;
-        if (t < bottomRight)
-            return local(len - t, -off);
-        t -= bottomRight;
-
-        if (t < driveArc) {
-            double theta = -alpha - t / driveRadius;
-            return drivePoint(theta);
-        }
-        t -= driveArc;
-
-        if (t < leftX)
-            return local(leftX - t, -off);
-        t -= leftX;
-
-        // Node a sprocket: bottom run -> top run.
-        double phi = t / off;
         double angle = -kPi * 0.5 - phi;
         return a + perp * (off * std::sin(angle)) + unit * (off * std::cos(angle));
     }
@@ -173,9 +77,6 @@ struct ChainSim::Impl {
         // The loop arcs around each node exactly on the sprocket pitch circle,
         // so the simulated chain stays on the drawn gear teeth.
         loop.oval.off = chain_geometry::sprocketPitchRadius(spec.halfWidth, linkRadius);
-        loop.oval.driveSprocket = spec.driveSprocket;
-        loop.oval.driveRadius =
-            chain_geometry::driveSprocketPitchRadius(spec.halfWidth, linkRadius);
 
         // Links: spaced by the chain pitch, ring closed exactly.
         double spacing = chain_geometry::linkPitch(linkRadius);
@@ -213,7 +114,6 @@ uint64_t ChainSim::layoutSignature(const std::vector<ChainSpec>& specs) {
         mix(static_cast<uint64_t>(static_cast<int64_t>(spec.b.y * 8)));
         mix(static_cast<uint64_t>(static_cast<int64_t>(spec.halfWidth * 8)));
         mix(spec.brake ? 7u : 3u);
-        mix(spec.driveSprocket ? 13u : 5u);
     }
     return hash;
 }
