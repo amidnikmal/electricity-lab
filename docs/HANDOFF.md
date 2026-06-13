@@ -1,7 +1,91 @@
 # Current Lab — Agent Handoff
 
-Date: 2026-06-12 (поток электронов в резисторе + adversarial-ревью:
-очередь подтверждённых находок — читай первым)
+Date: 2026-06-13 (вода: шарики вылезают за стенки суженного канала
+резистора — ДИАГНОЗ ГОТОВ, фикс НЕ начат; читай первым)
+
+## ВОДА: ШАРИКИ ВЫЛЕЗАЮТ ЗА СТЕНКИ СУЖЕННОГО КАНАЛА РЕЗИСТОРА (2026-06-13)
+## — диагноз готов, код НЕ тронут, базлайн 14 WaterNetwork зелёные
+
+Запрос пользователя: «резистор для эмуляции воды — канал сужается, но шарики
+воды выходят за стенки суженного канала. Нужно написать СТРОГИЙ тест, который
+это запрещает, и зафиксить.» Это ровно та MAJOR-находка из очереди 2026-06-12
+(см. ниже «нарисованная воронка-дроссель резистора не соответствует симу»).
+
+### КОРЕНЬ (подтверждён чтением кода)
+Две НЕЗАВИСИМЫЕ геометрии резистора в Water-виде:
+- **РЕНДЕР рисует вентури-воронку** (emitConstriction, ProjectionBuilder.cpp
+  ~1374): горловина half-width `narrow = pipeHalfWidth*0.45 ≈ 0.2475*wt`,
+  стенки сужаются от `±pipeHalfWidth (0.55*wt)` к `±narrow` на участке тела
+  резистора (resistorPathSections -> ResistiveBody section).
+- **СИМ держит ПОЛНОШИРИННЫЙ канал** (makeChannelSpecs: spec.connected +
+  spec.scatterers; ParticleSim.cpp buildChannel ~100-134 + addWalls ~248):
+  прямые стенки на `±halfWidth = 0.5*wt` по всей длине + столбики Друде у
+  стенок (lateral `±(halfWidth - pillarR*0.6)`) в пределах resistorBodySpan.
+Шарики текут в полноширинном канале (до 0.5*wt от оси), огибают пристеночный
+столбик по ПРОТИВОПОЛОЖНОЙ стенке и едут СНАРУЖИ нарисованной горловины
+(0.2475*wt). Воронка и коллайдер — разные фигуры, ничем не связаны.
+
+### ПЛАН ФИКСА (единый источник истины, как ChainGeometry.h / resistorBodySpan)
+1. **Новый общий хелпер `hydraulicThrottle(channelLength, halfWidth)`** в
+   src/physics/ResistiveElementModel.h (рядом с resistorBodySpan; и
+   ParticleSim.cpp, и ProjectionBuilder.cpp его уже инклюдят). Возвращает
+   профиль вентури: struct HydraulicThrottle {leadIn, throatStart, throatEnd,
+   leadOut, mouthHalfWidth, throatHalfWidth; double halfWidthAt(t)} —
+   кусочно-линейный: лид (mouth) -> конус -> горловина (throat) -> конус ->
+   лид. Горловина = середина resistorBodySpan, конусы по краям тела.
+   Параметр kThroatFraction (доля от halfWidth): СТАРТ ~0.62, ТЮНИТЬ ВНИЗ
+   эмпирически до самой узкой, при которой все WaterNetwork-тесты зелёные
+   (чем уже — тем виднее сужение пользователю).
+2. **ParticleSim (вода, spec.connected && spec.scatterers):** строить стенки
+   ВОРОНКОЙ — полилинией b2EdgeShape вдоль halfWidthAt(t) в addWalls вместо
+   двух прямых рёбер; СТОЛБИКИ ДРУДЕ ВЫКЛЮЧИТЬ (оставить ТОЛЬКО для электронов
+   / non-connected — там метафора Друде верна и нет гранулярных арок). При
+   посеве (dense grid) кламп lateral к локальной halfWidthAt(t) (минус радиус),
+   иначе шарики сеются ВНУТРИ суженной стенки и Box2D их выстреливает.
+3. **Рендер (emitConstriction):** рисовать ту же воронку из ТОГО ЖЕ хелпера,
+   стенки на `halfWidthAt(t) + drawMargin` (margin = 0.05*wt — тот же зазор,
+   что у простой трубы: рисуется 0.55*wt при коллайдере 0.5*wt), чтобы
+   нарисованная воронка ВСЕГДА >= коллайдера (шар-ребро на коллайдере =
+   margin внутри нарисованной стенки).
+4. **СТРОГИЙ ТЕСТ** в tests/test_water_network.cpp (уже в CMakeLists; добавить
+   `#include "physics/ResistiveElementModel.h"`): каждый water-шарик канала
+   резистора с осевой t и боковой lat обязан удовлетворять
+   `|lat| + radius <= drawnHalfWidthAt(t) + slop` (slop ~ контактный Box2D,
+   маленький), проверка В КАЖДОМ КАДРЕ ~4-5 с (как NoParticleEscapesThePlumbing).
+   Контракт: ДО фикса коллайдера ПАДАЕТ (шары на 0.5*wt торчат за 0.2475*wt
+   горловину), ПОСЛЕ — зелёный. Можно вторым — чистая геометрия: нарисованная
+   half-width >= коллайдерной на каждой станции.
+
+### РИСКИ / НА ЧТО СМОТРЕТЬ
+- Гранулярная вода АРКУЕТ и клинит на узких горловинах — на это была завязана
+  вся прошлая калибровка (коридор столбиков 4.2->5.0 радиусов, см. ниже).
+  ГЛАДКАЯ горловина проходимее столбиков той же ширины (нет препятствия, об
+  которое мостится арка), но НЕ перетягивай. Следить за: SeriesVolumeFlowIs
+  ConservedThroughResistor (ratio<6x), ResistorFlowIsTemporallyUniform (cv<1.25),
+  WaterBallsStayEssentiallyIncompressible (худшая пара > 0.75*2r),
+  VolumeFlowScalesWithCircuitCurrent.
+- Электронный резистор НЕ ТРОГАТЬ: все test_resistor_drift.cpp идут с
+  waterWorld=false; ScattererSpanMatchesDrawnResistorBody — чистая геометрия.
+
+### ФАКТЫ/ЧИСЛА (default wt=8.0)
+sim halfWidth = 0.5*wt = 4.0; нарисованная труба = 0.55*wt; particleWorldRadius(8)
+= max(0.8, 8*0.16) = 1.28 (диаметр 2.56); труба ~3.1 диаметра шириной; текущая
+нарисованная горловина 0.2475*wt ≈ 1.98 half ≈ 1.55 диаметра (как коллайдер
+СЛИШКОМ узко — потому горловину чуть расширить до ~0.62 и согласовать с симом).
+Верхний резистор схемы (len 250): resistorBodySpan ~45 wu по центру.
+
+### ФАЙЛЫ
+src/physics/ResistiveElementModel.h (хелпер), src/physics/ParticleSim.cpp
+(стенки-воронка + выкл столбиков в воде + кламп посева), src/projection/
+ProjectionBuilder.cpp (emitConstriction ~1374), tests/test_water_network.cpp
+(новый строгий тест). CMake НЕ менять.
+
+### БАЗЛАЙН (зафиксирован перед началом, ничего не менялось)
+Build Ninja: `cmake --build build -j`; тесты:
+`./build/current-lab-tests.exe --gtest_filter='WaterNetwork.*'` -> 14/14
+ЗЕЛЁНЫЕ. Рабочее дерево в начале сессии уже имело правки (M по нескольким
+файлам, ?? src/simulation/ и tests/test_live_sim.cpp) — это не моё, я ничего
+не коммитил и не правил в этой сессии.
 
 ## ПОТОК ЭЛЕКТРОНОВ В РЕЗИСТОРЕ (2026-06-12) — 449 зелёных
 
