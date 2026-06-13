@@ -1,5 +1,30 @@
 # Current Lab — Agent Handoff
 
+## Handoff 2026-06-13 - mechanics source drive sprocket
+
+Branch/worktree: `mechanics-source-sprocket` in
+`C:\Users\amidn\electricity-lab-source-sprocket`.
+
+- Voltage sources in Mechanics are now drive sprockets, not decorative crank
+  wheels. `ChainSpec::driveSprocket` routes the source chain through a central
+  pitch circle and `emitCrank` draws that same gear under the rollers.
+- The source drive pitch radius uses a taut-chain contract:
+  `driveSprocketPitchRadius` is only slightly proud of the straight chain run,
+  so the chain has limited contact patches instead of looking glued around the
+  gear.
+- Source gear rotation direction is corrected. Positive chain travel maps to
+  `sourceDriveSprocketPhaseFromChainTravel(travel, pitchR) == -travel/pitchR`,
+  so the tooth surface moves with the chain.
+- Tests added in `tests/test_chain_gear.cpp` cover source chain wrap, bounded
+  contact amount, and source sprocket rotation direction.
+
+Verification:
+
+- `build-ninja\current-lab-tests.exe`: 475/475 passed.
+- `cmake --build build-ninja --target current-lab`: passed.
+- Existing warnings remain: `\xC2\xB5F` hex escape warnings in `I18n.cpp` and
+  `ProjectionBuilder.cpp` are pre-existing and unrelated.
+
 Date: 2026-06-13 (СДЕЛАНО: фикс воды-резистора (вентури) + минимальные демо
 на элементы; СЛЕДУЮЩЕЕ: план OpenFOAM — полная замена движка воды; читай первым)
 

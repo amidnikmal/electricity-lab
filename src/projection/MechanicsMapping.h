@@ -9,7 +9,7 @@
 //   current I        -> chain linear speed (sign = direction of motion)
 //   potential V      -> chain tension ("height" relative to the anchor)
 //   resistor R       -> friction brake (dissipates power as heat)
-//   voltage source   -> drive crank (injects energy, sets tension difference)
+//   voltage source   -> drive sprocket (injects energy, sets tension difference)
 //   capacitor C      -> spring (energy in displacement; charge <-> compression)
 //   inductor L       -> flywheel (energy in motion; current <-> angular momentum)
 //   diode            -> ratchet (chain moves one way only)
@@ -56,7 +56,7 @@ inline double springEnergy(double capacitance, double capVoltage) {
     return 0.5 * capacitance * capVoltage * capVoltage; // == 1/2 C V^2
 }
 
-// Hand-crank dynamo: turning the drive crank sets the source EMF.
+// Hand-crank dynamo: turning the drive sprocket sets the source EMF.
 // V is proportional to the crank angular speed (clamped to a sane range).
 inline double emfFromCrankSpeed(double omegaRadPerSec) {
     double v = 1.5 * omegaRadPerSec;
