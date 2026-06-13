@@ -3,6 +3,7 @@
 #include "imgui.h"
 #include "circuit/Circuit.h"
 #include "physics/PhysicalUnits.h"
+#include "simulation/LiveSim.h"
 #include "solver/CircuitSolver.h"
 #include "ui/CircuitCanvas.h"
 #include "ui/DualViewState.h"
@@ -13,11 +14,6 @@
 #include <memory>
 #include <unordered_map>
 
-enum class SimulationMode {
-    DcSteadyState,
-    Transient,
-};
-
 class MainWindow {
 public:
     MainWindow();
@@ -25,9 +21,11 @@ public:
     void runSolver();
 
 private:
-    void advanceTransient(float realDt);
-    void stepTransientOnce();
-    void resetTransient();
+    void advanceLiveSim(float realDt);
+    void stepLiveSimOnce();
+    void circuitEvent();        // правка/щелчок/ручка: будит LiveSim, заряд сохраняется
+    void rebuildDistributed();
+    void refreshSolution();
     void setupTestCircuit();
     void renderToolbar();
     void renderLog();
@@ -58,13 +56,9 @@ private:
     CircuitSolution m_distributedSolution;
     bool m_solved = false;
 
-    SimulationMode m_simMode = SimulationMode::DcSteadyState;
-    TransientState m_transientState;
-    IntegrationMethod m_integrationMethod = IntegrationMethod::BackwardEuler;
-    bool m_transientRunning = false;
-    double m_transientDt = 1e-3;       // s per solver step
-    float m_transientSpeed = 1.0f;     // simulated seconds per real second
-    double m_transientAccumulator = 0.0;
+    // Единый живой режим: DC steady и Transient слиты (см. simulation/LiveSim.h).
+    current_lab::simulation::LiveSim m_liveSim;
+    float m_manualSimSpeed = 1.0f; // слайдер ручной скорости (когда авто выключено)
 
     current_lab::ui::PaneLayoutTree m_paneTree;
     // Two separate microdynamics worlds: electrons must not collide with the

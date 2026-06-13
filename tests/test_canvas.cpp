@@ -691,3 +691,106 @@ TEST(VisualizationPresets, CircuitPresetHidesDebugMarkers) {
     EXPECT_FALSE(info.layers.magnetic);
     EXPECT_FALSE(info.layers.debugMarkers);
 }
+
+// ─── Switch toggle hot-zone: клик щёлкает ключ, НЕ выделяя его ──────────────
+// (живой режим: щелчок выключателя — эксперимент, а не редактирование;
+// выделение и редактор остаются доступны кликом по выводам вне зоны)
+#include "projection/ElementGeometry.h"
+
+namespace switch_toggle {
+
+struct Recorder {
+    int toggled = -1;
+    int selectedComp = -1;
+    int selectedNode = -1;
+    bool deselected = false;
+    current_lab::ui::CanvasInteraction interaction;
+
+    Recorder() {
+        interaction.callbacks.toggleSwitch = [this](int id) { toggled = id; };
+        interaction.callbacks.selectComponent = [this](int id) { selectedComp = id; };
+        interaction.callbacks.selectNode = [this](int id) { selectedNode = id; };
+        interaction.callbacks.deselect = [this]() { deselected = true; };
+    }
+};
+
+Circuit makeSwitchCircuit(int& swId) {
+    Circuit c;
+    int a = c.addNode(Vec2(100, 100));
+    int b = c.addNode(Vec2(300, 100));
+    swId = c.addComponent(ComponentType::Switch, a, b, 1.0);
+    return c;
+}
+
+current_lab::ui::InteractionInput clickAt(Vec2 world) {
+    current_lab::ui::InteractionInput in;
+    in.mouseWorld = world;
+    in.clicked = true;
+    return in;
+}
+
+} // namespace switch_toggle
+
+TEST(SwitchToggle, ClickInZoneTogglesWithoutSelecting) {
+    using namespace switch_toggle;
+    int swId = -1;
+    Circuit c = makeSwitchCircuit(swId);
+    Recorder r;
+    r.interaction.handle(c, clickAt(Vec2(200, 100))); // середина глифа
+
+    EXPECT_EQ(r.toggled, swId);
+    EXPECT_EQ(r.selectedComp, -1) << "клик в зоне не должен выделять элемент";
+    EXPECT_EQ(r.selectedNode, -1);
+    EXPECT_FALSE(r.deselected) << "и не должен сбрасывать текущее выделение";
+    EXPECT_EQ(r.interaction.selectedComponent(), -1);
+}
+
+TEST(SwitchToggle, ClickOnLeadOutsideZoneStillSelects) {
+    using namespace switch_toggle;
+    int swId = -1;
+    Circuit c = makeSwitchCircuit(swId);
+    Recorder r;
+    r.interaction.handle(c, clickAt(Vec2(130, 100))); // вывод, 70 wu от середины
+
+    EXPECT_EQ(r.toggled, -1);
+    EXPECT_EQ(r.selectedComp, swId) << "обе возможности: выделение кликом по выводу";
+}
+
+TEST(SwitchToggle, HitZoneMatchesSharedGlyphGeometry) {
+    using namespace switch_toggle;
+    using namespace current_lab;
+    int swId = -1;
+    Circuit c = makeSwitchCircuit(swId);
+
+    auto g = projection::switchGeometry(Vec2(100, 100), Vec2(300, 100));
+    ASSERT_TRUE(g.valid);
+    double radius = projection::switchToggleRadius(g, 8.0);
+
+    Vec2 inside = g.mid + Vec2(radius - 1.0, 0.0);
+    Vec2 outside = g.mid + Vec2(radius + 1.0, 0.0);
+    EXPECT_EQ(ui::hitTestSwitchToggle(c, inside, 8.0), swId);
+    EXPECT_EQ(ui::hitTestSwitchToggle(c, outside, 8.0), -1);
+}
+
+TEST(SwitchToggle, ZoneBeatsNodeHitInsideIt) {
+    using namespace switch_toggle;
+    int swId = -1;
+    Circuit c = makeSwitchCircuit(swId);
+    c.addNode(Vec2(210, 100)); // чужой узел внутри зоны (узлы обычно побеждают)
+    Recorder r;
+    r.interaction.handle(c, clickAt(Vec2(210, 100)));
+
+    EXPECT_EQ(r.toggled, swId) << "внутри зоны щелчок ключа важнее выделения узла";
+    EXPECT_EQ(r.selectedNode, -1);
+}
+
+TEST(SwitchToggle, WithoutCallbackFallsBackToSelection) {
+    using namespace switch_toggle;
+    int swId = -1;
+    Circuit c = makeSwitchCircuit(swId);
+    Recorder r;
+    r.interaction.callbacks.toggleSwitch = nullptr; // канвас без тоггла
+    r.interaction.handle(c, clickAt(Vec2(200, 100)));
+
+    EXPECT_EQ(r.selectedComp, swId) << "без колбэка зона не должна глотать клики";
+}

@@ -147,6 +147,11 @@ struct Circuit {
             result.addNodeWithId(n.id, n.position, n.label);
 
         result.groundNodeId = groundNodeId;
+        // Сегменты проводов получают СВЕЖИЕ id выше всех исходных: иначе
+        // провод, добавленный раньше компонента с большим id, раздаёт
+        // сегментам уже занятые id (дубль ломает componentIndex/branchFor и
+        // тевенин-пробу LiveSim — ревью 2026-06-12, подтверждено репро).
+        result.nextComponentId = nextComponentId;
 
         for (const auto& c : components) {
             if (c.type != ComponentType::Wire || params.segmentsPerWire <= 1) {

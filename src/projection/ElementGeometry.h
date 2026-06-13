@@ -67,6 +67,39 @@ inline InductorGeometry inductorGeometry(Vec2 a, Vec2 b, double wireThickness) {
     return g;
 }
 
+struct SwitchGeometry {
+    bool valid = false;
+    Vec2 unit, perp;
+    Vec2 mid;
+    Vec2 leadAEnd, leadBEnd; // contacts: where the leads stop and the gap starts
+    double s = 0.0;          // glyph half-extent (lever length scale)
+};
+
+// Same formula as emitSwitchSymbol: the drawn glyph and the click target must
+// be ONE geometry (the chain/sprocket lesson: never compute it twice).
+inline SwitchGeometry switchGeometry(Vec2 a, Vec2 b) {
+    SwitchGeometry g;
+    Vec2 ab = b - a;
+    double len = ab.length();
+    if (len < 1.0) return g;
+
+    g.valid = true;
+    g.unit = ab / len;
+    g.perp = Vec2(-g.unit.y, g.unit.x);
+    g.s = std::clamp(len * 0.25, 12.0, 40.0);
+    g.mid = a + ab * 0.5;
+    g.leadAEnd = g.mid - g.unit * (g.s * 0.5);
+    g.leadBEnd = g.mid + g.unit * (g.s * 0.5);
+    return g;
+}
+
+// Toggle hot-zone: click here flips the switch WITHOUT selecting it (the
+// leads outside the zone still select as usual). Covers the gap and the
+// open lever (it sticks out ~0.6*s perpendicular).
+inline double switchToggleRadius(const SwitchGeometry& g, double wireThickness) {
+    return std::max(g.s, wireThickness * 1.5);
+}
+
 // Half-circle arc points for one coil bump (above the axis).
 inline std::vector<Vec2> inductorBumpArc(const InductorGeometry& g, int bumpIndex, int segments = 10) {
     std::vector<Vec2> pts;

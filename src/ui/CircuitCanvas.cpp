@@ -162,6 +162,13 @@ void CircuitCanvas::render(Circuit& circuit, const CircuitSolution* solution) {
         }
     }
 
+    // Хот-зона выключателя: курсор-рука обещает «клик щёлкнет ключ»
+    // (не выделит). Та же геометрия, что и в hit-test'е интеракции.
+    if (canvasAcceptsInput && !m_readOnly && !cranking &&
+        m_interaction.mode() == EditorMode::Select &&
+        current_lab::ui::hitTestSwitchToggle(circuit, toWorld(mouse), m_wireThickness) >= 0)
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+
     if (canvasAcceptsInput && !m_readOnly && !cranking) {
         current_lab::ui::InteractionInput input;
         input.mouseWorld = toWorld(mouse);
@@ -171,6 +178,7 @@ void CircuitCanvas::render(Circuit& circuit, const CircuitSolution* solution) {
         input.deletePressed = ImGui::IsKeyPressed(ImGuiKey_Delete) ||
                               ImGui::IsKeyPressed(ImGuiKey_Backspace);
         input.escapePressed = ImGui::IsKeyPressed(ImGuiKey_Escape);
+        input.wireThickness = m_wireThickness;
         m_interaction.handle(circuit, input);
     }
 }

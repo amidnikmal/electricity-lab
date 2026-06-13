@@ -87,7 +87,9 @@ inline Circuit buildDemo(DemoCircuit demo) {
             int n2 = c.addNode(Vec2(400, 140), "N2");
             int n3 = c.addNode(Vec2(600, 140), "N3");
             int corner = c.addNode(Vec2(600, 320));
-            c.addComponent(ComponentType::Switch, n1, n2, 1.0);
+            // Открыт: историю запускает САМ студент щелчком по ключу
+            // (живой режим: переходный процесс = момент замыкания цепи).
+            c.addComponent(ComponentType::Switch, n1, n2, 0.0);
             c.addComponent(ComponentType::Resistor, n2, n3, 1000.0);
             c.addComponent(ComponentType::Capacitor, n3, corner, 1e-3);
             c.addComponent(ComponentType::Wire, corner, gnd, 0.0);

@@ -19,6 +19,9 @@ struct CanvasCallbacks {
     std::function<void(int, double)> driveSource; // componentId, crank rad/s (dynamo)
     std::function<void(int)> crankBegin;          // user grabbed the drive wheel
     std::function<void(int)> crankEnd;            // released: restore the source
+    // Клик по хот-зоне выключателя: щёлкнуть ключ, НЕ выделяя его и не
+    // открывая редактор (выделение — кликом по выводам вне зоны).
+    std::function<void(int)> toggleSwitch;        // componentId
 };
 
 struct InteractionInput {
@@ -28,10 +31,14 @@ struct InteractionInput {
     bool dragging = false;  // left button held & moving
     bool deletePressed = false;
     bool escapePressed = false;
+    double wireThickness = 8.0; // world units; sizes the switch toggle zone
 };
 
 int hitTestNode(const Circuit& circuit, Vec2 worldPos);
 int hitTestComponent(const Circuit& circuit, Vec2 worldPos);
+// Хот-зона щелчка выключателя (круг вокруг середины глифа, общая геометрия
+// switchGeometry с рендером). Возвращает id ключа или -1.
+int hitTestSwitchToggle(const Circuit& circuit, Vec2 worldPos, double wireThickness);
 double defaultValueFor(ComponentType type);
 
 class CanvasInteraction {

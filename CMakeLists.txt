@@ -136,9 +136,11 @@ set(TEST_SOURCES
     tests/test_water_network.cpp
     tests/test_app_path_directions.cpp
     tests/test_resistor_drift.cpp
+    tests/test_live_sim.cpp
     tests/test_hydraulic_sim.cpp   # ВАРИАНТ Б гидравлики (карантин, см. src/physics/HydraulicSim.h)
     src/circuit/Circuit.cpp
     src/solver/CircuitSolver.cpp
+    src/simulation/LiveSim.cpp
     src/projection/ProjectionBuilder.cpp
     src/ui/CanvasInteraction.cpp
     src/learning/TaskGenerator.cpp

@@ -451,15 +451,16 @@ void emitDiodeSymbol(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
 
 void emitSwitchSymbol(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
                       double va, double vb) {
-    Vec2 ab = b - a;
-    double len = ab.length();
-    if (len < 1.0) return;
-    Vec2 unit = ab / len;
-    Vec2 perp(-unit.y, unit.x);
-    double s = std::clamp(len * 0.25, 12.0, 40.0);
-    Vec2 mid = a + ab * 0.5;
-    Vec2 leadAEnd = mid - unit * (s * 0.5);
-    Vec2 leadBEnd = mid + unit * (s * 0.5);
+    // Общая геометрия с hit-test'ом хот-зоны (hitTestSwitchToggle): глиф и
+    // кликабельная область обязаны совпадать.
+    auto g = switchGeometry(a, b);
+    if (!g.valid) return;
+    Vec2 unit = g.unit;
+    Vec2 perp = g.perp;
+    double s = g.s;
+    Vec2 mid = g.mid;
+    Vec2 leadAEnd = g.leadAEnd;
+    Vec2 leadBEnd = g.leadBEnd;
 
     double halfW = ctx.p.wireThickness * 0.5;
     emitConductor(ctx, a, leadAEnd, va, va, halfW);

@@ -92,13 +92,6 @@ void renderMetric(const char* label, const char* value) {
     ImGui::TextWrapped("%s", value);
 }
 
-bool circuitHasReactive(const Circuit& circuit) {
-    for (const auto& comp : circuit.components)
-        if (comp.type == ComponentType::Capacitor || comp.type == ComponentType::Inductor)
-            return true;
-    return false;
-}
-
 } // namespace
 
 using current_lab::i18n::tr;
@@ -113,11 +106,14 @@ MainWindow::MainWindow() {
         m_dualView.clearSelection();
         m_elementEdit.close();
         m_fitDualViewsRequested = true;
+        // Новая цепь = новое id-пространство: старый заряд не должен
+        // прилипнуть к чужим компонентам.
+        m_liveSim.discharge();
         onCircuitChanged();
     };
     applyVisualizationPreset(m_visualPreset);
     setupTestCircuit();
-    runSolver();
+    circuitEvent();
 }
 
 void MainWindow::wireCallbacks() {}
@@ -173,7 +169,7 @@ void MainWindow::wireCanvas(CircuitCanvas& canvas) {
                 if (Component* comp = m_circuit.findComponent(componentId))
                     comp->value = m_crankSavedValue;
                 m_crankSavedComponent = -1;
-                runSolver();
+                circuitEvent();
             }
         };
         canvas.callbacks.driveSource = [this](int componentId, double omega) {
@@ -184,8 +180,22 @@ void MainWindow::wireCanvas(CircuitCanvas& canvas) {
             double next = comp->value * 0.7 + target * 0.3;
             if (std::abs(next - comp->value) > 0.02) {
                 comp->value = next;
-                runSolver();
+                // Живая ЭДС каждый кадр: будим без тевенин-проб (tau не
+                // менялась — изменилось только значение источника).
+                rebuildDistributed();
+                m_liveSim.wakeKeepSpeed();
+                refreshSolution();
             }
+        };
+        canvas.callbacks.toggleSwitch = [this](int componentId) {
+            // Щелчок хот-зоны: эксперимент, не редактирование — выделение и
+            // редактор не трогаем, заряд конденсаторов сохраняется.
+            Component* comp = m_circuit.findComponent(componentId);
+            if (!comp || comp->type != ComponentType::Switch) return;
+            bool nowClosed = !(comp->value >= 0.5);
+            comp->value = nowClosed ? 1.0 : 0.0;
+            circuitEvent();
+            m_inspector.log().addMessage(nowClosed ? "Switch closed." : "Switch opened.");
         };
         canvas.callbacks.deleteSelected = [this]() {
             if (m_selComp >= 0) {
@@ -223,7 +233,7 @@ void MainWindow::syncCamerasFrom(const CircuitCanvas& source) {
 }
 
 void MainWindow::onCircuitChanged() {
-    runSolver();
+    circuitEvent();
     m_inspector.log().addMessage("Circuit changed, re-solving...");
 }
 
@@ -241,17 +251,31 @@ void MainWindow::setupTestCircuit() {
     m_circuit.addComponent(ComponentType::Wire, corner, gnd, 0.0);
 }
 
-void MainWindow::runSolver() {
+void MainWindow::rebuildDistributed() {
     DistributedWireParameters params;
     params.segmentsPerWire = m_distributedSegments;
     params.resistancePerUnit = m_wireResistancePerUnit;
     m_distributedCircuit = m_circuit.toDistributed(params);
-    if (m_simMode == SimulationMode::Transient)
-        m_distributedSolution = m_solver.solveTransientSnapshot(m_distributedCircuit, m_transientState);
-    else
-        m_distributedSolution = m_solver.solve(m_distributedCircuit);
+}
+
+void MainWindow::refreshSolution() {
+    m_distributedSolution = m_liveSim.currentSolution(m_distributedCircuit, m_solver);
     mapDistributedSolution();
     m_solved = true;
+}
+
+void MainWindow::runSolver() {
+    rebuildDistributed();
+    refreshSolution();
+}
+
+// Единая воронка событий: любая правка цепи (значение, топология, щелчок
+// выключателя, ручка-динамо) будит LiveSim и пересчитывает авто-замедление.
+// Заряд C/L при этом сохраняется — это физика, а не сброс.
+void MainWindow::circuitEvent() {
+    rebuildDistributed();
+    m_liveSim.onCircuitEvent(m_distributedCircuit, m_solver);
+    refreshSolution();
 }
 
 void MainWindow::updateParticleSim(float realDt) {
@@ -346,42 +370,19 @@ void MainWindow::updateParticleSim(float realDt) {
     current_lab::projection::advanceFlowIntegrals(m_flowIntegrals, m_circuit, solution, dt);
 }
 
-void MainWindow::advanceTransient(float realDt) {
-    if (m_simMode != SimulationMode::Transient || !m_transientRunning)
-        return;
-
-    m_transientAccumulator += static_cast<double>(realDt) * m_transientSpeed;
-    int steps = static_cast<int>(m_transientAccumulator / m_transientDt);
-    // Keep the UI responsive even with tiny dt; simulation then lags real time.
-    const int kMaxStepsPerFrame = 2000;
-    if (steps > kMaxStepsPerFrame) {
-        steps = kMaxStepsPerFrame;
-        m_transientAccumulator = 0.0;
-    } else {
-        m_transientAccumulator -= steps * m_transientDt;
-    }
-
-    for (int i = 0; i < steps; ++i)
-        m_distributedSolution = m_solver.stepTransient(m_distributedCircuit, m_transientState,
-                                                       m_transientDt, m_integrationMethod);
-    if (steps > 0) {
+void MainWindow::advanceLiveSim(float realDt) {
+    // Единая пауза останавливает и время цепи, и визуальные миры.
+    if (m_animationPaused) return;
+    if (m_liveSim.advance(m_distributedCircuit, m_solver, realDt, m_distributedSolution)) {
         mapDistributedSolution();
         m_solved = true;
     }
 }
 
-void MainWindow::stepTransientOnce() {
-    m_distributedSolution = m_solver.stepTransient(m_distributedCircuit, m_transientState,
-                                                   m_transientDt, m_integrationMethod);
+void MainWindow::stepLiveSimOnce() {
+    m_liveSim.stepOnce(m_distributedCircuit, m_solver, m_distributedSolution);
     mapDistributedSolution();
     m_solved = true;
-}
-
-void MainWindow::resetTransient() {
-    m_transientState.reset();
-    m_transientAccumulator = 0.0;
-    m_transientRunning = false;
-    runSolver(); // snapshot of the honest t=0 state (Vc=0, Il=0)
 }
 
 void MainWindow::mapDistributedSolution() {
@@ -511,7 +512,7 @@ void MainWindow::render() {
         ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus |
         ImGuiWindowFlags_NoSavedSettings);
 
-    advanceTransient(ImGui::GetIO().DeltaTime);
+    advanceLiveSim(ImGui::GetIO().DeltaTime);
     auto perfBlend = [](double& slot, std::chrono::steady_clock::time_point t0) {
         double ms = std::chrono::duration<double, std::milli>(
                         std::chrono::steady_clock::now() - t0).count();
@@ -783,48 +784,34 @@ void MainWindow::renderTopBar() {
         applyVisualizationPreset(m_visualPreset);
     current_lab::ui::tooltipIfTruncated(presetLabels[m_visualPreset], 150.0f);
 
+    // Единый живой режим: цепь всегда идёт во времени, «стационар» — предел
+    // процесса, а не отдельный режим. Пауза останавливает всё (цепь + миры).
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(105.0f);
-    int simMode = static_cast<int>(m_simMode);
-    const char* simModes[] = {tr("DC steady"), tr("Transient")};
-    bool simModeChanged = ImGui::Combo("##SimMode", &simMode, simModes, IM_ARRAYSIZE(simModes));
-    current_lab::ui::tooltipIfTruncated(simModes[simMode], 105.0f);
-    if (simModeChanged) {
-        m_simMode = static_cast<SimulationMode>(simMode);
-        if (m_simMode == SimulationMode::Transient) {
-            resetTransient();
-        } else {
-            m_transientRunning = false;
-            runSolver();
-        }
+    if (ImGui::Button(m_animationPaused ? tr("Resume##sim") : tr("Pause##sim")))
+        m_animationPaused = !m_animationPaused;
+    ImGui::SameLine();
+    if (ImGui::Button(tr("Step")))
+        stepLiveSimOnce();
+    ImGui::SameLine();
+    if (ImGui::Button(tr("Discharge"))) {
+        m_liveSim.discharge();
+        refreshSolution();
+        m_inspector.log().addMessage("Discharged: Vc = 0, Il = 0, t = 0.");
     }
-
-    if (m_simMode == SimulationMode::Transient) {
-        ImGui::SameLine();
-        if (ImGui::Button(m_transientRunning ? tr("Pause##sim") : tr("Run##sim")))
-            m_transientRunning = !m_transientRunning;
-        ImGui::SameLine();
-        if (ImGui::Button(tr("Step")))
-            stepTransientOnce();
-        ImGui::SameLine();
-        if (ImGui::Button(tr("Reset t")))
-            resetTransient();
-        ImGui::SameLine();
-        ImGui::Text(tr("t = %.3f s"), m_transientState.time);
-        if (!circuitHasReactive(m_circuit)) {
-            ImGui::SameLine();
-            ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f), "%s", tr("no C/L"));
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("%s", tr(
-                    "No capacitor or inductor: the transient equals the DC state.\n"
-                    "Add C/L or load the RC demo."));
-        }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("%s", tr("Vc = 0, Il = 0, t = 0"));
+    ImGui::SameLine();
+    ImGui::Text(tr("t = %.3f s"), m_liveSim.time());
+    ImGui::SameLine();
+    if (m_liveSim.settled()) {
+        ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.55f, 1.0f), "%s", tr("steady"));
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", tr("Process settled: the solver sleeps until the next event."));
     } else {
-        ImGui::SameLine();
-        if (ImGui::Button(tr("Run Solver"))) {
-            runSolver();
-            m_inspector.log().addMessage("Solver run manually.");
-        }
+        ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f), "%s x%.4g",
+                           tr("settling"), m_liveSim.simSpeed());
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", tr("Transient in slow motion: sim seconds per real second."));
     }
 
     ImGui::SameLine();
@@ -859,18 +846,10 @@ void MainWindow::renderTopBar() {
                 m_selComp = -1;
                 m_dualView.clearSelection();
                 m_elementEdit.close();
-                m_transientState.reset();
-                // Reactive demos are DEAD in DC steady state (capacitor = open
-                // circuit -> I = 0, «демка не запускается»): switch to transient
-                // and RUN so the story starts immediately.
-                bool reactive = false;
-                for (const auto& comp : m_circuit.components)
-                    if (comp.type == ComponentType::Capacitor ||
-                        comp.type == ComponentType::Inductor)
-                        reactive = true;
-                m_simMode = reactive ? SimulationMode::Transient
-                                     : SimulationMode::DcSteadyState;
-                m_transientRunning = reactive;
+                // Живой режим: демка просто загружается разряженной и сама
+                // проигрывает свой процесс (в авто-замедлении); никакого
+                // переключения режимов больше нет.
+                m_liveSim.discharge();
                 m_fitDualViewsRequested = true;
                 onCircuitChanged();
             }
@@ -1060,29 +1039,36 @@ void MainWindow::renderRightInspector(const DistributedWireParameters& params) {
 
     ImGui::Spacing();
     ImGui::SeparatorText(tr("Simulation Controls"));
-    if (m_simMode == SimulationMode::Transient) {
-        ImGui::TextDisabled("%s", tr("Transient: companion-model MNA"));
-        int method = static_cast<int>(m_integrationMethod);
-        const char* methods[] = {tr("Backward Euler (stable)"), tr("Trapezoidal (accurate)")};
-        ImGui::SetNextItemWidth(200.0f);
-        if (ImGui::Combo(tr("Method"), &method, methods, IM_ARRAYSIZE(methods)))
-            m_integrationMethod = static_cast<IntegrationMethod>(method);
-        double dtMs = m_transientDt * 1000.0;
-        ImGui::SetNextItemWidth(200.0f);
-        if (ImGui::InputDouble(tr("dt (ms)"), &dtMs, 0.1, 1.0, "%.3f"))
-            m_transientDt = std::clamp(dtMs, 1e-3, 1000.0) / 1000.0;
-        ImGui::SetNextItemWidth(200.0f);
-        ImGui::SliderFloat(tr("Sim speed"), &m_transientSpeed, 0.05f, 20.0f, "%.2fx sim s / real s",
-                           ImGuiSliderFlags_Logarithmic);
-        ImGui::Text("t = %.4f s", m_transientState.time);
+    ImGui::TextDisabled("%s", tr("Live: companion-model MNA, sleeps at steady state"));
+    int method = static_cast<int>(m_liveSim.method());
+    const char* methods[] = {tr("Backward Euler (stable)"), tr("Trapezoidal (accurate)")};
+    ImGui::SetNextItemWidth(200.0f);
+    if (ImGui::Combo(tr("Method"), &method, methods, IM_ARRAYSIZE(methods)))
+        m_liveSim.setMethod(static_cast<IntegrationMethod>(method));
+    bool autoSpeed = m_liveSim.autoSpeed();
+    if (ImGui::Checkbox(tr("Auto slow-mo"), &autoSpeed)) {
+        if (autoSpeed)
+            m_liveSim.setAutoSpeed();
+        else
+            m_liveSim.setManualSpeed(m_manualSimSpeed);
+    }
+    if (m_liveSim.autoSpeed()) {
+        ImGui::TextDisabled(tr("x%.4g sim s / real s (from the circuit's tau)"),
+                            m_liveSim.simSpeed());
     } else {
-        if (ImGui::Button(tr("Run"), ImVec2(72, 0))) {
-            runSolver();
-            m_inspector.log().addMessage("Solver run manually.");
-        }
+        ImGui::SetNextItemWidth(200.0f);
+        if (ImGui::SliderFloat(tr("Sim speed"), &m_manualSimSpeed, 1e-5f, 10.0f,
+                               "%.5fx sim s / real s", ImGuiSliderFlags_Logarithmic))
+            m_liveSim.setManualSpeed(m_manualSimSpeed);
+    }
+    ImGui::Text("t = %.4f s", m_liveSim.time());
+    if (m_liveSim.settled()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("(%s)", tr("steady"));
     }
     ImGui::Checkbox(tr("Sync cameras"), &m_dualView.syncCameras);
-    ImGui::Checkbox(tr("Pause animation"), &m_animationPaused);
+    // Та же единая пауза, что и в топ-баре: останавливает время цепи И визуал.
+    ImGui::Checkbox(tr("Pause (circuit time + visuals)"), &m_animationPaused);
     if (ImGui::Button(tr("Reset Time"))) {
         for (auto& [id, canvas] : m_paneCanvases)
             canvas->resetAnimationTime();
@@ -1111,13 +1097,17 @@ void MainWindow::renderRightInspector(const DistributedWireParameters& params) {
         m_selNode = -1;
         m_selComp = -1;
         m_solved = false;
+        // Свежая цепь начинает id с нуля: разряд, чтобы старый заряд не
+        // прилип к будущим компонентам с теми же id.
+        m_liveSim.discharge();
     }
     ImGui::SameLine();
     if (ImGui::Button(tr("Reset Demo"))) {
         setupTestCircuit();
         m_selNode = -1;
         m_selComp = -1;
-        runSolver();
+        m_liveSim.discharge();
+        circuitEvent();
     }
 
     if (m_debugMode && ImGui::CollapsingHeader("Verbose Inspector")) {
@@ -1328,14 +1318,13 @@ void MainWindow::renderBottomAnalysis(const DistributedWireParameters& params) {
 
         ImGui::TableNextColumn();
         ImGui::TextUnformatted(tr("Model Status"));
-        if (m_simMode == SimulationMode::Transient) {
-            ImGui::TextWrapped("Transient: %s, dt = %.3g ms, t = %.3f s",
-                               m_integrationMethod == IntegrationMethod::BackwardEuler
-                                   ? "backward Euler" : "trapezoidal",
-                               m_transientDt * 1000.0, m_transientState.time);
-        } else {
-            ImGui::TextWrapped("%s", tr("DC steady-state"));
-        }
+        ImGui::TextWrapped("Live: %s, dt = %.3g ms, t = %.3f s, x%.3g",
+                           m_liveSim.method() == IntegrationMethod::BackwardEuler
+                               ? "backward Euler" : "trapezoidal",
+                           m_liveSim.dt() * 1000.0, m_liveSim.time(), m_liveSim.simSpeed());
+        ImGui::TextDisabled("%s", m_liveSim.settled()
+                                      ? tr("steady state - solver sleeping")
+                                      : tr("transient settling"));
         ImGui::TextWrapped("%s", tr("Lumped circuit + distributed 1D wire"));
         ImGui::TextDisabled("Surface charge: %s", m_showSurfaceCharge ? "heuristic" : "hidden");
         ImGui::TextDisabled("Magnetic: %s", m_showMagnetic ? "qualitative" : "hidden");

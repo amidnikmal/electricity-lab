@@ -1,4 +1,5 @@
 #include "ui/CanvasInteraction.h"
+#include "projection/ElementGeometry.h"
 
 namespace current_lab::ui {
 
@@ -35,6 +36,28 @@ int hitTestComponent(const Circuit& circuit, Vec2 worldPos) {
     return -1;
 }
 
+int hitTestSwitchToggle(const Circuit& circuit, Vec2 worldPos, double wireThickness) {
+    // Ближайший ключ, а не первый по списку: зоны двух параллельных ключей
+    // могут перекрываться, клик по рычагу B не должен щёлкать A.
+    int best = -1;
+    double bestDist = 0.0;
+    for (const auto& c : circuit.components) {
+        if (c.type != ComponentType::Switch) continue;
+        const Node* nodeA = circuit.findNode(c.nodeA);
+        const Node* nodeB = circuit.findNode(c.nodeB);
+        if (!nodeA || !nodeB) continue;
+        auto g = projection::switchGeometry(nodeA->position, nodeB->position);
+        if (!g.valid) continue;
+        double dist = (worldPos - g.mid).length();
+        if (dist > projection::switchToggleRadius(g, wireThickness)) continue;
+        if (best < 0 || dist < bestDist) {
+            best = c.id;
+            bestDist = dist;
+        }
+    }
+    return best;
+}
+
 double defaultValueFor(ComponentType type) {
     switch (type) {
         case ComponentType::Resistor: return 1000.0;
@@ -57,6 +80,17 @@ void CanvasInteraction::handle(Circuit& circuit, const InteractionInput& input) 
 }
 
 void CanvasInteraction::handleSelect(const Circuit& circuit, const InteractionInput& input) {
+    // Хот-зона выключателя выигрывает у выделения (и у узлов внутри зоны):
+    // щелчок ключа — это эксперимент, а не редактирование. Выделение и
+    // редактор остаются доступны кликом по выводам вне зоны.
+    if (m_dragNode < 0 && input.clicked && callbacks.toggleSwitch) {
+        int sw = hitTestSwitchToggle(circuit, input.mouseWorld, input.wireThickness);
+        if (sw >= 0) {
+            callbacks.toggleSwitch(sw);
+            return;
+        }
+    }
+
     int hitNode = hitTestNode(circuit, input.mouseWorld);
     int hitComp = hitTestComponent(circuit, input.mouseWorld);
 

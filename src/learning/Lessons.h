@@ -66,17 +66,23 @@ inline Circuit lessonPresetCircuit(TaskFamily family) {
             break;
         }
         case TaskFamily::RcTimeConstant: {
+            // Открытый ключ: текст урока говорит «замкните ключ» — историю
+            // запускает сам студент (живой режим).
+            int nsw = c.addNode(Vec2(340, 140), "S");
             int n2 = c.addNode(Vec2(480, 140), "N2");
             int corner = c.addNode(Vec2(480, 320));
-            c.addComponent(ComponentType::Resistor, n1, n2, 1000.0);
+            c.addComponent(ComponentType::Switch, n1, nsw, 0.0);
+            c.addComponent(ComponentType::Resistor, nsw, n2, 1000.0);
             c.addComponent(ComponentType::Capacitor, n2, corner, 1e-3); // tau = 1 s
             c.addComponent(ComponentType::Wire, corner, gnd, 0.0);
             break;
         }
         case TaskFamily::RlTimeConstant: {
+            int nsw = c.addNode(Vec2(340, 140), "S");
             int n2 = c.addNode(Vec2(480, 140), "N2");
             int corner = c.addNode(Vec2(480, 320));
-            c.addComponent(ComponentType::Resistor, n1, n2, 10.0);
+            c.addComponent(ComponentType::Switch, n1, nsw, 0.0);
+            c.addComponent(ComponentType::Resistor, nsw, n2, 10.0);
             c.addComponent(ComponentType::Inductor, n2, corner, 1.0); // tau = 0.1 s
             c.addComponent(ComponentType::Wire, corner, gnd, 0.0);
             break;
@@ -123,7 +129,7 @@ inline const std::vector<Lesson>& lessons() {
 
         {"rc", "Charging a capacitor takes time",
          {"A capacitor charges through a resistor after the switch closes.",
-          "Switch to Transient mode, press Run, and watch Vc climb and flatten.",
+          "Close the switch and watch Vc climb and flatten in slow motion.",
           "Charging slows as the capacitor fills: the remaining push shrinks with every volt gained.",
           "The voltage approaches the source exponentially with time constant tau = R*C.",
           "V_C(t) = V(1 - e^{-t/\\tau}),   \\tau = RC"},
@@ -139,7 +145,7 @@ inline const std::vector<Lesson>& lessons() {
 
         {"rl", "An inductor resists change of current",
          {"An inductor in series with a resistor connects to a source at t = 0.",
-          "Run the transient and watch the flywheel in the Mechanics view spin up gradually.",
+          "Close the switch and watch the flywheel in the Mechanics view spin up gradually.",
           "Current cannot jump: the inductor stores energy in its field and yields slowly.",
           "The current approaches V/R exponentially with time constant tau = L/R.",
           "I(t) = \\frac{V}{R}(1 - e^{-t/\\tau}),   \\tau = \\frac{L}{R}"},
