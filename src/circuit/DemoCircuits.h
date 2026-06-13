@@ -131,13 +131,21 @@ inline Circuit buildDemo(DemoCircuit demo) {
             break;
         }
         case DemoCircuit::RlcSeries: {
-            int n2 = c.addNode(Vec2(380, 140), "N2");
-            int n3 = c.addNode(Vec2(560, 140), "N3");
-            int n4 = c.addNode(Vec2(740, 140), "N4");
-            c.addComponent(ComponentType::Resistor, n1, n2, 50.0);
+            // Последовательный RLC = КОЛЕБАТЕЛЬНЫЙ контур, и весь смысл в
+            // переходном процессе — затухающем ЗВОНЕ (ток/вода раскачивается
+            // туда-сюда). Раньше длинные замыкающие провода (распределённая
+            // модель, 0.5 Ом/ед. → сотни Ом) ПЕРЕДЕМПФИРОВЫВАЛИ контур (Q≈0.08):
+            // звона не было, демо выглядело бессмысленным. Теперь ЧЕТЫРЕ ЭЛЕМЕНТА
+            // САМИ образуют петлю (НИ ОДНОГО провода → нет паразитного
+            // сопротивления), а малый R держит недодемпфированный режим (Q≈4):
+            //   gnd ─(источник)─ n1 ─(R, верх)─ n2 ─(L, правый бок)─ n3 ─(C, низ)─ gnd
+            // В стационаре C всё равно честно блокирует DC (ток→0) — интересен
+            // именно путь к нему. L = инерция воды, C = пружина-мембрана, R = трение.
+            int n2 = c.addNode(Vec2(560, 140), "N2");
+            int n3 = c.addNode(Vec2(560, 320), "N3");
+            c.addComponent(ComponentType::Resistor, n1, n2, 4.0);   // малый R → Q≈8, звенит
             c.addComponent(ComponentType::Inductor, n2, n3, 1.0);
-            c.addComponent(ComponentType::Capacitor, n3, n4, 1e-3);
-            closeLoopRect(c, n4, Vec2(740, 140), gnd, Vec2(200, 320));
+            c.addComponent(ComponentType::Capacitor, n3, gnd, 1e-3);
             break;
         }
         case DemoCircuit::RlcCirculating: {

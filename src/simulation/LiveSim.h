@@ -50,6 +50,14 @@ double theveninResistanceSeenBy(const Circuit& circuit, int componentId,
 double smallestTimeConstant(const Circuit& circuit, CircuitSolver& solver,
                             const LiveSimConfig& cfg);
 
+// Период звона колебательного контура ~ 2*pi*sqrt(L*C) = 2*pi*sqrt(tau_C*tau_L)
+// (в пределах [minTau, maxTau]); <= 0, если в цепи НЕТ одновременно конденсатора
+// и катушки (т.е. контур не колебательный). Нужен авто-замедлению: у RLC самый
+// быстрый R*C на порядки меньше периода звона, и замедление по нему загоняет
+// скорость в ~1% — звон ползёт незаметно. По периоду — звон виден.
+double oscillationTimescale(const Circuit& circuit, CircuitSolver& solver,
+                            const LiveSimConfig& cfg);
+
 class LiveSim {
 public:
     explicit LiveSim(LiveSimConfig cfg = {}) : m_cfg(cfg) {}

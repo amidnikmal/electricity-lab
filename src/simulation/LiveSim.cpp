@@ -66,12 +66,45 @@ double smallestTimeConstant(const Circuit& circuit, CircuitSolver& solver,
     return best;
 }
 
+double oscillationTimescale(const Circuit& circuit, CircuitSolver& solver,
+                            const LiveSimConfig& cfg) {
+    constexpr double kTwoPi = 6.283185307179586;
+    // Период звона = 2*pi*sqrt(L*C) считаем по ЗНАЧЕНИЯМ элементов, а НЕ по
+    // R_th-постоянным. Причина: в ПОСЛЕДОВАТЕЛЬНОМ RLC катушка стоит в одной
+    // ветви с конденсатором, и тевенин-проба катушки не находит DC-пути (C его
+    // разрывает) -> tau_L был бы не определён. Требуем: есть катушка и есть
+    // ПОДКЛЮЧЁННЫЙ конденсатор (R_th>0; изолированный за разомкнутым ключом не
+    // резонирует). Берём наименьшие L и C -> самый быстрый (требовательный к
+    // видимости) звон.
+    double cVal = -1.0, lVal = -1.0;
+    bool capConnected = false;
+    for (const auto& comp : circuit.components) {
+        if (comp.value <= 0.0) continue;
+        if (comp.type == ComponentType::Capacitor) {
+            if (cVal < 0.0 || comp.value < cVal) cVal = comp.value;
+            if (theveninResistanceSeenBy(circuit, comp.id, solver) > 0.0) capConnected = true;
+        } else if (comp.type == ComponentType::Inductor) {
+            if (lVal < 0.0 || comp.value < lVal) lVal = comp.value;
+        }
+    }
+    if (cVal <= 0.0 || lVal <= 0.0 || !capConnected) return -1.0; // не колебательный
+    double period = kTwoPi * std::sqrt(lVal * cVal);
+    return std::clamp(period, cfg.minTau, cfg.maxTau);
+}
+
 void LiveSim::onCircuitEvent(const Circuit& circuit, CircuitSolver& solver) {
     double tau = smallestTimeConstant(circuit, solver, m_cfg);
-    // ~3*tau истории растягиваются на storySeconds реального времени; без
+    // Колебательный контур (есть и L, и C): интересен не самый быстрый R*C, а
+    // ПЕРИОД звона ~ 2*pi*sqrt(L*C). Берём его как масштаб истории (он >= самого
+    // быстрого tau для недодемпфированного контура), иначе крошечный R*C загоняет
+    // скорость в ~1% и звон ползёт незаметно. Для RC/RL (нет пары L+C) osc<=0 и
+    // поведение прежнее — по наименьшей tau.
+    double osc = oscillationTimescale(circuit, solver, m_cfg);
+    double storyTau = std::max(tau, osc);
+    // ~3 масштаба истории растягиваются на storySeconds реального времени; без
     // реактивных элементов скорость не важна (уснём после первого же шага).
-    m_autoSpeedValue = tau > 0.0
-        ? std::clamp(3.0 * tau / m_cfg.storySeconds, m_cfg.minSpeed, m_cfg.maxSpeed)
+    m_autoSpeedValue = storyTau > 0.0
+        ? std::clamp(3.0 * storyTau / m_cfg.storySeconds, m_cfg.minSpeed, m_cfg.maxSpeed)
         : m_cfg.maxSpeed;
     applySpeed();
     wake();

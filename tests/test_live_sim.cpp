@@ -127,6 +127,56 @@ TEST(LiveSim, AutoSpeedIsHeavySlowMotionFromTau) {
     EXPECT_TRUE(sim.autoSpeed());
 }
 
+// Последовательный колебательный RLC: источник—R—L—C по петле. Самый быстрый
+// R*C (мс) на порядки меньше периода звона 2π√(LC) (~0.2 с). Авто-замедление
+// обязано опираться на ПЕРИОД, иначе звон ползёт ~1% скорости и не виден.
+TEST(LiveSim, OscillatoryRlcSlowsToTheRingPeriodNotTheTinyRc) {
+    Circuit c;
+    int gnd = c.addNode(Vec2(0, 200), "GND");
+    int n1 = c.addNode(Vec2(0, 0), "N1");
+    int n2 = c.addNode(Vec2(200, 0), "N2");
+    int n3 = c.addNode(Vec2(200, 200), "N3");
+    c.groundNodeId = gnd;
+    c.addComponent(ComponentType::Ground, gnd, gnd, 0.0);
+    c.addComponent(ComponentType::VoltageSource, n1, gnd, 5.0);
+    c.addComponent(ComponentType::Resistor, n1, n2, 4.0);
+    c.addComponent(ComponentType::Inductor, n2, n3, 1.0);
+    c.addComponent(ComponentType::Capacitor, n3, gnd, 1e-3);
+
+    CircuitSolver solver;
+    LiveSimConfig cfg;
+    double osc = oscillationTimescale(c, solver, cfg);
+    double fastTau = smallestTimeConstant(c, solver, cfg); // ~ R*C (катушка без DC-пути)
+
+    // Период звона = 2π√(L*C) = 2π√(1e-3) ≈ 0.199 с (R сокращается, считается по
+    // значениям L,C — у последовательного RLC тевенин катушки не находит путь).
+    EXPECT_NEAR(osc, 6.283185307179586 * std::sqrt(1.0 * 1e-3), 5e-3);
+    ASSERT_GT(fastTau, 0.0);
+    EXPECT_GT(osc, fastTau * 10.0) << "период звона должен быть НАМНОГО больше R*C";
+
+    LiveSim sim;
+    sim.onCircuitEvent(c, solver);
+    EXPECT_NEAR(sim.simSpeed(),
+                std::clamp(3.0 * osc / cfg.storySeconds, cfg.minSpeed, cfg.maxSpeed), 1e-6);
+    EXPECT_GT(sim.simSpeed(), 0.05) << "звон обязан идти видимо, а не ползти";
+}
+
+// У RC-цепи (без катушки) периода звона нет — авто-замедление прежнее (по
+// наименьшей tau), и быстрый RC-транзиент по-прежнему идёт в сильном замедлении.
+TEST(LiveSim, NonOscillatoryRcHasNoRingTimescale) {
+    SwitchedRc s = makeSwitchedRc(/*closed=*/true);
+    CircuitSolver solver;
+    LiveSimConfig cfg;
+    EXPECT_LE(oscillationTimescale(s.circuit, solver, cfg), 0.0)
+        << "у RC-цепи (без катушки) нет периода звона";
+
+    LiveSim sim;
+    sim.onCircuitEvent(s.circuit, solver);
+    EXPECT_NEAR(sim.simSpeed(),
+                3.0 * smallestTimeConstant(s.circuit, solver, cfg) / cfg.storySeconds, 1e-5)
+        << "без L+C скорость считается по наименьшей tau, как раньше";
+}
+
 TEST(LiveSim, RcChargesMonotonicallyThenSleepsOnExactAsymptote) {
     SwitchedRc s = makeSwitchedRc(/*closed=*/true);
     CircuitSolver solver;
