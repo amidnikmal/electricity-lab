@@ -1,4 +1,5 @@
 #include "ui/CircuitCanvas.h"
+#include "physics/ChainGeometry.h"
 #include "render/PrimitiveRenderer.h"
 #include "ui/I18n.h"
 #include <algorithm>
@@ -113,7 +114,13 @@ void CircuitCanvas::render(Circuit& circuit, const CircuitSolution* solution) {
                 const Node* nb = circuit.findNode(comp.nodeB);
                 if (!na || !nb) continue;
                 Vec2 mid = (na->position + nb->position) * 0.5;
-                if ((p - mid).length() < 24.0) return &comp;
+                double rollerR =
+                    current_lab::physics::chain_geometry::linkRadius(m_wireThickness);
+                double half =
+                    current_lab::physics::chain_geometry::chainHalfWidth(m_wireThickness);
+                double driveR =
+                    current_lab::physics::chain_geometry::driveSprocketPitchRadius(half, rollerR);
+                if ((p - mid).length() < std::max(24.0, driveR * 1.25)) return &comp;
             }
             return nullptr;
         };

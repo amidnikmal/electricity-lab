@@ -20,15 +20,21 @@ constexpr double kPi = 3.14159265358979323846;
 struct Oval {
     Vec2 a, b, unit, perp;
     double len = 0.0, off = 0.0;
+    chain_geometry::SourceDrivePath sourceDrive;
 
-    double perimeter() const { return 2.0 * len + 2.0 * kPi * off; }
+    double perimeter() const {
+        return sourceDrive.valid ? sourceDrive.perimeter : 2.0 * len + 2.0 * kPi * off;
+    }
 
     Vec2 at(double t) const {
-        double straight = len;
-        double arc = kPi * off;
         t = std::fmod(t, perimeter());
         if (t < 0.0) t += perimeter();
 
+        if (sourceDrive.valid)
+            return chain_geometry::sourceDrivePointAt(sourceDrive, t);
+
+        double straight = len;
+        double arc = kPi * off;
         if (t < straight) // top straight: a->b side at +off
             return a + unit * t + perp * off;
         if (t < straight + arc) { // arc around b
@@ -77,6 +83,12 @@ struct ChainSim::Impl {
         // The loop arcs around each node exactly on the sprocket pitch circle,
         // so the simulated chain stays on the drawn gear teeth.
         loop.oval.off = chain_geometry::sprocketPitchRadius(spec.halfWidth, linkRadius);
+        if (spec.driveSprocket) {
+            double driveR =
+                chain_geometry::driveSprocketPitchRadius(spec.halfWidth, linkRadius);
+            loop.oval.sourceDrive =
+                chain_geometry::sourceDrivePath(spec.a, spec.b, loop.oval.off, driveR);
+        }
 
         // Links: spaced by the chain pitch, ring closed exactly.
         double spacing = chain_geometry::linkPitch(linkRadius);
@@ -114,6 +126,7 @@ uint64_t ChainSim::layoutSignature(const std::vector<ChainSpec>& specs) {
         mix(static_cast<uint64_t>(static_cast<int64_t>(spec.b.y * 8)));
         mix(static_cast<uint64_t>(static_cast<int64_t>(spec.halfWidth * 8)));
         mix(spec.brake ? 7u : 3u);
+        mix(spec.driveSprocket ? 13u : 5u);
     }
     return hash;
 }
