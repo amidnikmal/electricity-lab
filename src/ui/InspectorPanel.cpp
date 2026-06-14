@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <format>
 #include <ctime>
 
 namespace {
@@ -97,9 +98,8 @@ void renderPotentialProfile(const Component& component, double vA, double vB) {
     double margin = (vMax - vMin) * 0.15;
     if (margin < 0.01) margin = 0.1;
 
-    char overlay[64];
-    std::snprintf(overlay, sizeof(overlay), "%.3f V -> %.3f V", vA, vB);
-    ImGui::PlotLines("Potential profile", values, kSamples, 0, overlay,
+    std::string overlay = std::format("{:.3f} V -> {:.3f} V", vA, vB);
+    ImGui::PlotLines("Potential profile", values, kSamples, 0, overlay.c_str(),
                      static_cast<float>(vMin - margin),
                      static_cast<float>(vMax + margin),
                      ImVec2(0, 70));

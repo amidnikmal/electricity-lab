@@ -6,6 +6,7 @@
 #include "learning/Lessons.h"
 #include "imgui.h"
 
+#include <format>
 #include <cstring>
 
 using namespace current_lab::learning;
@@ -131,9 +132,8 @@ void LearningPanel::renderTaskSection() {
     if (ImGui::Button(tr("Submit attempt"))) {
         auto result = m_session.submitAttempt(m_attemptInput);
         if (result.accepted) {
-            char buf[160];
-            std::snprintf(buf, sizeof(buf),
-                          tr("Measured: %.4g %s. Your attempt is %s (tolerance %.3g)."),
+            std::string buf = std::format(
+                          tr("Measured: {:.4g} {}. Your attempt is {} (tolerance {:.3g})."),
                           result.groundTruth, tr(task->answerUnit.c_str()),
                           result.correct ? tr("within tolerance") : tr("outside tolerance"),
                           result.tolerance);

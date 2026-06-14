@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <format>
 #include <vector>
 
 namespace current_lab::render {
@@ -75,13 +76,12 @@ void drawLegend(ImDrawList* dl, ImVec2 origin, ImVec2 size, const PotentialLegen
         dl->AddRectFilled(ImVec2(barX, y0), ImVec2(barX + barW, y1), col);
     }
 
-    char buf[32];
-    std::snprintf(buf, sizeof(buf), "%.2f V", legend.vMax);
-    dl->AddText(ImVec2(barX + barW + 4, barY0 - 6), IM_COL32(200, 200, 200, 255), buf);
-    std::snprintf(buf, sizeof(buf), "%.2f V", (legend.vMin + legend.vMax) * 0.5);
-    dl->AddText(ImVec2(barX + barW + 4, barY0 + barH * 0.5f - 6), IM_COL32(180, 180, 180, 255), buf);
-    std::snprintf(buf, sizeof(buf), "%.2f V", legend.vMin);
-    dl->AddText(ImVec2(barX + barW + 4, barY0 + barH - 6), IM_COL32(200, 200, 200, 255), buf);
+    std::string buf = std::format("{:.2f} V", legend.vMax);
+    dl->AddText(ImVec2(barX + barW + 4, barY0 - 6), IM_COL32(200, 200, 200, 255), buf.c_str());
+    buf = std::format("{:.2f} V", (legend.vMin + legend.vMax) * 0.5);
+    dl->AddText(ImVec2(barX + barW + 4, barY0 + barH * 0.5f - 6), IM_COL32(180, 180, 180, 255), buf.c_str());
+    buf = std::format("{:.2f} V", legend.vMin);
+    dl->AddText(ImVec2(barX + barW + 4, barY0 + barH - 6), IM_COL32(200, 200, 200, 255), buf.c_str());
 
     dl->AddText(ImVec2(barX - 6, barY0 - 18), IM_COL32(150, 185, 210, 255), "Potential");
     dl->AddText(ImVec2(barX - 2, barY0 + barH + 4), IM_COL32(150, 150, 160, 255), "V");

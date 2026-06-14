@@ -1,6 +1,7 @@
 #include "learning/AnkiExport.h"
 #include "net/HttpClient.h"
 
+#include <format>
 #include <nlohmann/json.hpp>
 
 namespace current_lab::learning {
@@ -16,9 +17,8 @@ AnkiNote noteFromTask(const GeneratedTask& task) {
     AnkiNote note;
     note.front = task.prompt;
 
-    char answer[128];
-    std::snprintf(answer, sizeof(answer), "%.4g %s", task.groundTruth, task.answerUnit.c_str());
-    note.back = std::string(answer) + "\n\n" + task.solutionExplanation;
+    std::string answer = std::format("{:.4g} {}", task.groundTruth, task.answerUnit);
+    note.back = answer + "\n\n" + task.solutionExplanation;
 
     note.tags = {"current-lab", taskFamilyName(task.family)};
     for (auto& tag : note.tags)
