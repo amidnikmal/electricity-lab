@@ -1,36 +1,36 @@
-# Element Library
+# Библиотека элементов
 
-Date: 2026-06-10
+Дата: 2026-06-10
 
-Every element is one `Component` in the single `CircuitModel` (one `ComponentId` across all projections) with: solver behavior (DC + transient), schematic symbol, physics projection, mechanics projection, inspector/editor support, and pure-logic tests.
+Каждый элемент — это один `Component` в единственной модели `Circuit` (один `ComponentId` на все проекции) со следующими аспектами: поведение в solver (DC + переходный режим), схемный символ, физическая проекция, механическая проекция, поддержка инспектора/редактора и тесты на чистой логике.
 
-`Component.value` semantics per type: R = ohms, V source = volts, C = farads, L = henries, Diode = unused (ideal), Switch = 1 closed / 0 open.
+Семантика `Component.value` по типам: R = омы, источник V = вольты, C = фарады, L = генри, Diode = используется только знак смещения (значение не задаётся), Switch = >= 0.5 замкнут / < 0.5 разомкнут.
 
-| Element | DC model | Transient model | Schematic symbol | Physics projection | Mechanics projection | Status |
+| Элемент | DC-модель | Переходная модель | Схемный символ | Физическая проекция | Механическая проекция | Статус |
 | --- | --- | --- | --- | --- | --- | --- |
-| Wire | 1e9 S (or distributed R chain) | same | rounded conductor | potential gradient, drift, E-arrows, surface charge | moving chain | done |
-| Resistor | G = 1/R | same | body + leads (sectioned) | body-concentrated field, heat underline, drift slowdown | friction brake pads + heat glow | done |
-| Voltage source | MNA branch row | same | circle with +/- | leads carry gradient | drive crank (spokes pump with I) | done |
-| Ground | reference node | same | ground bars | same | anchor block | done |
-| Capacitor | open (gmin 1e-12 S) | BE: g=C/dt, ieq=g*Vc; TR: g=2C/dt, ieq=g*Vc+Ic | two plates + gap | plate charges, gap E-field, energy glow (1/2 C V^2) | spring, displacement ~ Vc | done |
-| Inductor | short (1e9 S) | BE: g=dt/L, ieq=-Il; TR: g=dt/2L, ieq=-(Il+g*Vl) | 4-bump coil | magnetic rings, energy glow (1/2 L I^2) | flywheel, momentum ~ Il | done |
-| Diode | ideal PWL: conducting=1e9 S, blocking=1e-12 S, state iteration (max 24 passes) | same companions inside each step | triangle + bar | generic conductor layers (current only when forward) | ratchet pawl | done (ideal only) |
-| Switch | closed=1e9 S, open=1e-12 S | same | lever + contacts, open/closed label | generic conductor layers | coupler (gap when open) | done |
+| Wire | 1e9 S (или цепочка распределённых R) | то же | скруглённый проводник | градиент потенциала, дрейф, стрелки E, поверхностный заряд | движущаяся цепочка | готово |
+| Resistor | G = 1/R | то же | тело + выводы (с сегментацией) | поле, сосредоточенное в теле, подчёркивание нагрева, замедление дрейфа | фрикционные тормозные колодки + свечение нагрева | готово |
+| Voltage source | строка ветви MNA | то же | окружность с +/- | выводы несут градиент | приводной ворот (спицы качают с током I) | готово |
+| Ground | опорный узел | то же | штрихи земли | то же | якорный блок | готово |
+| Capacitor | разрыв (gmin 1e-12 S) | BE: g=C/dt, ieq=g*Vc; TR: g=2C/dt, ieq=g*Vc+Ic | две пластины + зазор | заряды пластин, E-поле в зазоре, свечение энергии (1/2 C V^2) | пружина, смещение ~ Vc | готово |
+| Inductor | короткое замыкание (1e9 S) | BE: g=dt/L, ieq=-Il; TR: g=dt/2L, ieq=-(Il+g*Vl) | катушка с 4 витками | магнитные кольца, свечение энергии (1/2 L I^2) | маховик, момент импульса ~ Il | готово |
+| Diode | кусочно-линейная: проводит=1e9 S, запирается=1e-12 S, с прямым падением 0.7 В; итерация состояний (до 24 проходов) | те же companion-модели внутри каждого шага | треугольник + черта | слои-проводник общего вида (ток только при прямом смещении) | храповая собачка | готово |
+| Switch | замкнут=1e9 S, разомкнут=1e-12 S | то же | рычаг + контакты, метка разомкнут/замкнут | слои-проводник общего вида | муфта (зазор в разомкнутом состоянии) | готово |
 
-## Diode details
+## Подробности по диоду
 
-Ideal piecewise-linear model: conducts A -> B at zero forward drop when forward biased, blocks otherwise. Solved by fixed-point iteration over diode states around the linear MNA solve (`CircuitSolver::solveIterative`): start all blocked; a conducting diode carrying negative current flips to blocked, a blocked diode with positive bias flips to conducting; repeat until consistent (<= 24 passes). Works identically in DC and inside every transient step (peak-detector test holds capacitor charge when the source drops).
+Кусочно-линейная (PWL) модель с прямым падением `kDiodeForwardDrop = 0.7` В (не идеальный диод с нулевым порогом). При прямом смещении диод A -> B проводит, в противном случае запирается. Открытое состояние моделируется companion-схемой Нортона: проводимость `kWireConductance` и источник тока `kWireConductance * kDiodeForwardDrop`, что и даёт падение около 0.7 В. Решается методом неподвижной точки по состояниям диодов вокруг линейного решения MNA (`CircuitSolver::solveIterative`): сначала все диоды считаются запертыми; проводящий диод с отрицательным (обратным) током переключается в запертое состояние, а запертый диод со смещением выше `kDiodeForwardDrop` — в проводящее; повтор до согласованности (<= 24 проходов). Работает одинаково в DC и внутри каждого переходного шага (тест пикового детектора: конденсатор удерживает заряд при падении источника).
 
-The exponential Shockley model (I = Is(e^{V/nVt}-1)) is **not** implemented; it needs Newton iterations with conductance linearization and is left as a flagged future option.
+Экспоненциальная модель Шокли (I = Is(e^{V/nVt}-1)) **не** реализована; она требует итераций Ньютона с линеаризацией проводимости и оставлена как помеченный вариант на будущее.
 
-## Switch details
+## Подробности по ключу (Switch)
 
-Topology stays fixed; open/closed is a conductance swap (1e-12 / 1e9 S), so transient state (Vc, Il) survives toggling — opening a switch mid-charge freezes the capacitor voltage (covered by test).
+Топология остаётся фиксированной; разомкнуто/замкнуто — это подмена проводимости (1e-12 / 1e9 S), поэтому переходное состояние (Vc, Il) переживает переключение: размыкание ключа в середине заряда замораживает напряжение на конденсаторе (покрыто тестом).
 
-## Defaults (placement)
+## Значения по умолчанию (при размещении)
 
-R = 1 kOhm, V = 5 V, C = 1 mF (tau = 1 s with 1 kOhm), L = 1 H (tau = 0.1 s with 10 Ohm), switch = closed.
+R = 1 кОм, V = 5 В, C = 1 мФ (tau = 1 с при 1 кОм), L = 1 Гн (tau = 0.1 с при 10 Ом), ключ = замкнут.
 
-## Tests
+## Тесты
 
-`tests/test_solver.cpp`, `test_transient.cpp` (RC/RL/energy/balance/stability/convergence), `test_elements.cpp` (C/L geometry, symbols, stored energy, placement), `test_diode_switch.cpp` (forward/reverse, peak detector, open/closed, mid-transient freeze, symbols in all projections), `test_mechanics.cpp` (analog mapping).
+`tests/test_solver.cpp`, `test_transient.cpp` (RC/RL/энергия/баланс/устойчивость/сходимость), `test_elements.cpp` (геометрия C/L, символы, запасённая энергия, размещение), `test_diode_switch.cpp` (прямое/обратное смещение, пиковый детектор, разомкнуто/замкнуто, заморозка в середине переходного процесса, символы во всех проекциях), `test_mechanics.cpp` (соответствие аналогий).

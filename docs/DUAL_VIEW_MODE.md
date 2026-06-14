@@ -1,94 +1,88 @@
-# Dual View Mode
+# Режим нескольких видов (Dual View)
 
-Date: 2026-06-10
+Дата: 2026-06-10
 
-## Purpose
+## Назначение
 
-Dual View shows one circuit through two synchronized projections:
+Dual View показывает одну схему через несколько синхронизированных проекций:
 
-- Circuit View: conventional schematic notation.
-- Physics View: physical interpretation of the same solved model.
+- Circuit View: обычная схемная нотация.
+- Physics View: физическая интерпретация той же решённой модели.
 
-The goal is to connect the symbolic circuit diagram with potential, electric field, current, power, heat, and other physical layers without creating a second independent scene.
+Помимо этих двух базовых видов проекционная система выросла до четырёх проекций — `Circuit`, `Physics`, `Mechanics`, `Water` (см. `MainWindow.cpp`, селектор проекции в заголовке панели). Виды раскладываются по дереву панелей, есть готовая раскладка на три панели (`PaneTree::resetTriple`, кнопка «Triple»).
 
-## Source Of Truth
+Цель — связать символьную схему с потенциалом, электрическим полем, током, мощностью, теплом и другими физическими слоями, не создавая вторую независимую сцену.
 
-`Circuit` is the single source of truth. Each element has one stable `ComponentId`.
+## Источник истины
 
-Correct data flow:
+`Circuit` — единственный источник истины. У каждого элемента один стабильный `ComponentId`.
+
+Корректный поток данных:
 
 ```text
-User action in either view
-  -> callback / command
-  -> update one Circuit model
+действие пользователя в любом виде
+  -> callback / команда
+  -> обновление одной модели Circuit
   -> solve
-  -> rebuild CircuitViewProjection and PhysicsViewProjection
-  -> render both panes
+  -> пересборка проекций (Circuit / Physics / Mechanics / Water)
+  -> render всех панелей
 ```
 
-Forbidden data flow:
+Запрещённый поток данных:
 
 ```text
-Circuit View owns one element collection
-Physics View owns another element collection
-manual sync between copies
+Circuit View владеет одной коллекцией элементов
+Physics View владеет другой коллекцией элементов
+ручная синхронизация между копиями
 ```
 
-Two independent collections would make selection, deletion, editing, and solver results drift apart.
+Две независимые коллекции привели бы к расхождению выделения, удаления, редактирования и результатов solver.
 
-## Projection Links
+## Связь проекций
 
-`ViewLink` stores one `ComponentId` and separate projection bounds for the circuit and physics panes. Bounds are view data only; they do not duplicate the component.
+Все проекции рисуются из одной модели `Circuit` по `ComponentId`; отдельной структуры-связки между видами нет — координаты элементов берутся напрямую из модели и камеры соответствующей панели. (Ранее планировалась структура `ViewLink` с раздельными bounds на каждый вид; в текущем коде она не реализована, и проекции делят геометрию модели без дублирования компонента.)
 
-```cpp
-struct ViewLink
-{
-    ComponentId componentId;
-    Rect circuitBounds;
-    Rect physicsBounds;
-};
-```
+## Синхронизация выделения
 
-## Selection Sync
+`DualViewState::selectedComponentId` общий для всех панелей. Выбор компонента в любом виде выделяет тот же `ComponentId`, поэтому все панели подсвечивают один и тот же элемент модели и открывают один и тот же редактор.
 
-`DualViewState::selectedComponentId` is shared by both panes. Selecting a component in Circuit View or Physics View selects the same `ComponentId`, so both panes highlight the same model element and the same editor opens.
+## Синхронизация камер
 
-## Camera Sync
-
-Dual View stores two cameras:
+Dual View хранит по камере на каждый вид:
 
 ```cpp
+bool syncCameras = true;
 CanvasCamera circuitCamera;
 CanvasCamera physicsCamera;
-bool syncCameras = true;
+CanvasCamera mechanicsCamera;
 ```
 
-When `syncCameras` is enabled, pan or zoom in one pane copies that camera to the other pane. When disabled, both panes move independently. The top bar exposes `Sync cameras` and `Fit`.
+Когда `syncCameras` включён, панорамирование или зум в одной панели копируется в остальные (`DualViewState::syncFrom`). Когда выключен — панели двигаются независимо. В верхней панели доступны `Sync cameras` и `Fit`.
 
-## Editing
+## Редактирование
 
-The element editor edits the shared model:
+Редактор элемента правит общую модель:
 
-- resistor resistance;
-- voltage source voltage;
-- distributed wire resistance-per-unit and segment count;
-- ground reference action;
-- delete component.
+- сопротивление резистора;
+- напряжение источника напряжения;
+- сопротивление-на-единицу-длины распределённого провода и число сегментов;
+- действие назначения опорного узла (ground);
+- удаление компонента.
 
-After Apply or Delete, the app re-solves and both projections redraw from the same model.
+После Apply или Delete приложение пересчитывает решение, и все проекции перерисовываются из одной и той же модели.
 
-## Physics Layer Status
+## Статус физических слоёв
 
-- Potential: approximate in the lumped + distributed 1D wire model.
-- Electric field: approximate, derived from `E ~= -dV/dx` along conductive paths.
-- Heat/power: based on solved branch power and dissipated-power filtering.
-- Drift particles: educational visualization, not a carrier-speed simulation.
-- Surface charge: heuristic/conceptual.
-- Magnetic field: qualitative unless replaced by a calibrated model.
+- Потенциал: приближённый в сосредоточенной + распределённой 1D-модели провода.
+- Электрическое поле: приближённое, выводится из `E ~= -dV/dx` вдоль проводящих путей.
+- Тепло/мощность: на основе решённой мощности ветви и фильтрации рассеиваемой мощности.
+- Частицы дрейфа: учебная визуализация, а не симуляция скорости носителей.
+- Поверхностный заряд: эвристический/концептуальный.
+- Магнитное поле: качественное, пока не заменено калиброванной моделью.
 
-## Current Limitations
+## Текущие ограничения
 
-- Physics View still reuses `CircuitCanvas` with different layer flags; a dedicated primitive renderer is the next step.
-- `ViewLink` bounds are simple component bounds.
-- Material selection in the first editor pass is UI state only.
-- Energy Flow overlay is not implemented yet.
+- Physics View по-прежнему переиспользует `CircuitCanvas` с другими флагами слоёв; выделенный примитивный рендерер — следующий шаг.
+- Геометрия элементов берётся из bounds модели.
+- Выбор материала в первой итерации редактора — это только состояние UI.
+- Overlay «Energy Flow» пока не реализован.
