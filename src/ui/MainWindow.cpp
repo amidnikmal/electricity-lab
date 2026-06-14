@@ -3,6 +3,7 @@
 #include "ui/UiHelpers.h"
 #include "circuit/DemoCircuits.h"
 #include "projection/MechanicsMapping.h"
+#include "projection/MechanicsCoupling.h"
 #include "visualization/VisualizationStatus.h"
 #include "visualization/VisualizationPresets.h"
 #include "ui/Format.h"
@@ -109,7 +110,7 @@ MainWindow::MainWindow() {
         m_fitDualViewsRequested = true;
         // Новая цепь = новое id-пространство: старый заряд не должен
         // прилипнуть к чужим компонентам.
-        m_liveSim.discharge(); m_thermal.reset();
+        m_liveSim.discharge(); m_thermal.reset(); resetMechanicsPhases();
         onCircuitChanged();
     };
     applyVisualizationPreset(m_visualPreset);
@@ -327,8 +328,13 @@ void MainWindow::updateParticleSim(float realDt) {
                                                       solution, dt);
         return;
     }
+    // Rigid-axle coupling: every chain in one connected mechanism shares a
+    // single rotation sign, so gears on a shared node spin together instead of
+    // fighting (see MechanicsCoupling.h). Computed once per frame from the SAME
+    // model + solution the chains are built from.
+    m_axleCoupling = current_lab::mechanics::computeAxleCoupling(m_circuit, solution);
     for (const auto& comp : m_circuit.components) {
-        if (comp.type == ComponentType::Ground || comp.type == ComponentType::Capacitor)
+        if (comp.type == ComponentType::Ground)
             continue;
         if (comp.type == ComponentType::Switch && comp.value < 0.5)
             continue;
@@ -340,22 +346,38 @@ void MainWindow::updateParticleSim(float realDt) {
             for (const auto& br : solution->branches)
                 if (br.componentId == comp.id) { current = br.current; break; }
         }
+        // ONE visual scale for the WHOLE mechanics view (every component incl.
+        // the capacitor). This is the single "speed knob": big enough the chain
+        // reads as fast as the electron drift, small enough that a capacitor's
+        // shaft (driven by ∫chain travel) winds its spring within the crank's
+        // ±θmax over a normal charge — that is what lets gear, arm and spring
+        // stay one rigid body AND stay synced with the loop. Direction comes from
+        // the rigid-axle coupling, not this component's nodeA->nodeB order.
+        double mappedSpeed = current_lab::mechanics::chainSpeedFromCurrent(current) *
+                             current_lab::mechanics::kVisualChainSpeed *
+                             current_lab::mechanics::kMechChainBoost;
+        double targetSpeed = std::clamp(
+            m_axleCoupling.signFor(comp.id) * std::abs(mappedSpeed),
+            -120.0, 120.0);
+        // Honest chain travel for every component, capacitor included — the
+        // wheels/leads read this so they all move together.
+        m_chainTravel[comp.id] += targetSpeed * dt;
+
+        // The capacitor is NOT a chain oval through the device (the spring sits
+        // between two independent shafts); it is driven by chainTravel in
+        // emitSpring. Every other component gets a ChainSim loop.
+        if (comp.type == ComponentType::Capacitor)
+            continue;
+
         current_lab::physics::ChainSpec spec;
         spec.componentId = comp.id;
         spec.a = a->position;
         spec.b = b->position;
         spec.halfWidth = current_lab::physics::chain_geometry::chainHalfWidth(m_wireThickness);
-        // Same visual ceiling as the electron drift (±120): the chain shows
-        // the SAME current, it must not look slower than the electrons.
-        spec.targetSpeed = std::clamp(
-            current_lab::mechanics::chainSpeedFromCurrent(current) *
-                current_lab::mechanics::kVisualChainSpeed * 100.0,
-            -120.0, 120.0);
+        spec.targetSpeed = targetSpeed;
         spec.brake = comp.type == ComponentType::Resistor;
         spec.driveSprocket = comp.type == ComponentType::VoltageSource;
         chainSpecs.push_back(spec);
-        // Mirror the sim's loop.phase: honest chain travel for the wheels.
-        m_chainTravel[comp.id] += spec.targetSpeed * dt;
     }
     if (chainSpecs.empty()) {
         m_chainLinks.clear();
@@ -661,6 +683,7 @@ void MainWindow::configureCanvasForMechanicsView(CircuitCanvas& canvas) {
     canvas.setSimParticles(nullptr); // mechanics uses the chain, not electrons
     canvas.setChainLinks(&m_chainLinks);
     canvas.setChainTravel(&m_chainTravel);
+    canvas.setAxleCoupling(&m_axleCoupling);
     canvas.setProjection(current_lab::projection::ProjectionKind::Mechanical);
 }
 
@@ -824,7 +847,7 @@ void MainWindow::renderTopBar() {
         stepLiveSimOnce();
     ImGui::SameLine();
     if (ImGui::Button(tr("Discharge"))) {
-        m_liveSim.discharge(); m_thermal.reset();
+        m_liveSim.discharge(); m_thermal.reset(); resetMechanicsPhases();
         refreshSolution();
         m_inspector.log().addMessage("Discharged: Vc = 0, Il = 0, t = 0.");
     }
@@ -879,7 +902,7 @@ void MainWindow::renderTopBar() {
                 // Живой режим: демка просто загружается разряженной и сама
                 // проигрывает свой процесс (в авто-замедлении); никакого
                 // переключения режимов больше нет.
-                m_liveSim.discharge(); m_thermal.reset();
+                m_liveSim.discharge(); m_thermal.reset(); resetMechanicsPhases();
                 m_fitDualViewsRequested = true;
                 onCircuitChanged();
             }
@@ -1173,14 +1196,14 @@ void MainWindow::renderRightInspector(const DistributedWireParameters& params) {
         m_solved = false;
         // Свежая цепь начинает id с нуля: разряд, чтобы старый заряд не
         // прилип к будущим компонентам с теми же id.
-        m_liveSim.discharge(); m_thermal.reset();
+        m_liveSim.discharge(); m_thermal.reset(); resetMechanicsPhases();
     }
     ImGui::SameLine();
     if (ImGui::Button(tr("Reset Demo"))) {
         setupTestCircuit();
         m_selNode = -1;
         m_selComp = -1;
-        m_liveSim.discharge(); m_thermal.reset();
+        m_liveSim.discharge(); m_thermal.reset(); resetMechanicsPhases();
         circuitEvent();
     }
 

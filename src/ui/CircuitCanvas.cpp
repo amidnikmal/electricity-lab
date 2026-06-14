@@ -52,6 +52,7 @@ current_lab::projection::ViewParams CircuitCanvas::makeViewParams() const {
     params.chainLinks = m_chainLinks;
     params.flowIntegrals = m_flowIntegrals;
     params.chainTravel = m_chainTravel;
+    params.coupling = m_axleCoupling;
     return params;
 }
 

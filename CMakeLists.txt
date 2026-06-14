@@ -120,6 +120,7 @@ set(TEST_SOURCES
     tests/test_transient.cpp
     tests/test_elements.cpp
     tests/test_mechanics.cpp
+    tests/test_mechanics_capacitor.cpp
     tests/test_learning.cpp
     tests/test_diode_switch.cpp
     tests/test_fixes.cpp
@@ -134,6 +135,7 @@ set(TEST_SOURCES
     tests/test_worlds_separation.cpp
     tests/test_chain_sim.cpp
     tests/test_chain_gear.cpp
+    tests/test_mechanics_coupling.cpp
     tests/test_water_network.cpp
     tests/test_app_path_directions.cpp
     tests/test_resistor_drift.cpp

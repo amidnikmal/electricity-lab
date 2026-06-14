@@ -5,6 +5,7 @@
 #include "physics/ParticleSim.h"
 #include "physics/ThermalModel.h"
 #include "projection/FlowIntegrator.h"
+#include "projection/MechanicsCoupling.h"
 #include "solver/CircuitSolver.h"
 #include "render/RenderPrimitives.h"
 #include "visualization/VisualizationPresets.h"
@@ -53,6 +54,11 @@ struct ViewParams {
     // Тепловое состояние для реалистичного heat-glow по температуре.
     // Если не задано — используется fallback на мгновенную мощность (с TODO).
     const physics::ThermalState* thermalState = nullptr;
+    // Rigid-axle rotation signs: one sense per connected mechanism so every chain
+    // on a shared node turns the same way. When chainTravel/chainLinks are
+    // plumbed they already carry these signs; this pointer drives the stateless
+    // fallback animation (and tests) coherently too. See MechanicsCoupling.h.
+    const mechanics::AxleCoupling* coupling = nullptr;
 };
 
 // Solved values attributed to a model element inside one projection build.

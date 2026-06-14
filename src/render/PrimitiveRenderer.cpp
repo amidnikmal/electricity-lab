@@ -135,16 +135,33 @@ void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
                          std::max(p.x, q.x) + pad, std::max(p.y, q.y) + pad);
     };
 
+    // Backmost: smooth scalar-field heatmap (bilinear per cell).
+    for (const auto& cell : prims.fieldCells) {
+        ImVec2 pmin = m.toScreen(cell.min);
+        ImVec2 pmax = m.toScreen(cell.max);
+        if (offscreen(pmin.x, pmin.y, pmax.x, pmax.y)) continue;
+        dl->AddRectFilledMultiColor(pmin, pmax, cell.cMinXMinY, cell.cMaxXMinY,
+                                    cell.cMaxXMaxY, cell.cMinXMaxY);
+    }
+
     for (const auto& glow : prims.glows) {
         float r = m.px(glow.radius);
         ImVec2 c = m.toScreen(glow.center);
+        // Intensity scales each layer's OWN (deliberately soft) alpha — it must
+        // not force the core opaque. glow.color carries the intended softness
+        // (e.g. a field source is alpha ~16); dim it by intensity for weak/strong
+        // sources, never replace it with a solid fill (that turned the smooth
+        // potential field into bright filled discs).
         const float k = static_cast<float>(std::clamp(glow.intensity, 0.0, 1.0));
-        auto scaleA = [k](int a) { return static_cast<int>(std::lround(a * k)); };
-        dl->AddCircleFilled(c, r * 1.8f, withAlpha(glow.color, scaleA(6)), 48);
-        dl->AddCircleFilled(c, r, withAlpha(glow.color, scaleA(255)), 48);
+        const unsigned baseA = (glow.color >> 24) & 0xFFu;
+        auto fade = [&](unsigned a) {
+            return withAlpha(glow.color, static_cast<unsigned>(std::lround(a * k)));
+        };
+        dl->AddCircleFilled(c, r * 1.8f, fade(6), 48);     // outer halo
+        dl->AddCircleFilled(c, r, fade(baseA), 48);        // soft core (own alpha)
         for (int ring = 1; ring <= 4; ++ring) {
             float rr = r * (0.45f + 0.32f * ring);
-            dl->AddCircle(c, rr, withAlpha(glow.color, scaleA(std::max(0, 28 - ring * 4))), 64, 1.0f);
+            dl->AddCircle(c, rr, fade(static_cast<unsigned>(std::max(0, 28 - ring * 4))), 64, 1.0f);
         }
     }
 
