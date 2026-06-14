@@ -639,15 +639,25 @@ void emitMagneticField(BuildContext& ctx, Vec2 a, Vec2 b, double current) {
     for (const auto& sample : samples)
         maxMagnitude = std::max(maxMagnitude, sample.magnitude);
 
+    // Минимальный радиус среди всех сэмплов — опора для альфа-спада.
+    double minRadius = samples.front().radius;
+    for (const auto& sample : samples)
+        minRadius = std::min(minRadius, sample.radius);
+
     double s = 1.0 / ctx.safeScale();
     for (const auto& sample : samples) {
         double frac = maxMagnitude > 1e-18 ? sample.magnitude / maxMagnitude : 0.0;
         double glyphR = std::max(3.5, 3.0 + frac * 4.5); // screen px
+        // Альфа глифа спадает с ростом радиуса: ближние кольца ярче, дальние — тусклее.
+        double radiusAlpha = minRadius > 0.0
+            ? std::clamp(minRadius / sample.radius, 0.12, 1.0)
+            : 1.0;
+        unsigned alpha = static_cast<unsigned>((110 + 90 * frac) * radiusAlpha);
         uint32_t col = packColor(
             static_cast<unsigned>(80 + 120 * frac),
             static_cast<unsigned>(160 + 50 * frac),
             static_cast<unsigned>(210 + 35 * frac),
-            static_cast<unsigned>(110 + 90 * frac));
+            alpha);
 
         ctx.out.circles.push_back({sample.position, glyphR, col, 1.4, false, true});
 
