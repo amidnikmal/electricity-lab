@@ -1413,12 +1413,3 @@ void MainWindow::renderBottomAnalysis(const DistributedWireParameters& params) {
     ImGui::EndChild();
 }
 
-void MainWindow::renderToolbar() {
-    renderToolRail();
-}
-
-void MainWindow::renderLog() {
-    ImGui::BeginChild("LogPanel", ImVec2(0, m_logHeight), ImGuiChildFlags_Border);
-    m_inspector.log().render();
-    ImGui::EndChild();
-}

@@ -283,7 +283,8 @@ void emitGround(BuildContext& ctx, Vec2 pos) {
 void formatCapacitance(double farads, char* buf, size_t n) {
     if (farads >= 1.0) std::snprintf(buf, n, "%.2f %s", farads, tr("F"));
     else if (farads >= 1e-3) std::snprintf(buf, n, "%.1f %s", farads * 1e3, tr("mF"));
-    else if (farads >= 1e-6) std::snprintf(buf, n, "%.1f %s", farads * 1e6, tr("\xC2\xB5F"));
+    // разделяем строковые литералы, чтобы 'F' не вошёл в hex-escape
+    else if (farads >= 1e-6) std::snprintf(buf, n, "%.1f %s", farads * 1e6, tr("\xC2\xB5" "F"));
     else std::snprintf(buf, n, "%.1f %s", farads * 1e9, tr("nF"));
 }
 

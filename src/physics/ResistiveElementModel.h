@@ -40,7 +40,8 @@ inline double resistorBodyLength(double terminalLength, double wireThickness)
 
 inline double resistorBodyHalfWidth(double wireThickness)
 {
-    return std::max(wireThickness * 0.55, wireThickness * 1.1);
+    // 0.55*wt всегда < 1.1*wt, std::max был лишним
+    return wireThickness * 1.1;
 }
 
 inline double driftSpeedScaleFromHalfWidth(double referenceHalfWidth, double sectionHalfWidth)
