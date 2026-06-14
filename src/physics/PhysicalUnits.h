@@ -11,6 +11,6 @@ constexpr double kPi = 3.14159265358979323846;
 constexpr double kMu0 = 4e-7 * kPi; // Vacuum permeability, H/m
 constexpr double kAmbientTemperature = 293.15; // K (20 C)
 constexpr double kThermalCapacitance = 1.0;    // J/K  (C_th)
-constexpr double kThermalResistance  = 50.0;   // K/W  (R_th)
+constexpr double kThermalResistance  = 5.0;    // K/W  (R_th) — τ = R·C ≈ 5 с для наглядности (B1)
 
 } // namespace current_lab::physics
