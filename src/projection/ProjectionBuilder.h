@@ -3,6 +3,7 @@
 #include "circuit/Circuit.h"
 #include "physics/ChainSim.h"
 #include "physics/ParticleSim.h"
+#include "physics/ThermalModel.h"
 #include "projection/FlowIntegrator.h"
 #include "solver/CircuitSolver.h"
 #include "render/RenderPrimitives.h"
@@ -49,6 +50,9 @@ struct ViewParams {
     // junction gears spin at this rate so the wheel body turns WITH the chain
     // (no slip) instead of crawling on the ∫I dt phase while the chain flies by.
     const std::unordered_map<int, double>* chainTravel = nullptr;
+    // Тепловое состояние для реалистичного heat-glow по температуре.
+    // Если не задано — используется fallback на мгновенную мощность (с TODO).
+    const physics::ThermalState* thermalState = nullptr;
 };
 
 // Solved values attributed to a model element inside one projection build.

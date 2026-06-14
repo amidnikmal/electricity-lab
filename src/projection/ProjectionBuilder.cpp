@@ -68,6 +68,23 @@ uint32_t fieldGlowColor(double strength, unsigned alpha) {
     return packColor(72, 166, 255, alpha);
 }
 
+// Доля теплового свечения [0..1]: по температуре, если ThermalState доступен;
+// иначе fallback на мгновенную мощность (TODO: пробросить ThermalState из MainWindow).
+double heatGlowFraction(const BuildContext& ctx, int componentId, double power) {
+    if (ctx.p.thermalState) {
+        double T = physics::temperatureFor(*ctx.p.thermalState, componentId);
+        double dT = T - physics::kAmbientTemperature;
+        if (dT <= 0.0) return 0.0;
+        constexpr double kMaxDeltaT = 100.0; // ~100 K выше ambient → полное свечение
+        return std::clamp(dT / kMaxDeltaT, 0.0, 1.0);
+    }
+    // TODO: пробросить ThermalState в ViewParams из MainWindow.
+    // Пока fallback — мгновенная мощность, без тепловой инерции.
+    return ctx.maxP > 1e-12
+        ? std::clamp(physics::dissipatedPowerOnly(ComponentType::Resistor, power) / ctx.maxP, 0.0, 1.0)
+        : 0.0;
+}
+
 struct BuildContext {
     const Circuit& circuit;
     const CircuitSolution* solution;
@@ -188,8 +205,8 @@ void emitResistor(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
         if (section.material == physics::VisualMaterial::ResistiveBody) { body = &section; break; }
     }
 
-    // Heat underline behind the body, width grows with dissipated power fraction.
-    double frac = physics::heatFraction(ComponentType::Resistor, branchPower, ctx.maxP);
+    // Тепловое свечение под корпусом резистора: по температуре, если доступна.
+    double frac = heatGlowFraction(ctx, comp.id, branchPower);
     if (ctx.p.layers.heat && frac > 1e-12 && body->length() > 0.5) {
         double heatW = body->halfWidth * 2.0 + (4.0 + 9.0 * frac) / ctx.safeScale();
         uint32_t heatCol = packColor(
@@ -1114,8 +1131,7 @@ void emitBrake(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
         ctx.out.quads.push_back(pad);
     }
 
-    double heat = mechanics::brakeHeatFromPower(comp.type, power);
-    double frac = ctx.maxP > 1e-12 ? std::clamp(heat / ctx.maxP, 0.0, 1.0) : 0.0;
+    double frac = heatGlowFraction(ctx, comp.id, power);
     if (ctx.p.layers.heat && frac > 0.02) {
         Vec2 mid = (body->start + body->end) * 0.5;
         ctx.out.glows.push_back({mid, len * 0.7, frac,
@@ -1619,8 +1635,7 @@ void emitConstriction(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
              th.throatHalfWidth + margin);
 
     Vec2 bodyMid = a + unit * ((th.leadIn + th.leadOut) * 0.5);
-    double heat = hydraulic::frictionHeatFromPower(comp.type, power);
-    double frac = ctx.maxP > 1e-12 ? std::clamp(heat / ctx.maxP, 0.0, 1.0) : 0.0;
+    double frac = heatGlowFraction(ctx, comp.id, power);
     if (ctx.p.layers.heat && frac > 0.02) {
         ctx.out.glows.push_back({bodyMid, (th.leadOut - th.leadIn) * 0.7, frac,
                                  packColor(255, 140, 60, static_cast<unsigned>(10 + 36 * frac))});
