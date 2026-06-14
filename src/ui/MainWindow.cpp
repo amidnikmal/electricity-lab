@@ -624,6 +624,7 @@ void MainWindow::configureCanvasForCircuitView(CircuitCanvas& canvas) {
     canvas.setDebugView(m_debugMode);
     canvas.setShowCanvasReadouts(m_showCanvasReadouts);
     canvas.setWireThickness(m_wireThickness);
+    canvas.setUiScale(m_uiScale);
     canvas.setReadOnly(false);
     canvas.setAnimationPaused(m_animationPaused);
     canvas.setAnimationSpeed(m_animationSpeed);
@@ -649,6 +650,7 @@ void MainWindow::configureCanvasForPhysicsView(CircuitCanvas& canvas) {
     canvas.setDebugView(m_debugMode);
     canvas.setShowCanvasReadouts(m_showCanvasReadouts);
     canvas.setWireThickness(m_wireThickness);
+    canvas.setUiScale(m_uiScale);
     canvas.setReadOnly(false);
     canvas.setAnimationPaused(m_animationPaused);
     canvas.setAnimationSpeed(m_animationSpeed);

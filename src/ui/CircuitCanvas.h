@@ -71,6 +71,7 @@ public:
 
     void setWireThickness(float v) { m_wireThickness = std::max(2.0f, std::min(50.0f, v)); }
     float wireThickness() const { return m_wireThickness; }
+    void setUiScale(float s) { m_uiScale = s; }
     static float particleScreenRadius(float cameraScale) { return std::min(14.0f, 2.0f + 2.0f * cameraScale); }
     float wireScreenWidth() const { return m_wireThickness * m_camera.scale; }
 
@@ -123,6 +124,7 @@ private:
     bool m_debugView = false;
     float m_wireThickness = 8.0f;
     bool m_readOnly = false;
+    float m_uiScale = 1.0f;
     const std::vector<current_lab::physics::SimParticle>* m_simParticles = nullptr;
     const std::vector<current_lab::physics::PaddleState>* m_paddleStates = nullptr;
     const std::vector<current_lab::physics::ChainLink>* m_chainLinks = nullptr;

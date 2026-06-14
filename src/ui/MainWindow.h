@@ -21,6 +21,7 @@ public:
     MainWindow();
     void render();
     void runSolver();
+    void setUiScale(float s) { m_uiScale = s; }
 
 private:
     void advanceLiveSim(float realDt);
@@ -110,6 +111,7 @@ private:
     bool m_showRightInspector = true;
     bool m_fitDualViewsRequested = false;
     float m_wireThickness = 8.0f;
+    float m_uiScale = 1.0f;
     // Сглаженные тайминги кадра (EMA): внешние профилировщики в типичной
     // системе заблокированы, поэтому цифры всегда видны в нижней полосе.
     double m_perfSimMs = 0.0;   // updateParticleSim (все Box2D-миры)

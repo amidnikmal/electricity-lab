@@ -9,6 +9,7 @@ namespace current_lab::render {
 
 void drawGrid(ImDrawList* dl, const CanvasCamera& camera, ImVec2 origin, ImVec2 size);
 void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
-                    const CanvasCamera& camera, ImVec2 origin, ImVec2 size);
+                    const CanvasCamera& camera, ImVec2 origin, ImVec2 size,
+                    float uiScale = 1.0f);
 
 } // namespace current_lab::render

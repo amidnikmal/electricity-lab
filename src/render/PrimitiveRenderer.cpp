@@ -118,7 +118,8 @@ inline int circleSegs(float r) {
 }
 
 void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
-                    const CanvasCamera& camera, ImVec2 origin, ImVec2 size) {
+                    const CanvasCamera& camera, ImVec2 origin, ImVec2 size,
+                    float uiScale) {
     Mapper m{camera, origin};
     const ImVec2 clipMin(origin.x, origin.y);
     const ImVec2 clipMax(origin.x + size.x, origin.y + size.y);
@@ -166,8 +167,10 @@ void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
 
     // Particles sit inside the conductors: above the fills, below the outlines
     // so element bodies stay readable.
+    // ScaleAllSizes масштабирует только стиль ImGui; screen-space примитивы
+    // канваса нужно домножать на uiScale вручную (ImDrawList без DPI-awareness).
     for (const auto& particle : prims.particles) {
-        float r = particle.screenSpaceRadius ? static_cast<float>(particle.radius)
+        float r = particle.screenSpaceRadius ? static_cast<float>(particle.radius) * uiScale
                                              : m.px(particle.radius);
         ImVec2 p = m.toScreen(particle.pos);
         // Cull off-screen particles: zoomed in, most of a dense water loop is
@@ -189,7 +192,7 @@ void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
     }
 
     for (const auto& line : prims.lines) {
-        float w = line.screenSpaceWidth ? static_cast<float>(line.width) : m.px(line.width);
+        float w = line.screenSpaceWidth ? static_cast<float>(line.width) * uiScale : m.px(line.width);
         ImVec2 a = m.toScreen(line.a), b = m.toScreen(line.b);
         if (offscreenSeg(a, b, w + 1.0f)) continue;
         dl->AddLine(a, b, line.color, w);
@@ -197,7 +200,7 @@ void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
 
     for (const auto& poly : prims.polylines) {
         if (poly.pts.size() < 2) continue;
-        float w = poly.screenSpaceWidth ? static_cast<float>(poly.width) : m.px(poly.width);
+        float w = poly.screenSpaceWidth ? static_cast<float>(poly.width) * uiScale : m.px(poly.width);
         std::vector<ImVec2> pts;
         pts.reserve(poly.pts.size());
         float minx = 1e30f, miny = 1e30f, maxx = -1e30f, maxy = -1e30f;
@@ -212,7 +215,7 @@ void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
     }
 
     for (const auto& circle : prims.circles) {
-        float r = circle.screenSpaceRadius ? static_cast<float>(circle.radius) : m.px(circle.radius);
+        float r = circle.screenSpaceRadius ? static_cast<float>(circle.radius) * uiScale : m.px(circle.radius);
         ImVec2 c = m.toScreen(circle.center);
         if (c.x + r < clipMin.x || c.x - r > clipMax.x ||
             c.y + r < clipMin.y || c.y - r > clipMax.y)

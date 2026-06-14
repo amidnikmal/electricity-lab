@@ -113,6 +113,9 @@ void App::setupImGui() {
                      "non-ASCII UI text will render as '?'\n");
 
     ImGui::StyleColorsDark();
+    // ScaleAllSizes масштабирует только стиль ImGui; screen-space примитивы
+    // канваса (ImDrawList без DPI-awareness) нужно домножать на uiScale вручную —
+    // проброс сделан через MainWindow → CircuitCanvas → drawPrimitives(uiScale).
     ImGui::GetStyle().ScaleAllSizes(m_uiScale); // paddings, spacing, scrollbars
 
     ImGui_ImplGlfw_InitForOpenGL(m_window, true);
@@ -139,6 +142,7 @@ void App::endFrame() {
 
 void App::run() {
     MainWindow mainWindow;
+    mainWindow.setUiScale(m_uiScale);
 
     while (!glfwWindowShouldClose(m_window)) {
         beginFrame();

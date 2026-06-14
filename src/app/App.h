@@ -10,6 +10,8 @@ public:
     bool init();
     void run();
 
+    float uiScale() const { return m_uiScale; }
+
 private:
     void setupImGui();
     void beginFrame();

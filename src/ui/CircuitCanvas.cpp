@@ -72,7 +72,7 @@ void CircuitCanvas::render(Circuit& circuit, const CircuitSolution* solution) {
 
     auto result = current_lab::projection::buildProjection(m_projection, circuit, solution,
                                                            makeViewParams());
-    current_lab::render::drawPrimitives(dl, result.prims, m_camera, m_origin, m_size);
+    current_lab::render::drawPrimitives(dl, result.prims, m_camera, m_origin, m_size, m_uiScale);
 
     if (m_interaction.placeFromNode() >= 0) {
         Node* from = circuit.findNode(m_interaction.placeFromNode());
