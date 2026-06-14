@@ -40,8 +40,6 @@ inline std::vector<SurfaceChargeSample> sampleSurfaceCharges(Vec2 a,
     double dV = vB - vA;
     double vAvg = (vA + vB) * 0.5;
     double vSwing = std::max(std::abs(dV), 1e-9);
-    double globalRange = std::max(vMax - vMin, 1e-9);
-    (void)globalRange;
 
     double edgeOffset = config.wireThickness * 0.5 * 0.92;
     // Cap 64 (было 200): эти точки заряда декоративны, дробить мельче глаз не
@@ -57,15 +55,9 @@ inline std::vector<SurfaceChargeSample> sampleSurfaceCharges(Vec2 a,
         double absSigma = std::abs(sigma);
         if (absSigma < 0.05) continue;
 
-        double laplacian = 0.0;
-        if (i >= 1 && i <= count - 1) {
-            double vm1 = linearPotentialAt(vA, vB, static_cast<double>(i - 1) / count);
-            double vp1 = linearPotentialAt(vA, vB, static_cast<double>(i + 1) / count);
-            laplacian = (vp1 - 2.0 * v + vm1) / (segmentLen * segmentLen);
-        }
-
-        double junctionStrength = std::tanh(std::abs(laplacian) * 5000.0);
-        double totalStrength = std::min(1.0, absSigma * 1.2 + junctionStrength * 0.6);
+        // Усиление по 2-й производной убрано: при линейном потенциале
+        // лапласиан тождественно 0, блок не давал эффекта.
+        double totalStrength = std::min(1.0, absSigma * 1.2);
         Vec2 center = a + unit * (len * t);
 
         samples.push_back(SurfaceChargeSample{
