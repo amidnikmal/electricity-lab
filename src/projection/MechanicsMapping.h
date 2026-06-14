@@ -27,6 +27,10 @@ constexpr double kVisualChainSpeed = 40.0; // world units per (chain-speed unit 
 // uniform factor on every component so the capacitor's chain/gear/arm/spring
 // stay one rigid body in sync with the loop; tune here for faster/calmer motion.
 constexpr double kMechChainBoost = 20.0;
+// Visual gain from net charge (= capacitor chain travel) to spring compression
+// in world units. Only the AMPLITUDE of the in-line spring; it stays phase-locked
+// to the chain (both ∝ chainTravel), so the spring breathes in sync with the loop.
+constexpr double kMechSpringCompress = 6.0;
 constexpr double kVisualSpinRate = 6.0;    // rad per (angular-momentum unit * s)  // tension units per volt
 constexpr double kLinkSpeedPerAmp = 1.0; // chain speed units per ampere
 
