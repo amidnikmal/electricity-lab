@@ -1,36 +1,36 @@
-# Physics Visual Layer Status
+# Статус физических визуальных слоёв
 
-Date: 2026-06-10
+Дата: 2026-06-10
 
-This document separates solved physics from educational visualization. Visual layers must not imply more accuracy than the current model provides.
+Этот документ отделяет решённую физику от учебной визуализации. Визуальные слои не должны подразумевать большей точности, чем даёт текущая модель.
 
-Status legend: **exact** = direct image of solver values; **approx** = physically grounded within the stated model; **heuristic** = sign/shape plausible, magnitudes not solved; **visualization** = pedagogical animation only.
+Легенда статусов: **exact** = прямое отображение значений solver'а; **approx** = физически обосновано в рамках заявленной модели; **heuristic** = знак/форма правдоподобны, величины не решаются; **visualization** = только педагогическая анимация.
 
-| Layer | Model | Status | Default visibility | Risk |
+| Слой | Модель | Статус | Видимость по умолчанию | Риск |
 | --- | --- | --- | --- | --- |
-| Potential | circuit/distributed wire voltage interpolation | approx (valid in chosen 1D model) | on in Potential mode | medium |
-| E-field (along conductor) | -dV/dx along wire; resistor-body and capacitor-gap lengths used where relevant | approx 1D | on in Field mode | medium |
-| E-field backdrop (streamlines) | qualitative point-source field from node potentials | heuristic | on with Field layer | high |
-| Heat | dissipated power only, P = I*dV for R/wire | exact-sign / approx intensity | on in Power mode | low |
-| Surface charge | sigma ~ (V - Vavg) heuristic | heuristic | off by default | high |
-| Magnetic field | B ~ I/r magnitude, right-hand-rule polarity, local 2D glyphs | qualitative | off by default | high |
-| Drift particles | solver current direction/sign; amplified speed + thermal jitter | visualization (sign exact) | off by default | medium |
-| Capacitor plate charge / gap field | charge dots and gap arrows scale with solved Vc; E = Vc / gap | approx (gap geometry is symbolic) | on with Charges/Field layers | medium |
-| Capacitor energy glow | intensity from solved Vc, energy = 1/2 C V^2 | exact energy, heuristic radius | on with Field layer | low |
-| Inductor magnetic-energy glow | intensity from solved Il, energy = 1/2 L I^2 | exact energy, heuristic radius | on with Magnetic layer | low |
-| Transient values (Vc, Il, t) | companion-model MNA (backward Euler / trapezoidal), see REALTIME_TRANSIENT_MODEL.md | exact within integration error (stated dt) | Transient mode | low |
-| Mechanics chain speed/direction | speed = k*I, sign exact; on-screen link motion amplified | exact mapping, visualization speed | Mechanics projection | low |
-| Mechanics tension colour | same node potentials as Potential layer | approx (same model) | Mechanics projection | medium |
-| Mechanics spring compression | displacement proportional to solved Vc | exact mapping, symbolic geometry | Mechanics projection | low |
-| Mechanics flywheel spin | angular momentum proportional to solved Il; spoke phase animated | exact mapping, visualization speed | Mechanics projection | low |
-| Mechanics brake heat | dissipated power only (same as Heat) | exact-sign | Mechanics projection | low |
+| Потенциал | интерполяция напряжения по distributed-модели провода | approx (корректно в выбранной 1D-модели) | вкл. в режиме Potential | средний |
+| E-поле (вдоль проводника) | -dV/dx вдоль провода; длины тела резистора и зазора конденсатора используются где уместно | approx 1D | вкл. в режиме Field | средний |
+| Фон E-поля (линии тока) | качественное поле точечных источников из потенциалов узлов | heuristic | вкл. вместе со слоем Field | высокий |
+| Тепло | только рассеиваемая мощность, P = I*dV для R/провода | exact-знак / approx-интенсивность | вкл. в режиме Power | низкий |
+| Поверхностный заряд | sigma ~ (V - Vavg), эвристика | heuristic | по умолчанию выкл. | высокий |
+| Магнитное поле | величина B ~ I/r, полярность по правилу правой руки, локальные 2D-глифы | qualitative | по умолчанию выкл. | высокий |
+| Частицы дрейфа | направление/знак тока из solver'а; усиленная скорость + тепловой джиттер | visualization (знак точный) | по умолчанию выкл. | средний |
+| Заряд пластин / поле зазора конденсатора | точки заряда и стрелки зазора масштабируются по решённому Vc; E = Vc / gap | approx (геометрия зазора символическая) | вкл. вместе со слоями Charges/Field | средний |
+| Энергетическое свечение конденсатора | интенсивность из решённого Vc, энергия = 1/2 C V^2 | exact-энергия, heuristic-радиус | вкл. вместе со слоем Field | низкий |
+| Свечение магнитной энергии катушки | интенсивность из решённого Il, энергия = 1/2 L I^2 | exact-энергия, heuristic-радиус | вкл. вместе со слоем Magnetic | низкий |
+| Переходные значения (Vc, Il, t) | companion-модель MNA (backward Euler / трапеции), см. REALTIME_TRANSIENT_MODEL.md | exact в пределах ошибки интегрирования (заявленный dt) | режим Transient | низкий |
+| Скорость/направление механической цепи | speed = k*I, знак точный; движение звеньев на экране усилено | exact-отображение, visualization-скорость | проекция Mechanics | низкий |
+| Цвет натяжения в механике | те же потенциалы узлов, что и в слое Potential | approx (та же модель) | проекция Mechanics | средний |
+| Сжатие пружины в механике | смещение пропорционально решённому Vc | exact-отображение, символическая геометрия | проекция Mechanics | низкий |
+| Вращение маховика в механике | момент импульса пропорционален решённому Il; фаза спиц анимирована | exact-отображение, visualization-скорость | проекция Mechanics | низкий |
+| Тепло тормоза в механике | только рассеиваемая мощность (как в слое Heat) | exact-знак | проекция Mechanics | низкий |
 
-## Notes
+## Заметки
 
-- Solver branch values remain the source of truth for current, voltage drop, and signed power. All projections (Schematic, Physics, Mechanics) are built by `ProjectionBuilder` from the same model + solution; no projection invents physics.
-- Heat uses dissipated power only. Sources that supply power are not heat sources in this layer.
-- Surface charge is intentionally isolated to Charges and Debug presets until a stronger model is implemented.
-- Magnetic visualization is not a calibrated field solver. It should remain hidden in normal learner presets.
-- Drift particles and mechanics chain/flywheel motion are visual timing aids: directions and relative magnitudes are solver-honest, animation speed is amplified for visibility (`kVisual*` constants in `ProjectionBuilder.cpp`).
-- "Simulation realism" (transient time-stepping) and "field realism" (1D-along-wire approximations) are different things; the transient solver makes the circuit *values* honest over time, it does not upgrade the field layers.
-- The mechanics projection preserves power correspondence exactly: tension x speed = V x I (unit constants multiply to 1, see `MechanicsMapping.h`).
+- Значения ветвей из solver'а остаются источником истины для тока, падения напряжения и знакового значения мощности. Все проекции (Schematic, Physics, Mechanics) строятся `ProjectionBuilder` из одной и той же модели + решения; ни одна проекция не выдумывает физику.
+- Тепло использует только рассеиваемую мощность. Источники, подводящие мощность, в этом слое не являются источниками тепла.
+- Поверхностный заряд намеренно изолирован в пресетах Charges и Debug, пока не реализована более сильная модель.
+- Магнитная визуализация — не калиброванный полевой solver. В обычных учебных пресетах она должна оставаться скрытой.
+- Частицы дрейфа и движение механической цепи/маховика — визуальные тайминговые подсказки: направления и относительные величины честны относительно solver'а, скорость анимации усилена для наглядности (константы `kVisual*` в `ProjectionBuilder.cpp`).
+- «Реализм симуляции» (пошаговое интегрирование переходных процессов) и «реализм поля» (1D-приближения вдоль провода) — разные вещи; transient-solver делает честными *значения* цепи во времени, но не повышает точность полевых слоёв.
+- Проекция Mechanics точно сохраняет соответствие мощности: натяжение × скорость = V × I (единичные константы перемножаются в 1, см. `MechanicsMapping.h`).

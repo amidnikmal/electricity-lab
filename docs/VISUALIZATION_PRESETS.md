@@ -1,40 +1,40 @@
-# Visualization Presets
+# Пресеты визуализации
 
-Date: 2026-06-09
+Дата: 2026-06-09
 
-Preset state is defined in `src/visualization/VisualizationPresets.h` and is testable without ImGui or OpenGL.
+Состояние пресетов определено в `src/visualization/VisualizationPresets.h` и тестируемо без ImGui и OpenGL.
 
 ## Circuit
 
-Shows the clean schematic, conventional current, and power readouts for selected elements. Hides potential heatmap, E-field, drift particles, surface charge, magnetic overlays, and debug markers.
+Показывает чистую схему, conventional current и метки мощности для выбранных элементов. Скрывает heatmap потенциала, E-поле, частицы дрейфа, поверхностный заряд, магнитные оверлеи и отладочные маркеры.
 
 ## Potential
 
-Shows the potential layer and keeps particle, surface charge, and magnetic overlays hidden. The model is solved circuit voltage plus distributed 1D wire interpolation.
+Показывает слой потенциала и держит скрытыми оверлеи частиц, поверхностного заряда и магнитного поля. Модель — решённое напряжение цепи плюс распределённая 1D-интерполяция вдоль провода.
 
 ## Electric Field
 
-Shows subdued potential plus E-field arrows. The field is approximated from the voltage gradient along conductive paths (`E ~= -dV/dx` in the distributed 1D model). Magnetic and surface charge overlays are hidden.
+Показывает приглушённый потенциал плюс стрелки E-поля. Поле приближается по градиенту напряжения вдоль проводящих путей (`E ~= -dV/dx` в distributed 1D-модели). Магнитный оверлей и оверлей поверхностного заряда скрыты.
 
 ## Current / Drift
 
-Shows current/drift visualization with a clear convention readout. Conventional current is the solved branch-current sign; electron drift is educational and opposite conventional current when enabled.
+Показывает визуализацию тока/дрейфа с понятной меткой конвенции. Conventional current — знак решённого тока ветви; дрейф электронов учебный и при включении направлен противоположно conventional current.
 
 ## Power / Heat
 
-Shows current, power labels, and heat/glow tied to dissipated power. Heat is not intended to represent a calibrated thermal simulation.
+Показывает ток, метки мощности и тепло/свечение, привязанные к рассеиваемой мощности. Тепло не предназначено для представления калиброванной тепловой симуляции.
 
 ## Charges
 
-Shows potential, E-field, and surface charge overlay. Surface charge remains heuristic/conceptual and is hidden in other learner presets.
+Показывает потенциал, E-поле и оверлей поверхностного заряда. Поверхностный заряд остаётся эвристическим/концептуальным и скрыт в остальных учебных пресетах.
 
 ## Debug
 
-Shows all developer overlays and raw controls. This is the only preset that enables debug markers and the persistent log by default.
+Показывает все разработческие оверлеи и сырые элементы управления. Это единственный пресет, который по умолчанию включает отладочные маркеры и постоянный лог.
 
-## Tested Expectations
+## Проверяемые ожидания
 
-- Potential preset enables potential and disables drift, surface charge, magnetic, and debug log.
-- Electric Field preset enables potential + E-field and disables magnetic/surface/debug markers.
-- Circuit preset hides debug markers, surface charge, and magnetic overlays.
-- Debug preset enables debug markers, surface charge, magnetic overlay, and debug log.
+- Пресет Potential включает потенциал и отключает дрейф, поверхностный заряд, магнитный слой и отладочный лог.
+- Пресет Electric Field включает потенциал + E-поле и отключает магнитный слой / поверхностный заряд / отладочные маркеры.
+- Пресет Circuit скрывает отладочные маркеры, поверхностный заряд и магнитные оверлеи.
+- Пресет Debug включает отладочные маркеры, поверхностный заряд, магнитный оверлей и отладочный лог.
