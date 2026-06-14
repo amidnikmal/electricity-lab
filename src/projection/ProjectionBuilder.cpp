@@ -1187,77 +1187,87 @@ void emitAnchor(BuildContext& ctx, Vec2 pos) {
         ctx.out.lines.push_back({P(-10 + i * 8, 16), P(-4 + i * 8, 22), 1.5, col, true});
 }
 
-// Render-only: a chain run from external node `from` that physically GRABS a
-// sprocket (centre C, pitch radius R) — two straight runs tangent to the tooth
-// circle, then a wrap arc around the far side, drawn as a bicycle chain (rails +
-// rollers). So the chain hugs the gear instead of stopping beside it. R is the
-// chain pitch radius, so the rollers seat exactly on the teeth that emitSprocket
-// draws at the same R.
-void emitChainOntoSprocket(BuildContext& ctx, Vec2 from, Vec2 C, double R,
-                           double va, double vb) {
+// Render-only: a closed bicycle-chain OVAL between two equal-radius sprockets
+// centred at A and B (pitch radius R) — two straight runs tangent to both tooth
+// circles plus a semicircle wrap arc around EACH sprocket. This is the same
+// racetrack the chain sim runs for every other component, drawn here statically
+// (the capacitor blocks DC, so its chain does not flow). It therefore looks
+// identical to the system chain AND threads onto both gears — the node gear at A
+// and the shaft sprocket at B — instead of collapsing into the node point.
+void emitStaticChainOval(BuildContext& ctx, Vec2 A, Vec2 B, double R,
+                         double va, double vb) {
     namespace cg = physics::chain_geometry;
-    Vec2 d = C - from;
-    double L = d.length();
-    if (L <= R + 1e-3) return;
-    Vec2 u = d / L;
+    Vec2 ab = B - A;
+    double len = ab.length();
+    if (len < 1e-3) return;
+    Vec2 unit = ab / len;
+    Vec2 perp(-unit.y, unit.x);
 
-    // Tangent points from the external node to the circle (right angle at the
-    // tangent point): the C->T directions sit ±beta off the C->from direction.
-    double beta = std::acos(std::clamp(R / L, -1.0, 1.0));
-    Vec2 toFrom = (from - C) / L;
-    auto rot = [](Vec2 v, double ang) {
-        return Vec2(v.x * std::cos(ang) - v.y * std::sin(ang),
-                    v.x * std::sin(ang) + v.y * std::cos(ang));
+    // Oval racetrack point at arc-length t (matches ChainSim::Oval, ccw).
+    double arc = kPi * R;
+    double perimeter = 2.0 * len + 2.0 * arc;
+    auto ovalAt = [&](double t) -> Vec2 {
+        t = std::fmod(t, perimeter);
+        if (t < 0.0) t += perimeter;
+        if (t < len) return A + unit * t + perp * R;                  // top a->b
+        if (t < len + arc) {
+            double phi = (t - len) / R, ang = kPi * 0.5 - phi;        // wrap B
+            return B + perp * (R * std::sin(ang)) + unit * (R * std::cos(ang));
+        }
+        if (t < 2.0 * len + arc)
+            return B - unit * (t - len - arc) - perp * R;             // bottom b->a
+        double phi = (t - 2.0 * len - arc) / R, ang = -kPi * 0.5 - phi; // wrap A
+        return A + perp * (R * std::sin(ang)) + unit * (R * std::cos(ang));
     };
-    Vec2 Tp = C + rot(toFrom, +beta) * R;
-    Vec2 Tn = C + rot(toFrom, -beta) * R;
 
-    // Wrap the FAR arc (the one through C + u*R, away from `from`): of the two
-    // clockwise options keep the one whose midpoint is farther than the centre.
-    std::vector<Vec2> arc = sampleClockwiseArc(C, R, Tp, Tn, 16);
-    if ((arc[arc.size() / 2] - from).length() < L)
-        arc = sampleClockwiseArc(C, R, Tn, Tp, 16);
-
-    // Continuous chain centreline: from -> Tp -> far arc -> Tn -> from.
-    std::vector<Vec2> path;
-    path.reserve(arc.size() + 3);
-    path.push_back(from);
-    path.push_back(Tp);
-    for (const Vec2& p : arc) path.push_back(p);
-    path.push_back(Tn);
-    path.push_back(from);
+    const double rollerR = cg::linkRadius(ctx.p.wireThickness);
+    const double pitch = cg::linkPitch(rollerR);
+    int count = std::max(8, static_cast<int>(perimeter / pitch));
+    double spacing = perimeter / count;
 
     // Potential tint, same palette as the rest of the chain.
     if (ctx.p.layers.potential && ctx.hasPotentialRange()) {
         render::PrimGradient grad;
-        grad.a = from; grad.b = C;
+        grad.a = A; grad.b = B;
         grad.width = cg::chainHalfWidth(ctx.p.wireThickness) * 2.0;
         grad.vA = va; grad.vB = vb; grad.vMin = ctx.vMin; grad.vMax = ctx.vMax;
         grad.alpha = 90;
         ctx.out.gradients.push_back(grad);
     }
 
-    uint32_t railCol = packColor(150, 160, 175, 150);
-    ctx.out.polylines.push_back({path, 1.4, railCol, true});
+    // Faint guide rails along the two straight runs (as emitChain draws them).
+    uint32_t rail = packColor(150, 160, 175, 120);
+    ctx.out.lines.push_back({A + perp * R, B + perp * R, 1.2, rail, true});
+    ctx.out.lines.push_back({A - perp * R, B - perp * R, 1.2, rail, true});
 
-    // Rollers seated along the centreline at the chain pitch.
-    const double rollerR = cg::linkRadius(ctx.p.wireThickness);
-    const double pitch = cg::linkPitch(rollerR);
+    // Same bicycle-chain look as the sim: alternating outer/inner plate pairs
+    // between consecutive rollers, then rollers (fill + edge + pin) on top.
     const uint32_t rollerFill = packColor(70, 76, 88, 255);
     const uint32_t rollerEdge = packColor(208, 214, 224, 235);
-    double acc = pitch * 0.5;
-    for (size_t i = 1; i < path.size(); ++i) {
-        Vec2 seg = path[i] - path[i - 1];
-        double segLen = seg.length();
-        if (segLen < 1e-6) continue;
-        Vec2 dir = seg / segLen;
-        while (acc <= segLen) {
-            Vec2 p = path[i - 1] + dir * acc;
-            ctx.out.circles.push_back({p, rollerR, rollerFill, 0.0, true, false});
-            ctx.out.circles.push_back({p, rollerR, rollerEdge, 1.2, false, false});
-            acc += pitch;
-        }
-        acc -= segLen;
+    const uint32_t pinCol = packColor(228, 232, 240, 245);
+    const uint32_t outerPlate = packColor(196, 204, 216, 225);
+    const uint32_t innerPlate = packColor(140, 148, 162, 215);
+    auto emitPlates = [&](Vec2 from, Vec2 to, bool outer) {
+        Vec2 d = to - from;
+        double dl = d.length();
+        if (dl < 1e-6) return;
+        Vec2 n(-d.y / dl, d.x / dl);
+        double off = outer ? rollerR * 0.62 : rollerR * 0.34;
+        uint32_t col = outer ? outerPlate : innerPlate;
+        double w = outer ? cg::kOuterPlateWidth : cg::kInnerPlateWidth;
+        ctx.out.lines.push_back({from + n * off, to + n * off, w, col, true});
+        ctx.out.lines.push_back({from - n * off, to - n * off, w, col, true});
+    };
+    for (int i = 0; i < count; ++i) {
+        Vec2 p = ovalAt(spacing * i);
+        Vec2 q = ovalAt(spacing * ((i + 1) % count));
+        emitPlates(p, q, i % 2 == 0);
+    }
+    for (int i = 0; i < count; ++i) {
+        Vec2 p = ovalAt(spacing * i);
+        ctx.out.circles.push_back({p, rollerR, rollerFill, 0.0, true, false});
+        ctx.out.circles.push_back({p, rollerR, rollerEdge, 1.4, false, false});
+        ctx.out.circles.push_back({p, rollerR * 0.35, pinCol, 0.0, true, false});
     }
 }
 
@@ -1306,10 +1316,11 @@ void emitSpring(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
     double pitchR = cg::sprocketPitchRadius(cg::chainHalfWidth(ctx.p.wireThickness),
                                             cg::linkRadius(ctx.p.wireThickness));
 
-    // Leads come in as chains that wrap each sprocket, tying both into the one
-    // chain loop arriving at nodes a and b.
-    emitChainOntoSprocket(ctx, a, shaftLW, pitchR, va, va);
-    emitChainOntoSprocket(ctx, b, shaftRW, pitchR, vb, vb);
+    // Each lead is a chain OVAL between the node gear (at a / b) and the shaft
+    // sprocket — threaded onto both, identical to the system chain, not a loop
+    // collapsing into the node point.
+    emitStaticChainOval(ctx, a, shaftLW, pitchR, va, va);
+    emitStaticChainOval(ctx, b, shaftRW, pitchR, vb, vb);
 
     emitSprocket(ctx, shaftLW, pitchR, m.theta, m.theta, false);
     emitSprocket(ctx, shaftRW, pitchR, -m.theta, -m.theta, false);
