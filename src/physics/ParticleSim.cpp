@@ -464,7 +464,20 @@ struct ParticleSim::Impl {
 
         const Channel& to = channels[targetChannel];
         double speed = std::abs(to.spec.targetSpeed);
-        if (speed < 1e-9) return; // no flow — no push, water rests
+        if (speed < 1e-9) {
+            // При нулевом токе мягко возвращаем частицу к оси канала,
+            // чтобы она не застревала в камере узла.
+            Vec2 relTo = pos - to.spec.a;
+            double latTo = relTo.x * to.perp.x + relTo.y * to.perp.y;
+            Vec2 centering = to.perp * (-latTo * 0.5);
+            b2Vec2 vel = body->GetLinearVelocity();
+            float gain = 1.5f;
+            body->ApplyForceToCenter(
+                b2Vec2((static_cast<float>(centering.x * kToSim) - vel.x) * body->GetMass() * gain,
+                       (static_cast<float>(centering.y * kToSim) - vel.y) * body->GetMass() * gain),
+                true);
+            return;
+        }
 
         // Funnel field, not a point target (converging on one spot makes the
         // crowd jam at the mouth and the flow arrive in bursts): the axial
