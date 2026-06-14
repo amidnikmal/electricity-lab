@@ -1323,27 +1323,30 @@ void emitSpring(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
     uint32_t chargeCol = m.charge() >= 0.0 ? pos : neg;
     uint32_t metal = packColor(139, 147, 176, 235);
 
-    // Sprockets at the chain PITCH radius so the wrapping chain seats on the
-    // teeth; counter-rotated by ±theta (independent shafts turning against each
-    // other). The shaft is just a short hub at the centre — no long hanging line.
     namespace cg = physics::chain_geometry;
     double pitchR = cg::sprocketPitchRadius(cg::chainHalfWidth(ctx.p.wireThickness),
                                             cg::linkRadius(ctx.p.wireThickness));
 
-    // Each lead is a chain OVAL between the node gear (at a / b) and the shaft
-    // sprocket — threaded onto both, identical to the system chain. The chain,
-    // the shaft sprocket, the crank arm and the spring are ONE rigid drive: they
-    // all advance with the shaft angle θ (= charge), so the chain visibly rolls
-    // as the spring winds. The roller phase = R·θ (the arc the sprocket turns);
-    // the two shafts counter-rotate, so their phases are opposite. During
-    // charging the neighbouring node gear turns, the chain rolls, the spring
-    // winds — the torque path the user asked for.
-    double chainPhase = pitchR * m.theta;
-    emitStaticChainOval(ctx, a, shaftLW, pitchR, va, va, -chainPhase);
-    emitStaticChainOval(ctx, b, shaftRW, pitchR, vb, vb, +chainPhase);
+    // RIGIDLY TIED TO THE LOOP: the lead chains and the shaft sprockets run on
+    // the capacitor's own chainTravel — the SAME quantity, at the SAME scale, as
+    // every other component (MainWindow accumulates it with the rigid-axle sign).
+    // In a series branch the capacitor current == the neighbour current, so the
+    // capacitor's leads roll at exactly the neighbour rate and direction: they
+    // move as one with the system, no separate clock. The spring/crank below
+    // shows the stored CHARGE (the shaft twist) — a different quantity, so it
+    // honestly moves at its own rate (current flows fast then decays while the
+    // charge climbs steadily). Through-rotation = current; twist = charge.
+    double capTravel = 0.0;
+    if (ctx.p.chainTravel) {
+        auto it = ctx.p.chainTravel->find(comp.id);
+        if (it != ctx.p.chainTravel->end()) capTravel = it->second;
+    }
+    double sprocketPhase = -capTravel / pitchR; // node-gear convention (meshes)
+    emitStaticChainOval(ctx, a, shaftLW, pitchR, va, va, capTravel);
+    emitStaticChainOval(ctx, b, shaftRW, pitchR, vb, vb, capTravel);
 
-    emitSprocket(ctx, shaftLW, pitchR, m.theta, m.theta, false);
-    emitSprocket(ctx, shaftRW, pitchR, -m.theta, -m.theta, false);
+    emitSprocket(ctx, shaftLW, pitchR, sprocketPhase, sprocketPhase, false);
+    emitSprocket(ctx, shaftRW, pitchR, sprocketPhase, sprocketPhase, false);
 
     // Crank arms shaft -> tip, tips marked in the charge colour.
     ctx.out.lines.push_back({shaftLW, crankLW, 4.0, metal, true});

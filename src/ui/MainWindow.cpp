@@ -333,7 +333,7 @@ void MainWindow::updateParticleSim(float realDt) {
     // model + solution the chains are built from.
     m_axleCoupling = current_lab::mechanics::computeAxleCoupling(m_circuit, solution);
     for (const auto& comp : m_circuit.components) {
-        if (comp.type == ComponentType::Ground || comp.type == ComponentType::Capacitor)
+        if (comp.type == ComponentType::Ground)
             continue;
         if (comp.type == ComponentType::Switch && comp.value < 0.5)
             continue;
@@ -345,26 +345,37 @@ void MainWindow::updateParticleSim(float realDt) {
             for (const auto& br : solution->branches)
                 if (br.componentId == comp.id) { current = br.current; break; }
         }
+        // Same visual ceiling as the electron drift (±120): the chain shows
+        // the SAME current, it must not look slower than the electrons.
+        // Direction comes from the rigid-axle coupling (one sign per connected
+        // mechanism), NOT from this component's arbitrary nodeA->nodeB order, so
+        // the whole chain system turns as one body. ONE scale for every
+        // component (incl. the capacitor) — that is what keeps the capacitor's
+        // lead chains synchronised with the rest of the loop.
+        double mappedSpeed = current_lab::mechanics::chainSpeedFromCurrent(current) *
+                             current_lab::mechanics::kVisualChainSpeed * 100.0;
+        double targetSpeed = std::clamp(
+            m_axleCoupling.signFor(comp.id) * std::abs(mappedSpeed),
+            -120.0, 120.0);
+        // Honest chain travel for every component, capacitor included — the
+        // wheels/leads read this so they all move together.
+        m_chainTravel[comp.id] += targetSpeed * dt;
+
+        // The capacitor is NOT a chain oval through the device (the spring sits
+        // between two independent shafts); it is driven by chainTravel in
+        // emitSpring. Every other component gets a ChainSim loop.
+        if (comp.type == ComponentType::Capacitor)
+            continue;
+
         current_lab::physics::ChainSpec spec;
         spec.componentId = comp.id;
         spec.a = a->position;
         spec.b = b->position;
         spec.halfWidth = current_lab::physics::chain_geometry::chainHalfWidth(m_wireThickness);
-        // Same visual ceiling as the electron drift (±120): the chain shows
-        // the SAME current, it must not look slower than the electrons.
-        // Direction comes from the rigid-axle coupling (one sign per connected
-        // mechanism), NOT from this component's arbitrary nodeA->nodeB order, so
-        // the whole chain system turns as one body.
-        double mappedSpeed = current_lab::mechanics::chainSpeedFromCurrent(current) *
-                             current_lab::mechanics::kVisualChainSpeed * 100.0;
-        spec.targetSpeed = std::clamp(
-            m_axleCoupling.signFor(comp.id) * std::abs(mappedSpeed),
-            -120.0, 120.0);
+        spec.targetSpeed = targetSpeed;
         spec.brake = comp.type == ComponentType::Resistor;
         spec.driveSprocket = comp.type == ComponentType::VoltageSource;
         chainSpecs.push_back(spec);
-        // Mirror the sim's loop.phase: honest chain travel for the wheels.
-        m_chainTravel[comp.id] += spec.targetSpeed * dt;
     }
     if (chainSpecs.empty()) {
         m_chainLinks.clear();

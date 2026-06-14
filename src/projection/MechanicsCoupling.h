@@ -41,12 +41,12 @@ struct AxleCoupling {
     }
 };
 
-// Components that actually carry a chain in the Mechanics view. Mirrors the
-// filter MainWindow uses when it builds ChainSpecs, so the coupling graph and
-// the rendered chains see exactly the same set of edges.
+// Components that take part in the rigid mechanism (and so need one coherent
+// rotation sign). The capacitor IS included: its lead chains run at the loop
+// current and must turn in sync with the neighbours at the shared nodes — the
+// spring only stores the twist. Only ground and an OPEN switch carry nothing.
 inline bool carriesChain(const Component& c) {
     if (c.type == ComponentType::Ground) return false;
-    if (c.type == ComponentType::Capacitor) return false; // spring, not a chain
     if (c.type == ComponentType::Switch && c.value < 0.5) return false; // open gap
     return true;
 }

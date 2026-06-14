@@ -122,29 +122,24 @@ TEST(SpringCapacitor, SpringEndpointsPinnedToCrankKnobs) {
     EXPECT_TRUE(hasFilledCircleAt(spring->back())) << "spring end detached from its knob";
 }
 
-// The lead chain is one rigid drive with the shaft/spring: as the capacitor
-// charges (theta grows) the chain rollers must roll along (phase = R*theta), the
-// motion fed from the neighbouring gear. Different charge -> different roller
-// positions.
-TEST(SpringCapacitor, ChainRollsAsSpringWinds) {
+// The capacitor's lead chains run on the loop's chainTravel — the SAME clock as
+// every other component — so they roll in lockstep with the system, NOT on the
+// voltage. Feeding a different chainTravel for the capacitor must move its
+// rollers (and feeding the system value keeps them synced with the neighbours).
+TEST(SpringCapacitor, ChainRollsWithLoopTravelNotVoltage) {
     Circuit c;
-    int gnd = c.addNode(Vec2(0, 200));
     int n1 = c.addNode(Vec2(0, 0));
     int n2 = c.addNode(Vec2(240, 0));
-    c.groundNodeId = gnd;
-    c.addComponent(ComponentType::Ground, gnd, gnd, 0.0);
-    c.addComponent(ComponentType::VoltageSource, n1, gnd, 5.0);
-    c.addComponent(ComponentType::Resistor, n1, n2, 100.0);
-    int capId = c.addComponent(ComponentType::Capacitor, n2, gnd, 1e-3);
+    int capId = c.addComponent(ComponentType::Capacitor, n1, n2, 1e-3);
 
     CircuitSolver solver;
+    CircuitSolution sol = solver.solve(c);
     ViewParams p;
     double rollerR = current_lab::physics::chain_geometry::linkRadius(p.wireThickness);
 
-    auto rollerCenters = [&](double capV) {
-        TransientState ts;
-        ts.capVoltage[capId] = capV;
-        CircuitSolution sol = solver.solveTransientSnapshot(c, ts);
+    auto rollerCenters = [&](double travel) {
+        std::unordered_map<int, double> ct{{capId, travel}};
+        p.chainTravel = &ct;
         ProjectionResult r = buildProjection(ProjectionKind::Mechanical, c, &sol, p);
         std::vector<Vec2> out;
         for (const auto& circ : r.prims.circles)
@@ -154,13 +149,13 @@ TEST(SpringCapacitor, ChainRollsAsSpringWinds) {
     };
 
     auto a = rollerCenters(0.0);
-    auto b = rollerCenters(5.0);
+    auto b = rollerCenters(8.0); // loop advanced the chain
     ASSERT_FALSE(a.empty());
     ASSERT_EQ(a.size(), b.size());
     bool moved = false;
     for (size_t i = 0; i < a.size(); ++i)
         if ((a[i] - b[i]).length() > 1e-6) { moved = true; break; }
-    EXPECT_TRUE(moved) << "chain rollers did not move as the capacitor charged";
+    EXPECT_TRUE(moved) << "capacitor lead chain did not roll with the loop travel";
 }
 
 // Render-without-side-effects: building the same circuit twice yields an

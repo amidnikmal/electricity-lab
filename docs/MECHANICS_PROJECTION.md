@@ -81,25 +81,35 @@ Split exactly as the prompt asked: pure kinematics vs. pure render.
   compressed) and whose amplitude moves *opposite* the deflection. No ImGui, no
   time, no state — unit-tested in isolation.
 - `emitSpring` in `ProjectionBuilder.cpp` — render only, from the model: two
-  sprockets counter-rotated by `±θ` at the chain pitch radius, the chain leads
-  wrapping each sprocket (`emitChainOntoSprocket`: tangent runs + far-side wrap
-  arc + rollers seated on the teeth, so the chain grabs the gear instead of
-  stopping beside it). The lead chain, the shaft sprocket, the crank arm and the
-  spring are ONE rigid drive: all advance with the shaft angle `θ` (= charge,
-  roller phase `R·θ`, the two shafts counter-rotating), so during charging the
-  neighbouring node gear turns, the chain rolls and the spring winds — one torque
-  path. Crank arms with charge-coloured tips, the deforming spring
-  (violet = stretch/charge+, coral = compress/charge−) **pinned pixel-exact to
-  the crank knobs**, a mode label and the capacitance. No energy glow and no
-  charge bar — state is read from the spring deformation and the mode label
-  alone. Local→world via `origin + unit·x + perp·y`; nothing hard-codes screen
-  coordinates.
+  two sprockets at the chain pitch radius, the chain leads wrapping each sprocket
+  and the node gear (`emitStaticChainOval`: tangent runs + a wrap arc around BOTH
+  the node gear and the shaft sprocket — the same oval the chain sim runs).
+
+**Rigidly tied to the loop (the key correctness point).** The capacitor is a full
+participant in the rigid-axle coupling: it is in `carriesChain`, so it gets one
+coherent rotation sign, and MainWindow accumulates `chainTravel[cap]` with the
+SAME formula and scale as every other component. In a series branch the
+capacitor current equals the neighbour current, so its lead chains roll at
+exactly the neighbour rate and direction — they move as ONE with the system, no
+separate clock (the earlier bug: the leads ran on a voltage-derived `R·θ` at a
+different scale and looked disconnected). `emitSpring` drives the leads and the
+shaft sprockets from `chainTravel[cap]`.
+
+Through-rotation = current; twist = charge. The lead chains / sprockets show the
+through-current (synced with the loop). The crank-arm spring shows the stored
+CHARGE as the shaft twist `θ` (from the capacitor voltage) — a *different*
+physical quantity, so it honestly moves at its own rate (current flows fast then
+decays while the charge climbs steadily) and holds at steady state when the
+current, and the whole chain, stops. Crank tips charge-coloured, the deforming
+spring (violet = stretch/charge+, coral = compress/charge−) **pinned pixel-exact
+to the crank knobs**, mode label and capacitance. No energy glow, no charge bar.
 
 Locked by `tests/test_mechanics_capacitor.cpp`: sign invariant, even energy,
 coil-spacing tracks length, deterministic path, `+Vc` compresses, spring
-endpoints pinned to the crank knobs, and a render-has-no-hidden-state check (same
-circuit built twice → identical spring polyline). The pre-existing
-`SpringCompressesAsCapacitorCharges` still holds.
+endpoints pinned, the lead chain rolls with the loop travel (not the voltage),
+and render-has-no-hidden-state. `test_mechanics_coupling.cpp` checks the
+capacitor now carries a coupling sign while an open switch does not. The
+pre-existing `SpringCompressesAsCapacitorCharges` still holds.
 
 ## Rigid-axle coupling (one spindle = one rotation)
 

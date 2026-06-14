@@ -87,7 +87,7 @@ TEST(MechanicsCoupling, SignFollowsTheDominantDrive) {
     EXPECT_EQ(a.signFor(fwd.r2), -b.signFor(rev.r2));
 }
 
-TEST(MechanicsCoupling, OpenSwitchAndCapacitorCarryNoAxle) {
+TEST(MechanicsCoupling, OpenSwitchCarriesNoAxleButCapacitorDoes) {
     Circuit c;
     int n0 = c.addNode(Vec2(0, 0));
     int n1 = c.addNode(Vec2(100, 0));
@@ -98,7 +98,9 @@ TEST(MechanicsCoupling, OpenSwitchAndCapacitorCarryNoAxle) {
     sol.branches.push_back({sw, 0.0, 0.0, 0.0});
 
     AxleCoupling cp = computeAxleCoupling(c, &sol);
-    EXPECT_TRUE(cp.componentSign.find(cap) == cp.componentSign.end());
+    // The capacitor is part of the rigid mechanism (its leads run at the loop
+    // current and must share the rotation sign); an OPEN switch is a real gap.
+    EXPECT_TRUE(cp.componentSign.find(cap) != cp.componentSign.end());
     EXPECT_TRUE(cp.componentSign.find(sw) == cp.componentSign.end());
 }
 
