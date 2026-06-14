@@ -1,20 +1,22 @@
 # Second Pass Report
 
-## Build
+> Исторический отчёт. Переведён на русский 2026-06-15; факты сохранены как есть.
 
-- `cmake -S . -B build`: unavailable in the current execution environment because
-  `cmake` and the compiler toolchain are not present in `PATH`
-- Existing workspace artifact `./build/current-lab-tests`: pass
+## Сборка
 
-## What Was Fixed
+- `cmake -S . -B build`: недоступно в текущем окружении выполнения, потому что
+  `cmake` и тулчейн компилятора отсутствуют в `PATH`
+- Существующий артефакт рабочего пространства `./build/current-lab-tests`: проходит
 
-- node/component IDs no longer depend on vector contiguity
-- solver ground mapping and row mapping now use real node IDs
-- distributed wire preserves original source/component mapping
-- renderer no longer computes field/drift/magnetic/surface heuristics inline only
-- README was updated to match the project state and the physical-status policy
+## Что было исправлено
 
-## What Was Added
+- ID узлов/компонентов больше не зависят от непрерывности вектора
+- отображение земли и строк в солвере теперь использует реальные ID узлов
+- распределённый провод сохраняет исходное отображение источника/компонента
+- рендерер больше не вычисляет эвристики поля/дрейфа/магнетизма/поверхности только инлайн
+- README обновлён под состояние проекта и политику физического статуса
+
+## Что было добавлено
 
 - `src/physics/PhysicalUnits.h`
 - `src/physics/WirePhysics.h`
@@ -24,18 +26,18 @@
 - `src/physics/MagneticFieldModel.h`
 - `src/physics/PowerModel.h`
 - `src/visualization/VisualizationStatus.h`
-- new docs for architecture, physics, visualization and test planning
+- новые доки по архитектуре, физике, визуализации и планированию тестов
 
-## User-Facing Improvements
+## Улучшения для пользователя
 
-- visualization presets
-- animation pause / speed / reset
-- inspector probe readout with physical quantities
-- explicit model-status tooltips
-- distributed wire parameters exposed in toolbar
+- пресеты визуализации
+- пауза / скорость / сброс анимации
+- вывод щупа в инспекторе с физическими величинами
+- явные тултипы статуса модели
+- параметры распределённого провода, вынесенные в тулбар
 
-## Known Limitation
+## Известное ограничение
 
-This pass could not be fully recompiled inside the current sandbox because the
-toolchain is missing. Source changes were made conservatively and checked
-structurally, but a fresh local rebuild is still required.
+Этот проход не удалось полностью перекомпилировать внутри текущей песочницы, потому что
+тулчейн отсутствует. Изменения исходников вносились консервативно и проверялись
+структурно, но свежая локальная пересборка всё ещё требуется.
