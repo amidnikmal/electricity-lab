@@ -1083,17 +1083,60 @@ void emitBrake(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
                               packColor(200, 200, 200), false});
 }
 
+// When the real chain is simulated, the drive sprocket must MESH with it: its
+// teeth have to sit in the gaps between the chain rollers riding the wheel, so
+// the wheel visibly pushes the chain (no slip) instead of spinning on its own
+// integrator while the chain flies past (the sim chain runs ~100x faster than
+// the ∫I·dt wheel phase). We measure where the engaged rollers are and return
+// the tooth phase modulo the tooth pitch; false when no rollers are on the
+// wheel yet (sim cold) so the caller keeps the travel-based phase.
+bool sourceSprocketMeshPhase(BuildContext& ctx, int compId, Vec2 center,
+                             double pitchR, double rollerR, int teeth,
+                             double* meshMod) {
+    if (!ctx.p.chainLinks || teeth <= 0) return false;
+    double sx = 0.0, sy = 0.0;
+    int n = 0;
+    for (const auto& link : *ctx.p.chainLinks) {
+        if (link.componentId != compId) continue;
+        Vec2 rel = link.pos - center;
+        double r = rel.length();
+        if (std::abs(r - pitchR) > rollerR * 2.5) continue; // only rollers hugging the wheel
+        double ang = std::atan2(rel.y, rel.x);
+        // Circular mean at the tooth frequency: collapses every engaged roller
+        // onto one representative angle modulo the tooth pitch.
+        sx += std::cos(teeth * ang);
+        sy += std::sin(teeth * ang);
+        ++n;
+    }
+    if (n < 2) return false;
+    double rollerPhase = std::atan2(sy, sx) / teeth; // roller angle mod tooth pitch
+    *meshMod = rollerPhase + kPi / teeth;            // teeth land half a pitch on, in the gaps
+    return true;
+}
+
 void emitCrank(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
                double va, double vb, double current) {
     Vec2 mid((a.x + b.x) * 0.5, (a.y + b.y) * 0.5);
     namespace cg = physics::chain_geometry;
     const double rollerR = cg::linkRadius(ctx.p.wireThickness);
     const double pitchR = cg::driveSprocketPitchRadius(chainHalfWidth(ctx), rollerR);
+    const int teeth = cg::sprocketTeeth(pitchR, cg::linkPitch(rollerR));
 
     double chainTravel = ctx.p.flowIntegrals
         ? componentIntegral(ctx.p.flowIntegrals, comp.id) * kVisualChainSpeed
         : ctx.p.time * mechanics::chainSpeedFromCurrent(current) * kVisualChainSpeed;
     double angle0 = cg::sourceDriveSprocketPhaseFromChainTravel(chainTravel, pitchR);
+
+    // Lock the wheel to the actual chain rollers so the teeth mesh and push the
+    // chain. The travel phase stays the continuous "winding" (smooth hub/holes/
+    // knob, correct direction); the measured mesh snaps it onto the gaps. Both
+    // move continuously, so the snapped angle is continuous AND meshed.
+    double meshMod = 0.0;
+    if (sourceSprocketMeshPhase(ctx, comp.id, mid, pitchR, rollerR, teeth, &meshMod)) {
+        double toothPitch = 2.0 * kPi / teeth;
+        double k = std::round((angle0 - meshMod) / toothPitch);
+        angle0 = meshMod + k * toothPitch;
+    }
     emitSprocket(ctx, mid, pitchR, angle0, true);
 
     emitChain(ctx, a, b, va, vb, current, comp.id, true);

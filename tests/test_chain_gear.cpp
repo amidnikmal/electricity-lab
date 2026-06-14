@@ -414,3 +414,77 @@ TEST(MechanicsChain, SourceDriveSprocketTurnsWithChainNotAgainstIt) {
 
     EXPECT_LT(signedAngleDelta(beforeAngle, afterAngle), -0.05);
 }
+
+TEST(MechanicsChain, DriveSprocketTeethMeshIntoChainRollerGaps) {
+    // The flywheel teeth must sit in the GAPS between the chain rollers riding
+    // the wheel, so the sprocket meshes with and pushes the chain (no slip) —
+    // and stays meshed as the chain moves. (User: маховик источника завязан на
+    // цепь, зубья толкают цепь.) Without the lock the wheel spun on its own
+    // ∫I·dt phase while the ~100x faster sim chain flew past, teeth on rollers.
+    Circuit c;
+    int n1 = c.addNode(Vec2(0, 0));
+    int n2 = c.addNode(Vec2(260, 0));
+    int sourceId = c.addComponent(ComponentType::VoltageSource, n1, n2, 5.0);
+
+    ViewParams p;
+    double rollerR = cg::linkRadius(p.wireThickness);
+    double half = cg::chainHalfWidth(p.wireThickness);
+    double pitchR = cg::driveSprocketPitchRadius(half, rollerR);
+    double rootR = cg::sprocketRootRadius(pitchR, rollerR);
+    double tipR = cg::sprocketTipRadius(pitchR, rollerR);
+    int teeth = cg::sprocketTeeth(pitchR, cg::linkPitch(rollerR));
+    double toothPitch = 2.0 * cg::kPi / teeth;
+    Vec2 center(130, 0);
+
+    ChainSim sim;
+    ChainSpec spec = sourceSpec(Vec2(0, 0), Vec2(260, 0), p.wireThickness, 30.0);
+    spec.componentId = sourceId;
+    sim.configure({spec}, rollerR);
+
+    auto toothAngles = [&](const ProjectionResult& res) {
+        std::vector<double> out;
+        for (const auto& quad : res.prims.quads) {
+            if (!quad.filled) continue;
+            Vec2 cen((quad.p1.x + quad.p2.x + quad.p3.x + quad.p4.x) * 0.25,
+                     (quad.p1.y + quad.p2.y + quad.p3.y + quad.p4.y) * 0.25);
+            Vec2 rel = cen - center;
+            double d = rel.length();
+            if (d < rootR * 0.9 || d > tipR + 1e-9) continue;
+            out.push_back(std::atan2(rel.y, rel.x));
+        }
+        return out;
+    };
+    auto seatedRollerAngles = [&](const std::vector<ChainLink>& links) {
+        std::vector<double> out;
+        for (const auto& l : links) {
+            Vec2 rel = l.pos - center;
+            if (std::abs(rel.length() - pitchR) > rollerR * 0.6) continue; // on the pitch circle
+            out.push_back(std::atan2(rel.y, rel.x));
+        }
+        return out;
+    };
+    auto nearestToothDistance = [&](double rollerAng, const std::vector<double>& teethA) {
+        double best = cg::kPi;
+        for (double t : teethA)
+            best = std::min(best, std::abs(signedAngleDelta(rollerAng, t)));
+        return best;
+    };
+
+    // Two distinct chain positions: the lock must follow the moving chain.
+    for (int pass = 0; pass < 2; ++pass) {
+        for (int i = 0; i < 40; ++i) sim.step(1.0 / 60.0);
+        std::vector<ChainLink> links = sim.links();
+        p.chainLinks = &links;
+        ProjectionResult res = buildProjection(ProjectionKind::Mechanical, c, nullptr, p);
+
+        std::vector<double> teethA = toothAngles(res);
+        std::vector<double> rollers = seatedRollerAngles(links);
+        ASSERT_EQ(static_cast<int>(teethA.size()), teeth);
+        ASSERT_GE(rollers.size(), 2u) << "no rollers seated on the drive sprocket";
+
+        for (double r : rollers)
+            EXPECT_GT(nearestToothDistance(r, teethA), toothPitch * 0.30)
+                << "pass " << pass << ": roller at " << r
+                << " rad sits ON a tooth, not in a gap (no mesh)";
+    }
+}
