@@ -17,9 +17,12 @@ const char* socraticCriticSystemPrompt() {
 }
 
 std::string buildChatRequest(const LlmConfig& config, const std::vector<ChatMessage>& messages) {
-    nlohmann::json j;
+    // ordered_json сохраняет порядок вставки ключей (обычный nlohmann::json
+    // сортирует их алфавитно) — так wire-формат остаётся байт-в-байт прежним:
+    // {"model":...,"messages":[...],"temperature":0.4,"stream":false}
+    nlohmann::ordered_json j;
     j["model"] = config.model;
-    j["messages"] = nlohmann::json::array();
+    j["messages"] = nlohmann::ordered_json::array();
     for (const auto& m : messages)
         j["messages"].push_back({{"role", m.role}, {"content", m.content}});
     j["temperature"] = 0.4;
