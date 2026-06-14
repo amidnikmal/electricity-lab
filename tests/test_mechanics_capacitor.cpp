@@ -82,6 +82,45 @@ TEST(SpringCapacitor, PositiveVoltageCompresses) {
     EXPECT_NEAR(capacitorThetaFromVoltage(1000.0, 5.0, m.p.thetaMax), m.p.thetaMax, 1e-9);
 }
 
+namespace {
+const std::vector<Vec2>* longestPoly(const ProjectionResult& r) {
+    const std::vector<Vec2>* best = nullptr;
+    double bestLen = -1.0;
+    for (const auto& poly : r.prims.polylines) {
+        if (poly.pts.size() < 5) continue;
+        double s = (poly.pts.back() - poly.pts.front()).length();
+        if (s > bestLen) { bestLen = s; best = &poly.pts; }
+    }
+    return best;
+}
+} // namespace
+
+// Fix #1: the spring ends exactly on the crank attachment knobs (no gap). The
+// spring polyline's first/last points must coincide pixel-for-pixel with a
+// filled attachment circle.
+TEST(SpringCapacitor, SpringEndpointsPinnedToCrankKnobs) {
+    Circuit c;
+    int n1 = c.addNode(Vec2(0, 0));
+    int n2 = c.addNode(Vec2(240, 0));
+    c.addComponent(ComponentType::Capacitor, n1, n2, 1e-3);
+
+    CircuitSolver solver;
+    CircuitSolution sol = solver.solve(c);
+    ViewParams p;
+    ProjectionResult r = buildProjection(ProjectionKind::Mechanical, c, &sol, p);
+
+    const auto* spring = longestPoly(r);
+    ASSERT_NE(spring, nullptr);
+
+    auto hasFilledCircleAt = [&](Vec2 pt) {
+        for (const auto& circ : r.prims.circles)
+            if (circ.filled && (circ.center - pt).length() < 1e-9) return true;
+        return false;
+    };
+    EXPECT_TRUE(hasFilledCircleAt(spring->front())) << "spring start detached from its knob";
+    EXPECT_TRUE(hasFilledCircleAt(spring->back())) << "spring end detached from its knob";
+}
+
 // Render-without-side-effects: building the same circuit twice yields an
 // identical capacitor spring polyline (no hidden render state). DC steady, so
 // no time-driven animation perturbs the result.
@@ -94,17 +133,6 @@ TEST(SpringCapacitor, RenderHasNoHiddenState) {
     CircuitSolver solver;
     CircuitSolution sol = solver.solve(c);
     ViewParams p;
-
-    auto longestPoly = [](const ProjectionResult& r) {
-        const std::vector<Vec2>* best = nullptr;
-        double bestLen = -1.0;
-        for (const auto& poly : r.prims.polylines) {
-            if (poly.pts.size() < 5) continue;
-            double s = (poly.pts.back() - poly.pts.front()).length();
-            if (s > bestLen) { bestLen = s; best = &poly.pts; }
-        }
-        return best;
-    };
 
     ProjectionResult r1 = buildProjection(ProjectionKind::Mechanical, c, &sol, p);
     ProjectionResult r2 = buildProjection(ProjectionKind::Mechanical, c, &sol, p);

@@ -80,17 +80,22 @@ Split exactly as the prompt asked: pure kinematics vs. pure render.
   whose coil step is `length/coils` (coils spread when stretched, bunch when
   compressed) and whose amplitude moves *opposite* the deflection. No ImGui, no
   time, no state — unit-tested in isolation.
-- `emitSpring` in `ProjectionBuilder.cpp` — render only, from the model: energy
-  glow ∝ |charge|, shaft axis, two mini-sprockets counter-rotated by `±θ`, crank
-  arms with charge-coloured tips, the deforming spring (violet = stretch/charge+,
-  coral = compress/charge−), a mode label, the capacitance, and a bipolar charge
-  bar. Local→world via `origin + unit·x + perp·y`; nothing hard-codes screen
+- `emitSpring` in `ProjectionBuilder.cpp` — render only, from the model: two
+  sprockets counter-rotated by `±θ` at the chain pitch radius, the chain leads
+  wrapping each sprocket (`emitChainOntoSprocket`: tangent runs + far-side wrap
+  arc + rollers seated on the teeth, so the chain grabs the gear instead of
+  stopping beside it), crank arms with charge-coloured tips, the deforming spring
+  (violet = stretch/charge+, coral = compress/charge−) **pinned pixel-exact to
+  the crank knobs**, a mode label and the capacitance. No energy glow and no
+  charge bar — state is read from the spring deformation and the mode label
+  alone. Local→world via `origin + unit·x + perp·y`; nothing hard-codes screen
   coordinates.
 
 Locked by `tests/test_mechanics_capacitor.cpp`: sign invariant, even energy,
-coil-spacing tracks length, deterministic path, `+Vc` compresses, and a
-render-has-no-hidden-state check (same circuit built twice → identical spring
-polyline). The pre-existing `SpringCompressesAsCapacitorCharges` still holds.
+coil-spacing tracks length, deterministic path, `+Vc` compresses, spring
+endpoints pinned to the crank knobs, and a render-has-no-hidden-state check (same
+circuit built twice → identical spring polyline). The pre-existing
+`SpringCompressesAsCapacitorCharges` still holds.
 
 ## Applicability limits
 

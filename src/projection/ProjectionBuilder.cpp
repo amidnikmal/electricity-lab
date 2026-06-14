@@ -1187,6 +1187,80 @@ void emitAnchor(BuildContext& ctx, Vec2 pos) {
         ctx.out.lines.push_back({P(-10 + i * 8, 16), P(-4 + i * 8, 22), 1.5, col, true});
 }
 
+// Render-only: a chain run from external node `from` that physically GRABS a
+// sprocket (centre C, pitch radius R) — two straight runs tangent to the tooth
+// circle, then a wrap arc around the far side, drawn as a bicycle chain (rails +
+// rollers). So the chain hugs the gear instead of stopping beside it. R is the
+// chain pitch radius, so the rollers seat exactly on the teeth that emitSprocket
+// draws at the same R.
+void emitChainOntoSprocket(BuildContext& ctx, Vec2 from, Vec2 C, double R,
+                           double va, double vb) {
+    namespace cg = physics::chain_geometry;
+    Vec2 d = C - from;
+    double L = d.length();
+    if (L <= R + 1e-3) return;
+    Vec2 u = d / L;
+
+    // Tangent points from the external node to the circle (right angle at the
+    // tangent point): the C->T directions sit ±beta off the C->from direction.
+    double beta = std::acos(std::clamp(R / L, -1.0, 1.0));
+    Vec2 toFrom = (from - C) / L;
+    auto rot = [](Vec2 v, double ang) {
+        return Vec2(v.x * std::cos(ang) - v.y * std::sin(ang),
+                    v.x * std::sin(ang) + v.y * std::cos(ang));
+    };
+    Vec2 Tp = C + rot(toFrom, +beta) * R;
+    Vec2 Tn = C + rot(toFrom, -beta) * R;
+
+    // Wrap the FAR arc (the one through C + u*R, away from `from`): of the two
+    // clockwise options keep the one whose midpoint is farther than the centre.
+    std::vector<Vec2> arc = sampleClockwiseArc(C, R, Tp, Tn, 16);
+    if ((arc[arc.size() / 2] - from).length() < L)
+        arc = sampleClockwiseArc(C, R, Tn, Tp, 16);
+
+    // Continuous chain centreline: from -> Tp -> far arc -> Tn -> from.
+    std::vector<Vec2> path;
+    path.reserve(arc.size() + 3);
+    path.push_back(from);
+    path.push_back(Tp);
+    for (const Vec2& p : arc) path.push_back(p);
+    path.push_back(Tn);
+    path.push_back(from);
+
+    // Potential tint, same palette as the rest of the chain.
+    if (ctx.p.layers.potential && ctx.hasPotentialRange()) {
+        render::PrimGradient grad;
+        grad.a = from; grad.b = C;
+        grad.width = cg::chainHalfWidth(ctx.p.wireThickness) * 2.0;
+        grad.vA = va; grad.vB = vb; grad.vMin = ctx.vMin; grad.vMax = ctx.vMax;
+        grad.alpha = 90;
+        ctx.out.gradients.push_back(grad);
+    }
+
+    uint32_t railCol = packColor(150, 160, 175, 150);
+    ctx.out.polylines.push_back({path, 1.4, railCol, true});
+
+    // Rollers seated along the centreline at the chain pitch.
+    const double rollerR = cg::linkRadius(ctx.p.wireThickness);
+    const double pitch = cg::linkPitch(rollerR);
+    const uint32_t rollerFill = packColor(70, 76, 88, 255);
+    const uint32_t rollerEdge = packColor(208, 214, 224, 235);
+    double acc = pitch * 0.5;
+    for (size_t i = 1; i < path.size(); ++i) {
+        Vec2 seg = path[i] - path[i - 1];
+        double segLen = seg.length();
+        if (segLen < 1e-6) continue;
+        Vec2 dir = seg / segLen;
+        while (acc <= segLen) {
+            Vec2 p = path[i - 1] + dir * acc;
+            ctx.out.circles.push_back({p, rollerR, rollerFill, 0.0, true, false});
+            ctx.out.circles.push_back({p, rollerR, rollerEdge, 1.2, false, false});
+            acc += pitch;
+        }
+        acc -= segLen;
+    }
+}
+
 // Spring capacitor: a spring slung between two crank arms on two INDEPENDENT,
 // counter-rotating shafts (NOT a shared axle — that is what makes it a
 // capacitor, vs the inductor flywheel/junction idlers). Relative shaft angle =
@@ -1225,53 +1299,43 @@ void emitSpring(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
     uint32_t chargeCol = m.charge() >= 0.0 ? pos : neg;
     uint32_t metal = packColor(139, 147, 176, 235);
 
-    // (1) Energy field: a soft glow that grows with stored charge (the project's
-    // idiomatic stand-in for the prompt's concentric alpha rings).
-    if (chargeMag > 0.02) {
-        double r = (g.plateHalf + len * 0.05) * (1.0 + 2.2 * chargeMag);
-        ctx.out.glows.push_back(
-            {springMidW, r, std::clamp(0.15 + chargeMag, 0.0, 1.0),
-             withAlpha(chargeCol, static_cast<unsigned>(10 + 36 * chargeMag))});
-    }
+    // Sprockets at the chain PITCH radius so the wrapping chain seats on the
+    // teeth; counter-rotated by ±theta (independent shafts turning against each
+    // other). The shaft is just a short hub at the centre — no long hanging line.
+    namespace cg = physics::chain_geometry;
+    double pitchR = cg::sprocketPitchRadius(cg::chainHalfWidth(ctx.p.wireThickness),
+                                            cg::linkRadius(ctx.p.wireThickness));
 
-    // (2) Leads in as chains; (3) axis between the two shafts.
-    emitChain(ctx, a, shaftLW, va, va, 0.0, comp.id);
-    emitChain(ctx, shaftRW, b, vb, vb, 0.0, comp.id);
-    ctx.out.lines.push_back({shaftLW, shaftRW, 2.0, packColor(59, 66, 102, 230), true});
+    // Leads come in as chains that wrap each sprocket, tying both into the one
+    // chain loop arriving at nodes a and b.
+    emitChainOntoSprocket(ctx, a, shaftLW, pitchR, va, va);
+    emitChainOntoSprocket(ctx, b, shaftRW, pitchR, vb, vb);
 
-    // (4) Sprockets on each shaft, counter-rotated by +theta / -theta so the
-    // independent shafts are visibly turning against each other.
-    auto emitMiniSprocket = [&](Vec2 center, double phase) {
-        double rOuter = m.p.armLen * 0.42;
-        ctx.out.circles.push_back({center, rOuter, packColor(58, 64, 76, 255), 0.0, true, false});
-        ctx.out.circles.push_back({center, rOuter, metal, 1.4, false, false});
-        for (int t = 0; t < 8; ++t) {
-            double ang = phase + t * (kPi / 4.0);
-            Vec2 dir(std::cos(ang), std::sin(ang));
-            ctx.out.lines.push_back(
-                {center + dir * rOuter, center + dir * (rOuter * 1.3), 2.0, metal, true});
-        }
-        ctx.out.circles.push_back({center, rOuter * 0.28, packColor(36, 40, 48, 255), 0.0, true, false});
-    };
-    emitMiniSprocket(shaftLW, m.theta);
-    emitMiniSprocket(shaftRW, -m.theta);
+    emitSprocket(ctx, shaftLW, pitchR, m.theta, m.theta, false);
+    emitSprocket(ctx, shaftRW, pitchR, -m.theta, -m.theta, false);
 
-    // (5) Crank arms shaft -> tip, tips marked in the charge colour.
+    // Crank arms shaft -> tip, tips marked in the charge colour.
     ctx.out.lines.push_back({shaftLW, crankLW, 4.0, metal, true});
     ctx.out.lines.push_back({shaftRW, crankRW, 4.0, metal, true});
     double knob = std::max(2.5, m.p.armLen * 0.16);
-    ctx.out.circles.push_back({crankLW, knob, chargeCol, 0.0, true, false});
-    ctx.out.circles.push_back({crankRW, knob, chargeCol, 0.0, true, false});
 
-    // (6) The procedural spring: coil spacing = len/coils (coils spread when
-    // stretched, bunch when compressed), amplitude opposite the deflection.
+    // The procedural spring: coil spacing = len/coils (coils spread when
+    // stretched, bunch when compressed), amplitude opposite the deflection. Its
+    // endpoints are pinned pixel-exact to the crank tips so the spring never
+    // detaches from its attachment knobs.
     std::vector<Vec2> pts;
     for (const Vec2& l : m.springPath()) pts.push_back(toWorld(l));
+    pts.front() = crankLW;
+    pts.back() = crankRW;
     uint32_t springCol =
         render::blendColor(packColor(170, 178, 190, 230), chargeCol, 0.35 + 0.65 * chargeMag);
     ctx.out.polylines.push_back({std::move(pts), 2.6, springCol, true});
 
-    // (7) Mode label + (8) capacitance, above the spring.
+    // Attachment knobs drawn AFTER the spring, at the exact same crank tips.
+    ctx.out.circles.push_back({crankLW, knob, chargeCol, 0.0, true, false});
+    ctx.out.circles.push_back({crankRW, knob, chargeCol, 0.0, true, false});
+
+    // Mode label + capacitance, above the spring.
     const char* modeText = m.mode() == mechanics::SpringCapacitorModel::Mode::Stretched
                                ? tr("stretched")
                            : m.mode() == mechanics::SpringCapacitorModel::Mode::Compressed
@@ -1284,17 +1348,6 @@ void emitSpring(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
     char buf[48];
     formatCapacitance(comp.value, buf, sizeof(buf));
     ctx.out.labels.push_back({above + g.perp * (12.0 * s), buf, packColor(170, 176, 190), false});
-
-    // (8) Bipolar charge bar below the axis: fills from the centre toward the
-    // sign, width ∝ |charge|.
-    Vec2 barC = g.mid - g.perp * (g.plateHalf * 0.7 + 8.0 * s);
-    double barHalf = m.p.halfSpan * 0.8;
-    ctx.out.lines.push_back({barC - g.unit * barHalf, barC + g.unit * barHalf, 2.0,
-                             packColor(59, 66, 102, 220), true});
-    if (chargeMag > 0.01) {
-        Vec2 fillEnd = barC + g.unit * (barHalf * m.charge()); // sign picks the side
-        ctx.out.lines.push_back({barC, fillEnd, 5.0, chargeCol, true});
-    }
 }
 
 void emitFlywheel(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
