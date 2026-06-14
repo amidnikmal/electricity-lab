@@ -1,34 +1,36 @@
 # MIT TEAL Rendering Plan
 
-## Applied In Second Pass
+> Статус 2026-06-15: план; реализовано — viridis-палитра (`ColorMaps.h` `kViridisLut`/`Colormap`), линии поля/стримлайны (`emitFieldBackdrop`, `qualitativeFieldAt`), легенда потенциала `V` (`drawLegend`/`PotentialLegend`), переключение опорного узла («Set as reference»), показания зонда в инспекторе; не реализовано — LIC-рендер поля, bloom, отдельная панель легенд `V`/`E`/`I`/`P` (есть только `V`), показания зонда прямо на холсте, кэш примитивов рендера, типографика сверх дефолтного ImGui.
 
-- calmer dark background and cleaner grid
-- preset-driven layer visibility
-- explicit legends and layer tooltips
-- inspector as probe readout
-- pause / speed / reset-time controls
-- less decorative magnetic field
-- more readable potential palette than HSV rainbow
+## Применено во втором проходе
 
-## Design Direction
+- более спокойный тёмный фон и чище сетка
+- видимость слоёв через пресеты
+- явные легенды и тултипы слоёв
+- инспектор как показания зонда
+- управление пауза / скорость / сброс времени
+- менее декоративное магнитное поле
+- палитра потенциала читаемее, чем HSV-радуга
 
-Target style is educational instrumentation, not decorative VFX:
+## Направление дизайна
 
-- restrained palette
-- one dominant message per preset
-- vector fields that read as fields
-- scalar potential that reads as a scalar map
-- overlays that explain themselves
+Целевой стиль — учебный измерительный прибор, а не декоративный VFX:
 
-## Still Missing For A Stronger TEAL Feel
+- сдержанная палитра
+- один доминирующий посыл на пресет
+- векторные поля, которые читаются как поля
+- скалярный потенциал, который читается как скалярная карта
+- оверлеи, которые объясняют сами себя
 
-- dedicated legend panel for `V`, `E`, `I`, `P`
-- probe cursor readout directly on canvas
-- render primitive caching for smoother large-wire gradients
-- explicit reference-node switching UI
-- better typography hierarchy than default ImGui text alone
+## Чего ещё не хватает для более сильного ощущения TEAL
 
-## Next Visual Upgrade
+- отдельная панель легенд для `V`, `E`, `I`, `P`
+- показания курсора-зонда прямо на холсте
+- кэш примитивов рендера ради более гладких градиентов на крупных проводниках
+- явный UI переключения опорного узла
+- лучшая иерархия типографики, чем один дефолтный текст ImGui
 
-Move legends and overlay explanations into dedicated render helpers so
-`CircuitCanvas` can focus on geometry and interaction only.
+## Следующий визуальный апгрейд
+
+Вынести легенды и пояснения оверлеев в отдельные рендер-хелперы, чтобы
+`CircuitCanvas` мог заниматься только геометрией и взаимодействием.
