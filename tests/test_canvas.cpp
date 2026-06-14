@@ -573,6 +573,29 @@ TEST(CanvasPhysicsModels, ZeroCurrentProducesNoDriftParticles) {
     EXPECT_TRUE(particles.empty());
 }
 
+// Контракт «нет тока — нет дрейфа»: скорость дрейфа РОВНО ноль при I=0
+// (никакого постоянного «пола», как был старый +0.06).
+TEST(CanvasPhysicsModels, DriftSpeedIsExactlyZeroAtZeroCurrent) {
+    current_lab::physics::DriftSamplingConfig config;
+    config.wireThickness = 8.0;
+    EXPECT_DOUBLE_EQ(current_lab::physics::driftSpeed(0.0, config), 0.0);
+}
+
+// Скорость дрейфа строго пропорциональна |I|: удвоение тока удваивает скорость,
+// и v_d масштабируется линейно от нуля (v_d = I/(nAe)).
+TEST(CanvasPhysicsModels, DriftSpeedScalesLinearlyWithCurrent) {
+    current_lab::physics::DriftSamplingConfig config;
+    config.wireThickness = 8.0;
+
+    double s1 = current_lab::physics::driftSpeed(0.01, config);
+    double s2 = current_lab::physics::driftSpeed(0.02, config);
+    double s4 = current_lab::physics::driftSpeed(0.04, config);
+
+    EXPECT_GT(s1, 0.0);
+    EXPECT_NEAR(s2, s1 * 2.0, kEps);
+    EXPECT_NEAR(s4, s1 * 4.0, kEps);
+}
+
 TEST(CanvasPhysicsModels, DriftParticlesRemainInsideWireCrossSection) {
     current_lab::physics::DriftSamplingConfig config;
     config.wireThickness = 8.0;
