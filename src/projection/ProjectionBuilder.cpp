@@ -288,6 +288,48 @@ void emitVoltageSource(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
     ctx.out.labels.push_back({mid + perp * 22.0, buf, packColor(200, 200, 200), false});
 }
 
+void emitAcVoltageSource(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
+                          double va, double vb) {
+    Vec2 dir = b - a;
+    double len = dir.length();
+    if (len < 1.0) return;
+    Vec2 unit = dir / len;
+    Vec2 perp(-unit.y, unit.x);
+
+    double r = 15.0;
+    Vec2 mid((a.x + b.x) * 0.5, (a.y + b.y) * 0.5);
+    Vec2 leadA = mid - unit * r;
+    Vec2 leadB = mid + unit * r;
+
+    double tA = len > 2.0 * r ? (len * 0.5 - r) / len : 0.5;
+    double tB = len > 2.0 * r ? (len * 0.5 + r) / len : 0.5;
+    emitConductor(ctx, a, leadA, va, va + (vb - va) * tA, ctx.p.wireThickness * 0.5);
+    emitConductor(ctx, leadB, b, va + (vb - va) * tB, vb, ctx.p.wireThickness * 0.5);
+
+    ctx.out.circles.push_back({mid, r, packColor(255, 255, 255), 2.5, false, false});
+
+    // Рисуем синусоиду (~) внутри круга
+    double amp = r * 0.38;
+    double freq = 1.5;
+    double steps = 8;
+    for (int i = 0; i < static_cast<int>(steps); ++i) {
+        double t0 = (double)i / steps;
+        double x0 = -r * 0.55 + r * 1.1 * t0;
+        double y0 = amp * std::sin(freq * 2.0 * M_PI * t0);
+        double t1 = (double)(i + 1) / steps;
+        double x1 = -r * 0.55 + r * 1.1 * t1;
+        double y1 = amp * std::sin(freq * 2.0 * M_PI * t1);
+        Vec2 p0 = mid + unit * x0 + perp * y0;
+        Vec2 p1 = mid + unit * x1 + perp * y1;
+        ctx.out.lines.push_back({p0, p1, 2.5, packColor(255, 196, 110), true});
+    }
+
+    std::string buf = std::format("{:.1f} {}", comp.value, tr("V")),
+                frq = std::format("{} {}", comp.frequency, tr("Hz"));
+    ctx.out.labels.push_back({mid + perp * 22.0, buf, packColor(200, 200, 200), false});
+    ctx.out.labels.push_back({mid - perp * 22.0, frq, packColor(180, 180, 180), false});
+}
+
 void emitGround(BuildContext& ctx, Vec2 pos) {
     // Constant screen-size symbol: convert pixel offsets to world units.
     double s = 1.0 / ctx.safeScale();
@@ -1688,6 +1730,9 @@ void buildMechanics(BuildContext& ctx) {
             case ComponentType::VoltageSource:
                 emitCrank(ctx, comp, a, b, va, vb, branchCurrent);
                 break;
+            case ComponentType::AcVoltageSource:
+                emitCrank(ctx, comp, a, b, va, vb, branchCurrent);
+                break;
             case ComponentType::Ground:
                 emitAnchor(ctx, b);
                 break;
@@ -2078,6 +2123,9 @@ void buildHydraulic(BuildContext& ctx) {
             case ComponentType::VoltageSource:
                 emitPump(ctx, comp, a, b, va, vb, branchCurrent);
                 break;
+            case ComponentType::AcVoltageSource:
+                emitPump(ctx, comp, a, b, va, vb, branchCurrent);
+                break;
             case ComponentType::Ground:
                 emitReservoir(ctx, b);
                 break;
@@ -2182,6 +2230,7 @@ void buildCircuitShapes(BuildContext& ctx, bool physicsLayers) {
             case ComponentType::Wire:          emitWire(ctx, a, b, va, vb); break;
             case ComponentType::Resistor:      emitResistor(ctx, comp, a, b, va, vb, branchPower); break;
             case ComponentType::VoltageSource: emitVoltageSource(ctx, comp, a, b, va, vb); break;
+            case ComponentType::AcVoltageSource: emitAcVoltageSource(ctx, comp, a, b, va, vb); break;
             case ComponentType::Ground:        emitGround(ctx, b); break;
             case ComponentType::Capacitor:     emitCapacitorSymbol(ctx, comp, a, b, va, vb); break;
             case ComponentType::Inductor:      emitInductorSymbol(ctx, comp, a, b, va, vb); break;
@@ -2234,9 +2283,11 @@ void buildCircuitShapes(BuildContext& ctx, bool physicsLayers) {
                 // by the EMF; drawing E-arrows there reads as "everything
                 // flows into the minus", so the source shows an EMF arrow
                 // (- to +) instead.
-                if (ctx.p.layers.electricField && comp.type != ComponentType::VoltageSource)
+                if (ctx.p.layers.electricField && comp.type != ComponentType::VoltageSource
+                    && comp.type != ComponentType::AcVoltageSource)
                     emitEFieldArrows(ctx, a, b, va, vb);
-                if (ctx.p.layers.electricField && comp.type == ComponentType::VoltageSource) {
+                if (ctx.p.layers.electricField && (comp.type == ComponentType::VoltageSource
+                    || comp.type == ComponentType::AcVoltageSource)) {
                     Vec2 emfDir = (comp.value >= 0.0 ? (a - b) : (b - a)).normalized();
                     Vec2 mid2((a.x + b.x) * 0.5, (a.y + b.y) * 0.5);
                     double sz = std::max(ctx.p.wireThickness * 1.2, 9.0);
