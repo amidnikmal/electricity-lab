@@ -12,7 +12,7 @@ A third projection of the same `CircuitModel`: the circuit rendered as a mechani
 | Potential V | chain tension / "height" vs anchor | tension colour (same palette as Potential layer) |
 | Resistor R | friction brake | pads clamping the chain + heat glow |
 | Voltage source | drive sprocket | large gear with taut tangent chain, pump direction follows I |
-| Capacitor C | spring | movable plate, displacement proportional to Vc |
+| Capacitor C | spring between two crank arms on two counter-rotating shafts | spring deforms; relative shaft angle θ = charge, restoring moment = Vc |
 | Inductor L | flywheel | spinning wheel, angular momentum proportional to Il |
 | Diode | ratchet | pawl triangle, single allowed direction (A -> B) |
 | Switch | coupler | chain gap (open) / clamp (closed) |
@@ -61,6 +61,36 @@ sprocket:
 Tests in `tests/test_chain_gear.cpp` lock this down: large visual size is
 preserved, tangent contact is enforced, the source contact arc stays short, and
 rotation direction is checked from rendered tooth motion.
+
+## Spring capacitor (crank-arm spring)
+
+The capacitor is a **spring slung between two crank arms on two independent,
+counter-rotating shafts** — deliberately *not* a shared axle (that is what tells
+it apart from the inductor flywheel and the junction idlers). The relative shaft
+angle `θ` is the charge; the spring's restoring moment is the voltage; stiffness
+`k = 1/C`. Stretch and compression are mirror images of the charge sign.
+
+Split exactly as the prompt asked: pure kinematics vs. pure render.
+
+- `projection/MechanicsCapacitor.h` — `SpringCapacitorModel`: takes `θ` from
+  outside (mapped from the solver capacitor voltage by
+  `capacitorThetaFromVoltage`, `+Vc → compression`), returns crank tips,
+  `deflection()` (>0 compress, <0 stretch), `charge()` (normalised, `θ<0 →
+  charge+`), `energy()` (`∝ x²`), `mode()`, and a procedural zigzag `springPath()`
+  whose coil step is `length/coils` (coils spread when stretched, bunch when
+  compressed) and whose amplitude moves *opposite* the deflection. No ImGui, no
+  time, no state — unit-tested in isolation.
+- `emitSpring` in `ProjectionBuilder.cpp` — render only, from the model: energy
+  glow ∝ |charge|, shaft axis, two mini-sprockets counter-rotated by `±θ`, crank
+  arms with charge-coloured tips, the deforming spring (violet = stretch/charge+,
+  coral = compress/charge−), a mode label, the capacitance, and a bipolar charge
+  bar. Local→world via `origin + unit·x + perp·y`; nothing hard-codes screen
+  coordinates.
+
+Locked by `tests/test_mechanics_capacitor.cpp`: sign invariant, even energy,
+coil-spacing tracks length, deterministic path, `+Vc` compresses, and a
+render-has-no-hidden-state check (same circuit built twice → identical spring
+polyline). The pre-existing `SpringCompressesAsCapacitorCharges` still holds.
 
 ## Applicability limits
 

@@ -33,6 +33,10 @@ const std::unordered_map<std::string_view, const char*>& dictionary() {
         {"Vc = 0, Il = 0, t = 0", "Vc = 0, Il = 0, t = 0"},
         {"steady", "стационар"},
         {"settling", "процесс"},
+        // Spring-capacitor (Mechanics view)
+        {"neutral", "нейтраль"},
+        {"stretched", "растянута"},
+        {"compressed", "сжата"},
         {"Process settled: the solver sleeps until the next event.",
          "Процесс затух: солвер спит до следующего события."},
         {"Transient in slow motion: sim seconds per real second.",

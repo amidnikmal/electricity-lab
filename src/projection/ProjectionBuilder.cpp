@@ -2,6 +2,7 @@
 #include "projection/ElementGeometry.h"
 #include "projection/HydraulicMapping.h"
 #include "projection/MechanicsMapping.h"
+#include "projection/MechanicsCapacitor.h"
 #include "render/ColorMaps.h"
 #include "ui/I18n.h"
 #include "physics/ChainGeometry.h"
@@ -1186,53 +1187,114 @@ void emitAnchor(BuildContext& ctx, Vec2 pos) {
         ctx.out.lines.push_back({P(-10 + i * 8, 16), P(-4 + i * 8, 22), 1.5, col, true});
 }
 
+// Spring capacitor: a spring slung between two crank arms on two INDEPENDENT,
+// counter-rotating shafts (NOT a shared axle — that is what makes it a
+// capacitor, vs the inductor flywheel/junction idlers). Relative shaft angle =
+// charge; spring restoring moment = voltage. Kinematics live in the pure,
+// testable mechanics::SpringCapacitorModel; this function is render-only.
 void emitSpring(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
                 double va, double vb) {
     auto g = capacitorGeometry(a, b, ctx.p.wireThickness);
     if (!g.valid) return;
+    double len = (b - a).length();
 
-    double vc = va - vb; // spring displacement is proportional to this
+    // Charge angle from the (transient) capacitor voltage; +Vc -> compression,
+    // so "spring contracts as the cap charges" holds.
+    double vc = va - vb;
     double vRange = std::max(std::abs(ctx.vMax - ctx.vMin), 1e-9);
-    double c = std::clamp(std::abs(mechanics::springCompressionFromVoltage(vc)) / vRange, 0.0, 1.0);
 
-    emitChain(ctx, a, g.leadAEnd, va, va, 0.0, comp.id);
-    emitChain(ctx, g.leadBEnd, b, vb, vb, 0.0, comp.id);
+    mechanics::SpringCapacitorModel m;
+    m.p.halfSpan = std::clamp(len * 0.30, 24.0, len * 0.42);
+    m.p.armLen = std::clamp(len * 0.11, g.plateHalf * 0.55, m.p.halfSpan * 0.8);
+    m.p.baseAmp = std::max(g.plateHalf * 0.5, ctx.p.wireThickness * 0.9);
+    m.theta = mechanics::capacitorThetaFromVoltage(vc, vRange, m.p.thetaMax);
 
-    // Fixed walls at both lead ends.
-    uint32_t wallCol = packColor(226, 226, 216, 235);
-    ctx.out.lines.push_back({g.plateATop, g.plateABottom, 3.0, wallCol, true});
-    ctx.out.lines.push_back({g.plateBTop, g.plateBBottom, 3.0, wallCol, true});
+    // local (x along axis, y along +perp) -> world.
+    auto toWorld = [&](Vec2 l) { return g.mid + g.unit * l.x + g.perp * l.y; };
 
-    // Movable plate slides toward wall A as compression rises; the rigid rod
-    // connects it to wall B. Displacement ∝ Vc (charge <-> compression).
-    Vec2 movable = g.leadBEnd - g.unit * (g.gap * 0.6 * c);
-    double amp = g.plateHalf * 0.55;
-    ctx.out.lines.push_back({movable + g.perp * amp, movable - g.perp * amp, 2.5,
-                             packColor(208, 214, 224, 235), true});
-    ctx.out.lines.push_back({movable, g.leadBEnd, 3.5, packColor(160, 168, 180, 235), true});
+    Vec2 shaftLW = toWorld(m.shaftL());
+    Vec2 shaftRW = toWorld(m.shaftR());
+    Vec2 crankLW = toWorld(m.crankL());
+    Vec2 crankRW = toWorld(m.crankR());
+    Vec2 springMidW = (crankLW + crankRW) * 0.5;
 
-    // Spring zigzag between wall A and the movable plate.
-    int teeth = 7;
-    std::vector<Vec2> pts;
-    pts.reserve(teeth + 2);
-    Vec2 span = movable - g.leadAEnd;
-    pts.push_back(g.leadAEnd);
-    for (int i = 1; i <= teeth; ++i) {
-        double t = static_cast<double>(i) / (teeth + 1);
-        double side = (i % 2 == 0) ? 1.0 : -1.0;
-        pts.push_back(g.leadAEnd + span * t + g.perp * (amp * side));
+    double chargeMag = std::abs(m.charge());
+    // Violet = stretch/charge+, coral = compress/charge−.
+    uint32_t pos = packColor(127, 119, 221, 245);
+    uint32_t neg = packColor(224, 96, 122, 245);
+    uint32_t chargeCol = m.charge() >= 0.0 ? pos : neg;
+    uint32_t metal = packColor(139, 147, 176, 235);
+
+    // (1) Energy field: a soft glow that grows with stored charge (the project's
+    // idiomatic stand-in for the prompt's concentric alpha rings).
+    if (chargeMag > 0.02) {
+        double r = (g.plateHalf + len * 0.05) * (1.0 + 2.2 * chargeMag);
+        ctx.out.glows.push_back(
+            {springMidW, r, std::clamp(0.15 + chargeMag, 0.0, 1.0),
+             withAlpha(chargeCol, static_cast<unsigned>(10 + 36 * chargeMag))});
     }
-    pts.push_back(movable);
 
-    uint32_t springCol = vc >= 0.0
-        ? render::blendColor(packColor(170, 178, 190, 230), packColor(255, 160, 80, 245), c)
-        : render::blendColor(packColor(170, 178, 190, 230), packColor(110, 170, 255, 245), c);
-    ctx.out.polylines.push_back({std::move(pts), 2.2, springCol, true});
+    // (2) Leads in as chains; (3) axis between the two shafts.
+    emitChain(ctx, a, shaftLW, va, va, 0.0, comp.id);
+    emitChain(ctx, shaftRW, b, vb, vb, 0.0, comp.id);
+    ctx.out.lines.push_back({shaftLW, shaftRW, 2.0, packColor(59, 66, 102, 230), true});
+
+    // (4) Sprockets on each shaft, counter-rotated by +theta / -theta so the
+    // independent shafts are visibly turning against each other.
+    auto emitMiniSprocket = [&](Vec2 center, double phase) {
+        double rOuter = m.p.armLen * 0.42;
+        ctx.out.circles.push_back({center, rOuter, packColor(58, 64, 76, 255), 0.0, true, false});
+        ctx.out.circles.push_back({center, rOuter, metal, 1.4, false, false});
+        for (int t = 0; t < 8; ++t) {
+            double ang = phase + t * (kPi / 4.0);
+            Vec2 dir(std::cos(ang), std::sin(ang));
+            ctx.out.lines.push_back(
+                {center + dir * rOuter, center + dir * (rOuter * 1.3), 2.0, metal, true});
+        }
+        ctx.out.circles.push_back({center, rOuter * 0.28, packColor(36, 40, 48, 255), 0.0, true, false});
+    };
+    emitMiniSprocket(shaftLW, m.theta);
+    emitMiniSprocket(shaftRW, -m.theta);
+
+    // (5) Crank arms shaft -> tip, tips marked in the charge colour.
+    ctx.out.lines.push_back({shaftLW, crankLW, 4.0, metal, true});
+    ctx.out.lines.push_back({shaftRW, crankRW, 4.0, metal, true});
+    double knob = std::max(2.5, m.p.armLen * 0.16);
+    ctx.out.circles.push_back({crankLW, knob, chargeCol, 0.0, true, false});
+    ctx.out.circles.push_back({crankRW, knob, chargeCol, 0.0, true, false});
+
+    // (6) The procedural spring: coil spacing = len/coils (coils spread when
+    // stretched, bunch when compressed), amplitude opposite the deflection.
+    std::vector<Vec2> pts;
+    for (const Vec2& l : m.springPath()) pts.push_back(toWorld(l));
+    uint32_t springCol =
+        render::blendColor(packColor(170, 178, 190, 230), chargeCol, 0.35 + 0.65 * chargeMag);
+    ctx.out.polylines.push_back({std::move(pts), 2.6, springCol, true});
+
+    // (7) Mode label + (8) capacitance, above the spring.
+    const char* modeText = m.mode() == mechanics::SpringCapacitorModel::Mode::Stretched
+                               ? tr("stretched")
+                           : m.mode() == mechanics::SpringCapacitorModel::Mode::Compressed
+                               ? tr("compressed")
+                               : tr("neutral");
+    double s = 1.0 / ctx.safeScale();
+    Vec2 above = springMidW + g.perp * (m.p.armLen + 12.0 * s);
+    ctx.out.labels.push_back({above, modeText, packColor(200, 200, 200), false});
 
     char buf[48];
     formatCapacitance(comp.value, buf, sizeof(buf));
-    ctx.out.labels.push_back({g.mid + g.perp * (g.plateHalf + 9.0 / ctx.safeScale()), buf,
-                              packColor(200, 200, 200), false});
+    ctx.out.labels.push_back({above + g.perp * (12.0 * s), buf, packColor(170, 176, 190), false});
+
+    // (8) Bipolar charge bar below the axis: fills from the centre toward the
+    // sign, width ∝ |charge|.
+    Vec2 barC = g.mid - g.perp * (g.plateHalf * 0.7 + 8.0 * s);
+    double barHalf = m.p.halfSpan * 0.8;
+    ctx.out.lines.push_back({barC - g.unit * barHalf, barC + g.unit * barHalf, 2.0,
+                             packColor(59, 66, 102, 220), true});
+    if (chargeMag > 0.01) {
+        Vec2 fillEnd = barC + g.unit * (barHalf * m.charge()); // sign picks the side
+        ctx.out.lines.push_back({barC, fillEnd, 5.0, chargeCol, true});
+    }
 }
 
 void emitFlywheel(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
