@@ -50,7 +50,7 @@ The honest t = 0+ picture without advancing time: capacitors are held at their s
 
 ## dt, stability, applicability
 
-- Default dt = 1 ms, user-settable 1 us .. 1 s. The UI shows the active method and dt in the bottom status strip.
+- dt = simSpeed / solveHz, где solveHz — целевая частота решений MNA (default 60 Гц реального времени), simSpeed — sim-секунд на реальную секунду (авто-подбор по tau цепи или ручной override). frame cap = maxStepsPerFrame = 8.
 - Backward Euler is A-stable: at any dt the RC/RL response stays bounded and monotonic (validated by test `TransientStability.BackwardEulerDoesNotBlowUpAtHugeDt` with dt = 5 tau). Large dt costs accuracy, never stability.
 - Trapezoidal halves nothing magical: at dt = tau/20 its error at t = tau is ~2 orders of magnitude below BE (test `TrapezoidalBeatsBackwardEulerAtSameDt`), but it can ring on stiff inputs; BE remains the default.
 - Convergence: error at t = tau decreases monotonically over dt = 0.1/0.01/0.001 tau (test `TransientConvergence.ErrorShrinksAsDtShrinks`).

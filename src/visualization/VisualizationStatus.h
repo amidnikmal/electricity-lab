@@ -40,10 +40,10 @@ inline VisualizationStatus layerStatus(VisualizationLayer layer) {
                     "Computed current is untouched; particle motion is a pedagogical overlay."};
         case VisualizationLayer::SurfaceCharge:
             return {"Surface Charge", "heuristic",
-                    "Edge samples are derived from sigma ~ (V - Vavg) with a junction-strength booster.",
+                    "Edge samples are derived from sigma ~ (V - Vavg) along each conductor.",
                     "This is not a Maxwell surface-charge solution; it only indicates a plausible sign pattern."};
         case VisualizationLayer::MagneticField:
-            return {"Magnetic Field", "qualitative quasi-static",
+            return {"Magnetic Field", "qualitative static DC",
                     "Magnitude follows B ~ I/r and glyph polarity follows the right-hand rule.",
                     "Only a local 2D teaching view is shown; no full Biot-Savart geometry is solved."};
         case VisualizationLayer::Heat:

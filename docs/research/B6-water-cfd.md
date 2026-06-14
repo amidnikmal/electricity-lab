@@ -38,8 +38,8 @@ Severity: Critical
 
 Реальность/источники:
 
-- https://openfoam.org/licence/ - OpenFOAM под GPL, с наследованием GPL для
-  кода, включающего GPL source.
+- https://openfoam.org/licence/ - OpenFOAM = GPLv3, с наследованием GPLv3 для
+  кода, включающего GPLv3 source.
 - https://openfoam.org/release/13/ - OpenFOAM 13 описан как open-source CFD
   toolbox с mesh/case/solver workflow, платформы - Ubuntu, WSL, macOS через
   Multipass.
@@ -141,12 +141,12 @@ resistor, pump casing, tank membrane, turbine, junction chamber. Это хоро
 Severity: High
 
 Проект: у проекта нет явного `LICENSE` в корне на момент чтения файлов, а
-OpenFOAM под GPL. Линковка к OpenFOAM API создаст сильный лицензионный вопрос.
+OpenFOAM = GPLv3. Линковка к OpenFOAM API создаст сильный лицензионный вопрос.
 
 Реальность/источники:
 
-- https://openfoam.org/licence/ - OpenFOAM Foundation описывает GPL и
-  наследование GPL для software including GPL source.
+- https://openfoam.org/licence/ - OpenFOAM Foundation описывает GPLv3 и
+  наследование GPLv3 для software including GPLv3 source.
 - https://openfoam.org/download/windows/ - официальный runtime на Windows -
   WSL2, что само по себе неудобно для bundled desktop app.
 

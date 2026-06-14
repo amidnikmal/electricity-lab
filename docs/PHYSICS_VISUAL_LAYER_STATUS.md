@@ -12,7 +12,7 @@ Status legend: **exact** = direct image of solver values; **approx** = physicall
 | E-field (along conductor) | -dV/dx along wire; resistor-body and capacitor-gap lengths used where relevant | approx 1D | on in Field mode | medium |
 | E-field backdrop (streamlines) | qualitative point-source field from node potentials | heuristic | on with Field layer | high |
 | Heat | dissipated power only, P = I*dV for R/wire | exact-sign / approx intensity | on in Power mode | low |
-| Surface charge | sigma ~ (V - Vavg) heuristic with junction booster | heuristic | off by default | high |
+| Surface charge | sigma ~ (V - Vavg) heuristic | heuristic | off by default | high |
 | Magnetic field | B ~ I/r magnitude, right-hand-rule polarity, local 2D glyphs | qualitative | off by default | high |
 | Drift particles | solver current direction/sign; amplified speed + thermal jitter | visualization (sign exact) | off by default | medium |
 | Capacitor plate charge / gap field | charge dots and gap arrows scale with solved Vc; E = Vc / gap | approx (gap geometry is symbolic) | on with Charges/Field layers | medium |
