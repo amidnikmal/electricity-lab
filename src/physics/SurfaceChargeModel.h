@@ -46,7 +46,6 @@ inline std::vector<SurfaceChargeSample> sampleSurfaceCharges(Vec2 a,
     // видит, а при зуме len*cameraScale плодило до 200 сэмплов × 2 кружка на
     // проводник (тот же класс роста с зумом, что градиент/круги).
     int count = std::max(8, std::min(64, static_cast<int>(len * config.cameraScale / 4.0)));
-    double segmentLen = len / count;
 
     for (int i = 0; i <= count; ++i) {
         double t = static_cast<double>(i) / count;
