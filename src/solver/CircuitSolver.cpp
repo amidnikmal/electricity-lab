@@ -5,6 +5,7 @@
 
 static constexpr double kWireConductance = 1e9;
 static constexpr double kOpenConductance = 1e-12; // gmin leak for DC capacitors
+static constexpr double kDiodeForwardDrop = 0.7; // порог открывания диода, В
 
 static double conductanceFor(const Component& comp) {
     if (comp.type == ComponentType::Wire) return kWireConductance;
@@ -152,7 +153,8 @@ CircuitSolution CircuitSolver::solveIterative(const Circuit& circuit,
     CircuitSolution solution;
     for (int pass = 0; pass < 24; ++pass) {
         for (const auto& [id, on] : conducting)
-            companions[id] = {on ? kWireConductance : kOpenConductance, 0.0};
+            companions[id] = {on ? kWireConductance : kOpenConductance,
+                                on ? kWireConductance * kDiodeForwardDrop : 0.0};
 
         solution = solveWithCompanions(circuit, companions);
 
@@ -165,7 +167,7 @@ CircuitSolution CircuitSolver::solveIterative(const Circuit& circuit,
                 if (br.current < -1e-12) { it->second = false; consistent = false; }
             } else {
                 // Blocking diode must stay reverse- or zero-biased.
-                if (br.voltageDrop > 1e-9) { it->second = true; consistent = false; }
+                if (br.voltageDrop > kDiodeForwardDrop) { it->second = true; consistent = false; }
             }
         }
         if (consistent) break;

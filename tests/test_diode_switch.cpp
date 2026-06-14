@@ -41,8 +41,8 @@ TEST(Diode, ConductsWhenForwardBiased) {
     const BranchResult* diode = branchFor(solution, d.diodeId);
     ASSERT_NE(res, nullptr);
     ASSERT_NE(diode, nullptr);
-    EXPECT_NEAR(res->current, 5.0 / 1000.0, 1e-6);     // full Ohm's-law current
-    EXPECT_NEAR(diode->voltageDrop, 0.0, 1e-6);         // ideal: no forward drop
+    EXPECT_NEAR(res->current, (5.0 - 0.7) / 1000.0, 1e-5);   // I = (Vsrc-Vf)/R
+    EXPECT_NEAR(diode->voltageDrop, 0.7, 0.05);                // прямое падение ≈ Vf
     EXPECT_GT(diode->current, 0.0);
 }
 
@@ -77,7 +77,7 @@ TEST(Diode, PeakDetectorHoldsCapacitorCharge) {
     for (int i = 0; i < 200; ++i)
         solver.stepTransient(c, state, 1e-3);
     double charged = state.capVoltage[capId];
-    EXPECT_GT(charged, 4.5); // charges fast through the ideal diode
+    EXPECT_GT(charged, 4.0); // заряжается через диод с Vf≈0.7В → плато ~4.3В
 
     Component* src = c.findComponent(srcId);
     ASSERT_NE(src, nullptr);
