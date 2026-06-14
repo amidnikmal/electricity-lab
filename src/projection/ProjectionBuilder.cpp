@@ -1235,9 +1235,12 @@ void emitSpring(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
     auto g = capacitorGeometry(a, b, ctx.p.wireThickness);
     if (!g.valid) return;
 
-    double vc = va - vb; // spring displacement is proportional to this
+    double vc = va - vb; // напряжение на конденсаторе
     double vRange = std::max(std::abs(ctx.vMax - ctx.vMin), 1e-9);
-    double c = std::clamp(std::abs(mechanics::springCompressionFromVoltage(vc)) / vRange, 0.0, 1.0);
+    // Сжатие ∝ заряду q = C·Vc; нормализуем на максимальный заряд данного конденсатора.
+    double charge = std::abs(mechanics::springCompressionFromVoltage(comp.value, vc));
+    double maxCharge = comp.value * vRange;
+    double c = maxCharge > 1e-12 ? std::clamp(charge / maxCharge, 0.0, 1.0) : 0.0;
 
     emitChain(ctx, a, g.leadAEnd, va, va, 0.0, comp.id);
     emitChain(ctx, g.leadBEnd, b, vb, vb, 0.0, comp.id);
@@ -1759,6 +1762,10 @@ void emitTank(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
 
 void emitTurbine(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
                  double va, double vb, double current) {
+    // Гидравлическая аналогия индуктора — турбина/массивная крыльчатка.
+    // В DC steady-state идеальный индуктор ≡ короткое замыкание (L di/dt=0,
+    // турбина вращается по инерции без сопротивления потоку).
+    // Вращение визуальное — по интегралу потока (spinPhase).
     auto g = inductorGeometry(a, b, ctx.p.wireThickness);
     if (!g.valid) return;
 

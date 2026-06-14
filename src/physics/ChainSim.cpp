@@ -14,6 +14,7 @@ namespace current_lab::physics {
 namespace {
 
 constexpr double kPi = 3.14159265358979323846;
+constexpr double kBrakeDamping = 5.0; // 1/с — коэффициент вязкого торможения (∝ скорости)
 
 // Oval racetrack around the segment a->b at distance `off`:
 // param t in [0, perimeter) -> point (counter-clockwise).
@@ -102,7 +103,7 @@ struct ChainSim::Impl {
         for (auto& loop : loops) {
             double speed = loop.spec.targetSpeed;
             if (loop.spec.brake)
-                speed *= 0.82; // friction brake resists but cannot lock the chain.
+                speed *= std::max(0.0, 1.0 - kBrakeDamping * dt); // вязкое торможение ∝ скорости
             loop.phase += speed * dt;
 
             double p = loop.oval.perimeter();

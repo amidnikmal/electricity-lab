@@ -42,9 +42,10 @@ inline double brakeHeatFromPower(ComponentType type, double power) {
     return physics::dissipatedPowerOnly(type, power);
 }
 
-// Spring displacement is proportional to Vc (charge q = C*Vc <-> compression).
-inline double springCompressionFromVoltage(double capVoltage) {
-    return capVoltage;
+// Сжатие пружины ∝ заряду q = C·Vc (не просто Vc).
+// Ёмкость C передаётся из comp.value при вызове emitSpring.
+inline double springCompressionFromVoltage(double capacitance, double capVoltage) {
+    return capacitance * capVoltage; // q = C·Vc
 }
 
 // Flywheel angular momentum is proportional to Il (flux linkage = L*Il).
