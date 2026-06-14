@@ -34,6 +34,13 @@ FetchContent_Declare(glm
 )
 FetchContent_MakeAvailable(glm)
 
+# nlohmann/json — корректная сборка/разбор JSON (header-only)
+FetchContent_Declare(nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG v3.11.3
+)
+FetchContent_MakeAvailable(nlohmann_json)
+
 # Box2D — particle microdynamics for the visual layer (Drude-style)
 FetchContent_Declare(box2d
     GIT_REPOSITORY https://github.com/erincatto/box2d.git
@@ -82,6 +89,7 @@ target_link_libraries(current-lab PRIVATE
     OpenGL::GL
     glfw
     box2d
+    nlohmann_json::nlohmann_json
 )
 
 # Platform-specific
@@ -159,7 +167,7 @@ set(TEST_SOURCES
 
 add_executable(current-lab-tests ${TEST_SOURCES})
 target_include_directories(current-lab-tests PRIVATE ${CMAKE_SOURCE_DIR}/src ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
-target_link_libraries(current-lab-tests PRIVATE GTest::gtest_main box2d)
+target_link_libraries(current-lab-tests PRIVATE GTest::gtest_main box2d nlohmann_json::nlohmann_json)
 if(WIN32)
     target_link_libraries(current-lab-tests PRIVATE ws2_32)  # tests compile net/HttpClient.cpp
 endif()
