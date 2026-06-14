@@ -73,7 +73,7 @@ struct Parser {
                             break;
                         }
                     }
-                    if (!replaced) text += command; // unknown command: literal
+                    if (!replaced) text += "\\" + command; // для нераспознанной команды сохраняем '\', чтобы опечатка в разметке была видна, а не маскировалась
                 }
             } else if (ch == '^' || ch == '_') {
                 flushText();
@@ -118,10 +118,13 @@ struct Parser {
                     return node;
                 }
             }
-            node.text = command;
+            node.text = "\\" + command; // для нераспознанной команды сохраняем '\', чтобы опечатка в разметке была видна, а не маскировалась
             return node;
         }
-        node.text = std::string(1, src[pos++]);
+        {
+            char single = src[pos++];
+            node.text = (single == '-') ? std::string("\xE2\x88\x92") : std::string(1, single); // замена '-'→− согласована с parseRow
+        }
         return node;
     }
 };
