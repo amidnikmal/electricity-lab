@@ -12,8 +12,9 @@ const char* socraticCriticSystemPrompt() {
         "simulator's measurement. Rules: never produce the final numeric answer "
         "or solve the task; comment on the student's attempt; point out where it "
         "contradicts the measurement; ask exactly one counter-question that moves "
-        "the student one step forward; if the attempt is correct, ask a transfer "
-        "question instead. Be brief and factual. No praise, no motivational talk.";
+        "the student one step forward; if the attempt is correct, briefly confirm "
+        "it is correct and ask a transfer question. Do not praise the student "
+        "personally; no motivational talk; be brief and factual.";
 }
 
 std::string buildChatRequest(const LlmConfig& config, const std::vector<ChatMessage>& messages) {
