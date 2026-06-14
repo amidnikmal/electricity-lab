@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <cmath>
 #include "circuit/Circuit.h"
 #include "physics/PhysicalUnits.h"
 #include "physics/ThermalModel.h"
@@ -105,4 +106,78 @@ TEST(ThermalModel, TimeAccumulatesAcrossSteps) {
 
 TEST(ThermalModel, CelsiusConvertsKelvinOffset) {
     EXPECT_NEAR(celsius(kAmbientTemperature), 20.0, 1e-12);
+}
+
+// Проверяем новую τ: после τ секунд температура должна достичь ≈63% установившегося значения
+TEST(ThermalModel, TimeConstantMatchesRC) {
+    constexpr double kPower = 2.0;
+    constexpr double kDt = 0.025; // τ/200 — высокая точность дискретизации
+    ThermalInput input = makePoweredResistorInput(kPower);
+    ThermalState state;
+
+    const double tau = kThermalResistance * kThermalCapacitance;
+    const double steadyDelta = kPower * kThermalResistance;
+    const int steps = static_cast<int>(tau / kDt);
+
+    for (int i = 0; i < steps; ++i)
+        stepThermal(state, input.circuit, input.solution, kDt);
+
+    double deltaT = temperatureFor(state, input.componentId) - kAmbientTemperature;
+    double fraction = deltaT / steadyDelta;
+
+    // После 1τ: 1 − 1/e ≈ 0.6321; допуск 0.02 на дискретизацию обратным Эйлером
+    EXPECT_NEAR(fraction, 1.0 - 1.0 / std::exp(1.0), 0.02);
+}
+
+// Переопределение R_th меняет установившуюся температуру: T_ss = T_amb + P * R_th
+TEST(ThermalModel, OverrideThermalResistanceChangesSteadyState) {
+    constexpr double kPower = 1.0;
+    constexpr double kDt = 0.1;
+    constexpr double kOverrideRth = 10.0; // вдвое больше глобального (5.0)
+
+    ThermalInput input = makePoweredResistorInput(kPower);
+    ThermalConfig config;
+    config.rThOverride[input.componentId] = kOverrideRth;
+
+    ThermalState state;
+    const double steadyOverride = kAmbientTemperature + kPower * kOverrideRth;
+
+    for (int i = 0; i < 100000; ++i)
+        stepThermal(state, input.circuit, input.solution, kDt, config);
+
+    EXPECT_NEAR(temperatureFor(state, input.componentId), steadyOverride, 1e-3);
+}
+
+// Переопределение C_th меняет скорость нагрева: меньшая C_th — быстрее, большая — медленнее
+TEST(ThermalModel, OverrideThermalCapacitanceChangesHeatingRate) {
+    constexpr double kPower = 1.0;
+    constexpr double kDt = 0.1;
+    constexpr int kSteps = 50; // 5 с модельного времени
+
+    ThermalInput input = makePoweredResistorInput(kPower);
+
+    // Глобальная C_th (1.0, τ = 5.0 с)
+    ThermalState stateDef;
+    for (int i = 0; i < kSteps; ++i)
+        stepThermal(stateDef, input.circuit, input.solution, kDt);
+    double Tdef = temperatureFor(stateDef, input.componentId);
+
+    // Меньшая C_th (0.2, τ = 1.0 с) — быстрее нагрев
+    ThermalState stateFast;
+    ThermalConfig cfgFast;
+    cfgFast.cThOverride[input.componentId] = 0.2;
+    for (int i = 0; i < kSteps; ++i)
+        stepThermal(stateFast, input.circuit, input.solution, kDt, cfgFast);
+    double Tfast = temperatureFor(stateFast, input.componentId);
+
+    // Большая C_th (4.0, τ = 20.0 с) — медленнее нагрев
+    ThermalState stateSlow;
+    ThermalConfig cfgSlow;
+    cfgSlow.cThOverride[input.componentId] = 4.0;
+    for (int i = 0; i < kSteps; ++i)
+        stepThermal(stateSlow, input.circuit, input.solution, kDt, cfgSlow);
+    double Tslow = temperatureFor(stateSlow, input.componentId);
+
+    EXPECT_GT(Tfast, Tdef);
+    EXPECT_GT(Tdef, Tslow);
 }
