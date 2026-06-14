@@ -14,7 +14,8 @@ static double conductanceFor(const Component& comp) {
 }
 
 CircuitSolution CircuitSolver::solveWithCompanions(
-    const Circuit& circuit, const std::unordered_map<int, Companion>& companions) {
+    const Circuit& circuit, const std::unordered_map<int, Companion>& companions,
+    double time) {
     CircuitSolution result;
 
     int N = static_cast<int>(circuit.nodes.size());
@@ -27,7 +28,7 @@ CircuitSolution CircuitSolver::solveWithCompanions(
 
     int numVsource = 0;
     for (const auto& c : circuit.components) {
-        if (c.type == ComponentType::VoltageSource) ++numVsource;
+        if (c.type == ComponentType::VoltageSource || c.type == ComponentType::AcVoltageSource) ++numVsource;
     }
 
     int groundId = circuit.groundNodeId;
@@ -67,11 +68,13 @@ CircuitSolution CircuitSolver::solveWithCompanions(
             stampConductance(ra, rb, conductanceFor(comp));
         } else if (comp.type == ComponentType::Switch) {
             stampConductance(ra, rb, comp.value >= 0.5 ? kWireConductance : kOpenConductance);
-        } else if (comp.type == ComponentType::VoltageSource) {
+        } else if (comp.type == ComponentType::VoltageSource || comp.type == ComponentType::AcVoltageSource) {
             int vsr = vsRowOffset + vsIdx;
             if (ra >= 0) { sys.A[ra][vsr] += 1.0; sys.A[vsr][ra] += 1.0; }
             if (rb >= 0) { sys.A[rb][vsr] -= 1.0; sys.A[vsr][rb] -= 1.0; }
-            sys.b[vsr] = comp.value;
+            sys.b[vsr] = (comp.type == ComponentType::AcVoltageSource)
+                             ? comp.value * std::sin(2.0 * M_PI * comp.frequency * time + comp.phase)
+                             : comp.value;
             ++vsIdx;
         } else if (comp.type == ComponentType::Capacitor ||
                    comp.type == ComponentType::Inductor ||
@@ -115,7 +118,7 @@ CircuitSolution CircuitSolver::solveWithCompanions(
         double dV = Va - Vb;
         double I = 0.0;
 
-        if (comp.type == ComponentType::VoltageSource) {
+        if (comp.type == ComponentType::VoltageSource || comp.type == ComponentType::AcVoltageSource) {
             int vsr = vsRowOffset + vsIdx;
             if (vsr < static_cast<int>(x.size())) I = x[vsr];
             ++vsIdx;
@@ -138,7 +141,8 @@ CircuitSolution CircuitSolver::solveWithCompanions(
 }
 
 CircuitSolution CircuitSolver::solveIterative(const Circuit& circuit,
-                                              std::unordered_map<int, Companion> companions) {
+                                              std::unordered_map<int, Companion> companions,
+                                              double time) {
     std::unordered_map<int, bool> conducting; // diode state guesses
     bool hasDiodes = false;
     for (const auto& comp : circuit.components) {
@@ -148,7 +152,7 @@ CircuitSolution CircuitSolver::solveIterative(const Circuit& circuit,
         }
     }
     if (!hasDiodes)
-        return solveWithCompanions(circuit, companions);
+        return solveWithCompanions(circuit, companions, time);
 
     CircuitSolution solution;
     for (int pass = 0; pass < 24; ++pass) {
@@ -156,7 +160,7 @@ CircuitSolution CircuitSolver::solveIterative(const Circuit& circuit,
             companions[id] = {on ? kWireConductance : kOpenConductance,
                                 on ? kWireConductance * kDiodeForwardDrop : 0.0};
 
-        solution = solveWithCompanions(circuit, companions);
+        solution = solveWithCompanions(circuit, companions, time);
 
         bool consistent = true;
         for (const auto& br : solution.branches) {
@@ -183,7 +187,7 @@ CircuitSolution CircuitSolver::solve(const Circuit& circuit) {
         else if (comp.type == ComponentType::Inductor)
             companions[comp.id] = {kWireConductance, 0.0}; // short circuit in DC
     }
-    return solveIterative(circuit, std::move(companions));
+    return solveIterative(circuit, std::move(companions), /*time=*/0.0);
 }
 
 CircuitSolution CircuitSolver::stepTransient(const Circuit& circuit, TransientState& state,
@@ -223,7 +227,7 @@ CircuitSolution CircuitSolver::stepTransient(const Circuit& circuit, TransientSt
         }
     }
 
-    CircuitSolution solution = solveIterative(circuit, std::move(companions));
+    CircuitSolution solution = solveIterative(circuit, std::move(companions), state.time);
 
     for (const auto& comp : circuit.components) {
         if (comp.type != ComponentType::Capacitor && comp.type != ComponentType::Inductor)
@@ -261,5 +265,5 @@ CircuitSolution CircuitSolver::solveTransientSnapshot(const Circuit& circuit,
             companions[comp.id] = {kOpenConductance, -il};
         }
     }
-    return solveIterative(circuit, std::move(companions));
+    return solveIterative(circuit, std::move(companions), state.time);
 }

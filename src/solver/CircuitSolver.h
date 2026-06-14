@@ -72,13 +72,15 @@ private:
     };
 
     CircuitSolution solveWithCompanions(const Circuit& circuit,
-                                        const std::unordered_map<int, Companion>& companions);
+                                        const std::unordered_map<int, Companion>& companions,
+                                        double time = 0.0);
 
     // Wraps solveWithCompanions with the ideal-diode state iteration: each
     // diode is either conducting (short) or blocking (open); states are
     // flipped until self-consistent (classic PWL fixed point, max 24 passes).
     CircuitSolution solveIterative(const Circuit& circuit,
-                                   std::unordered_map<int, Companion> companions);
+                                   std::unordered_map<int, Companion> companions,
+                                   double time = 0.0);
 };
 
 namespace current_lab::physics {
