@@ -88,8 +88,16 @@ inline std::vector<DriftParticleState> sampleDriftParticles(Vec2 a,
     if (config.electronFlowVisualization)
         visualSign = -visualSign;
 
-    double driftSpeed = (0.06 + absI * 0.25) * std::max(0.0, config.visualSpeedMultiplier);
+    // Дрейф пропорционален току: v_d = I/(nAe); при I=0 движения нет.
+    // physicalDriftScale ∝ плотности тока j = I/A, где A ∝ wireThickness².
+    // Визуальный множитель — отдельно от физики.
+    double physicalDriftScale = absI / (config.wireThickness * config.wireThickness);
+    double driftSpeed = physicalDriftScale * kDriftVisualScale
+                      * std::max(0.0, config.visualSpeedMultiplier);
     double phase = std::fmod(config.time * driftSpeed, 1.0);
+
+    // Тепловой «шум» — детерминированные периодические функции (синтетический,
+    // для воспроизводимости и производительности; не Brownian motion).
 
     double halfW = config.wireThickness * 0.5;
     double maxOff = std::max(0.0, halfW - particleWorldRadius(config.wireThickness) - 0.3);
