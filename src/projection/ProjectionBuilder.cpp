@@ -664,6 +664,92 @@ void emitMagneticField(BuildContext& ctx, Vec2 a, Vec2 b, double current) {
     }
 }
 
+// Smooth continuous potential distribution (FEM-style heatmap). The potential is
+// sampled along every conductor (so the field follows the wiring), interpolated
+// over a grid by inverse-distance weighting, and emitted as bilinear cells that
+// fade out away from the structure. One soft continuous field, not per-wire strips.
+void emitPotentialField(BuildContext& ctx) {
+    if (!ctx.hasPotentialRange() || ctx.circuit.nodes.empty()) return;
+
+    struct Src { Vec2 p; double v; };
+    std::vector<Src> src;
+    for (const auto& comp : ctx.circuit.components) {
+        if (comp.type == ComponentType::Ground) continue;
+        const Node* na = ctx.circuit.findNode(comp.nodeA);
+        const Node* nb = ctx.circuit.findNode(comp.nodeB);
+        if (!na || !nb) continue;
+        double va = potentialFor(ctx.solution, comp.nodeA);
+        double vb = potentialFor(ctx.solution, comp.nodeB);
+        double len = (nb->position - na->position).length();
+        int n = std::clamp(static_cast<int>(len / std::max(ctx.p.wireThickness * 3.0, 1.0)), 1, 12);
+        for (int i = 0; i <= n; ++i) {
+            double t = static_cast<double>(i) / n;
+            src.push_back({na->position + (nb->position - na->position) * t, va + (vb - va) * t});
+        }
+    }
+    if (src.empty())
+        for (const auto& node : ctx.circuit.nodes)
+            src.push_back({node.position, potentialFor(ctx.solution, node.id)});
+    if (src.empty()) return;
+
+    Vec2 mn = src[0].p, mx = src[0].p;
+    for (const auto& s : src) {
+        mn.x = std::min(mn.x, s.p.x); mn.y = std::min(mn.y, s.p.y);
+        mx.x = std::max(mx.x, s.p.x); mx.y = std::max(mx.y, s.p.y);
+    }
+    double falloff = std::max(ctx.p.wireThickness * 16.0, (mx - mn).length() * 0.13);
+    mn = mn - Vec2(falloff, falloff);
+    mx = mx + Vec2(falloff, falloff);
+    mn.x = std::max(mn.x, ctx.p.viewMin.x); mn.y = std::max(mn.y, ctx.p.viewMin.y);
+    mx.x = std::min(mx.x, ctx.p.viewMax.x); mx.y = std::min(mx.y, ctx.p.viewMax.y);
+    double w = mx.x - mn.x, h = mx.y - mn.y;
+    if (w <= 1.0 || h <= 1.0) return;
+
+    double cellW = std::max(ctx.p.wireThickness * 2.5, w / 48.0);
+    int nx = std::clamp(static_cast<int>(w / cellW), 2, 48);
+    int ny = std::clamp(static_cast<int>(h / cellW), 2, 48);
+    double cw = w / nx, ch = h / ny;
+
+    int stride = nx + 1;
+    std::vector<uint32_t> col(static_cast<size_t>(stride) * (ny + 1));
+    std::vector<float> fad(static_cast<size_t>(stride) * (ny + 1));
+    for (int j = 0; j <= ny; ++j)
+        for (int i = 0; i <= nx; ++i) {
+            Vec2 p(mn.x + i * cw, mn.y + j * ch);
+            double sw = 0.0, sv = 0.0, dmin = 1e30;
+            for (const auto& s : src) {
+                double dx = p.x - s.p.x, dy = p.y - s.p.y;
+                double d2 = dx * dx + dy * dy;
+                dmin = std::min(dmin, d2);
+                double wgt = 1.0 / (d2 + 1.0);
+                sw += wgt; sv += wgt * s.v;
+            }
+            int idx = j * stride + i;
+            col[idx] = potentialColor(sw > 0 ? sv / sw : 0.0, ctx.vMin, ctx.vMax);
+            fad[idx] = static_cast<float>(std::clamp(1.0 - std::sqrt(dmin) / falloff, 0.0, 1.0));
+        }
+
+    const double kMaxAlpha = 80.0; // soft, continuous
+    auto vcol = [&](int i, int j) {
+        int idx = j * stride + i;
+        return withAlpha(col[idx], static_cast<unsigned>(std::lround(kMaxAlpha * fad[idx])));
+    };
+    for (int j = 0; j < ny; ++j)
+        for (int i = 0; i < nx; ++i) {
+            if (fad[j * stride + i] < 0.02f && fad[j * stride + i + 1] < 0.02f &&
+                fad[(j + 1) * stride + i] < 0.02f && fad[(j + 1) * stride + i + 1] < 0.02f)
+                continue;
+            render::PrimFieldCell cell;
+            cell.min = Vec2(mn.x + i * cw, mn.y + j * ch);
+            cell.max = Vec2(mn.x + (i + 1) * cw, mn.y + (j + 1) * ch);
+            cell.cMinXMinY = vcol(i, j);
+            cell.cMaxXMinY = vcol(i + 1, j);
+            cell.cMaxXMaxY = vcol(i + 1, j + 1);
+            cell.cMinXMaxY = vcol(i, j + 1);
+            ctx.out.fieldCells.push_back(cell);
+        }
+}
+
 void emitFieldBackdrop(BuildContext& ctx) {
     if (!ctx.hasPotentialRange()) return;
 
@@ -678,37 +764,22 @@ void emitFieldBackdrop(BuildContext& ctx) {
             sources.push_back({node.position, q});
     }
 
-    // Soft potential aura along conductors.
-    if (ctx.p.layers.potential) {
-        for (const auto& comp : ctx.circuit.components) {
-            if (comp.type == ComponentType::Ground) continue;
-            const Node* nodeA = ctx.circuit.findNode(comp.nodeA);
-            const Node* nodeB = ctx.circuit.findNode(comp.nodeB);
-            if (!nodeA || !nodeB) continue;
-            double len = (nodeB->position - nodeA->position).length();
-            if (len < 1.0) continue;
+    // Smooth, continuous potential distribution (FEM-style heatmap): a grid mesh
+    // over the circuit area whose vertex colours come from the potential
+    // interpolated off the conductors. Bilinear cell colouring makes it smooth.
+    if (ctx.p.layers.potential)
+        emitPotentialField(ctx);
 
-            double va = potentialFor(ctx.solution, comp.nodeA);
-            double vb = potentialFor(ctx.solution, comp.nodeB);
-            render::PrimGradient wide;
-            wide.a = nodeA->position; wide.b = nodeB->position;
-            wide.vA = va; wide.vB = vb;
-            wide.vMin = ctx.vMin; wide.vMax = ctx.vMax;
-            wide.width = ctx.p.wireThickness * 6.0;
-            wide.alpha = 18;
-            ctx.out.gradients.push_back(wide);
-            wide.width = ctx.p.wireThickness * 3.0;
-            wide.alpha = 28;
-            ctx.out.gradients.push_back(wide);
+    // Warm/cool source blobs belong to the E-FIELD view; the potential view now
+    // shows the smooth field above, so keep them out of a potential-only picture.
+    if (ctx.p.layers.electricField) {
+        for (const auto& source : sources) {
+            double intensity = std::min(1.0, std::abs(source.strength));
+            double radiusPx = std::clamp((52.0 + 48.0 * intensity) * ctx.p.cameraScale, 18.0, 220.0);
+            double radius = radiusPx / ctx.safeScale();
+            ctx.out.glows.push_back({source.position, radius, intensity,
+                                     fieldGlowColor(source.strength, 16)});
         }
-    }
-
-    for (const auto& source : sources) {
-        double intensity = std::min(1.0, std::abs(source.strength));
-        double radiusPx = std::clamp((52.0 + 48.0 * intensity) * ctx.p.cameraScale, 18.0, 220.0);
-        double radius = radiusPx / ctx.safeScale();
-        ctx.out.glows.push_back({source.position, radius, intensity,
-                                 fieldGlowColor(source.strength, 16)});
     }
 
     if (!ctx.p.layers.electricField || sources.empty()) return;

@@ -87,12 +87,21 @@ struct PrimQuad {
     double outlineThickness = 1.5; // screen px when not filled
 };
 
+// One cell of a smooth scalar-field heatmap (e.g. the potential distribution).
+// World-axis-aligned; the four corner colours are bilinearly interpolated across
+// the cell, so a coarse grid still reads as a continuous field.
+struct PrimFieldCell {
+    Vec2 min, max; // world AABB
+    uint32_t cMinXMinY = 0, cMaxXMinY = 0, cMaxXMaxY = 0, cMinXMaxY = 0;
+};
+
 struct PotentialLegend {
     bool show = false;
     double vMin = 0.0, vMax = 0.0;
 };
 
 struct RenderPrimitives {
+    std::vector<PrimFieldCell> fieldCells; // backmost: scalar-field heatmap
     std::vector<PrimLine> lines;
     std::vector<PrimPolyline> polylines;
     std::vector<PrimArrow> arrows;
@@ -105,14 +114,16 @@ struct RenderPrimitives {
     PotentialLegend legend;
 
     void clear() {
+        fieldCells.clear();
         lines.clear(); polylines.clear(); arrows.clear(); gradients.clear();
         glows.clear(); particles.clear(); labels.clear(); circles.clear(); quads.clear();
         legend = PotentialLegend{};
     }
 
     size_t totalCount() const {
-        return lines.size() + polylines.size() + arrows.size() + gradients.size() +
-               glows.size() + particles.size() + labels.size() + circles.size() + quads.size();
+        return fieldCells.size() + lines.size() + polylines.size() + arrows.size() +
+               gradients.size() + glows.size() + particles.size() + labels.size() +
+               circles.size() + quads.size();
     }
 };
 
