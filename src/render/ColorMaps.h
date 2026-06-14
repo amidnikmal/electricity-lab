@@ -55,18 +55,27 @@ inline constexpr uint32_t kViridisLut[kViridisLutSize] = {
 };
 
 // Magma LUT: перцептивно-равномерная sequential-палитра (BIDS/matplotlib).
-// 8 опорных точек: чёрно-фиолетовый → красный → оранжевый → светло-жёлтый.
+// 17 опорных точек: чёрно-фиолетовый → красный → оранжевый → светло-жёлтый.
 // Монотонная светлота, colourblind-safe. Используется для currentColor.
-inline constexpr int kMagmaLutSize = 8;
+inline constexpr int kMagmaLutSize = 17;
 inline constexpr uint32_t kMagmaLut[kMagmaLutSize] = {
-    packColor(0,   0,   4,   255), // t=0.0000 black
-    packColor(28,  14,  66,  255), // t=0.1429
-    packColor(78,  28,  96,  255), // t=0.2857
-    packColor(140, 46,  98,  255), // t=0.4286
-    packColor(198, 72,  78,  255), // t=0.5714
-    packColor(236, 112, 53,  255), // t=0.7143
-    packColor(251, 168, 43,  255), // t=0.8571
-    packColor(252, 253, 191, 255), // t=1.0000 pale yellow
+    packColor(0,   0,   4,   255), // t=0.0000
+    packColor(22,  8,   52,  255), // t=0.0625
+    packColor(50,  15,  80,  255), // t=0.1250
+    packColor(81,  25,  97,  255), // t=0.1875
+    packColor(114, 37,  103, 255), // t=0.2500
+    packColor(145, 50,  97,  255), // t=0.3125
+    packColor(172, 63,  87,  255), // t=0.3750
+    packColor(197, 76,  78,  255), // t=0.4375
+    packColor(219, 89,  70,  255), // t=0.5000
+    packColor(237, 101, 61,  255), // t=0.5625
+    packColor(250, 115, 51,  255), // t=0.6250
+    packColor(254, 132, 39,  255), // t=0.6875
+    packColor(252, 150, 31,  255), // t=0.7500
+    packColor(248, 168, 28,  255), // t=0.8125
+    packColor(245, 184, 30,  255), // t=0.8750
+    packColor(240, 201, 37,  255), // t=0.9375
+    packColor(254, 253, 191, 255), // t=1.0000
 };
 
 inline uint32_t potentialColor(double v, double vMin, double vMax) {
