@@ -52,11 +52,19 @@
 - `MathText.MinusInUnbracedScriptBecomesProperMinus` — баг №7.
 - `MathText.UnknownCommandKeepsBackslash` — баг №9.
 
-## Волна 3 — мёртвый код + README (план)
+## Волна 3 — мёртвый код + README (ЗАВЕРШЕНА ✅)
 
-- Удалить `renderToolbar`/`renderLog`/`m_logHeight`, `globalRange`, `cornerStep`,
-  `std::max(wt*0.55, wt*1.1)` в `resistorBodyHalfWidth`.
-- README: убрать неактуальное «No transient, capacitance or inductance» (уже реализовано).
+Сборка чистая (µF-warning устранён), 494 теста проходят.
+
+- `refactor` (`86d8281`): удалены `MainWindow::renderToolbar/renderLog` + поле `m_logHeight`
+  (нигде не вызывались); `resistorBodyHalfWidth` упрощён до `wt*1.1` (std::max был тождествен);
+  починен µF: `tr("\xC2\xB5" "F")` — раньше `\xB5F` парсился как один hex-escape, символ µ ломался.
+- `docs(readme)` (предыдущий коммит): убрано неверное «No transient, capacitance or inductance»
+  (транзиент RC/RL реализован); уточнено — нет AC-источника, диод идеальный PWL.
+- `globalRange` (§3 мёртвый код) уже удалён в волне 2 вместе с фиксом бага №1.
+- Прочий мёртвый код из §3 (половина `DualViewState.h`, `PrimLabel::debugOnly`, `cornerStep`)
+  — НЕ трогали в этой волне (требует более глубокого анализа реальной используемости; кандидаты
+  на отдельную волну).
 
 ## Волна 4 — замена велосипедов (требует решения пользователя)
 
