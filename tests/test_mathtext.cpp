@@ -63,3 +63,36 @@ TEST(MathText, UnbalancedBracesDoNotCrash) {
     EXPECT_EQ(b.kind, MathNode::Kind::Row);
     EXPECT_EQ(c.kind, MathNode::Kind::Row);
 }
+
+namespace {
+
+std::string collectText(const MathNode& node) {
+    std::string text = node.text;
+    for (const auto& child : node.children)
+        text += collectText(child);
+    return text;
+}
+
+} // namespace
+
+TEST(MathText, MinusInUnbracedScriptBecomesProperMinus) {
+    auto tree = parseMath("x^-1");
+    const MathNode* sup = nullptr;
+    for (const auto& child : tree.children) {
+        if (child.kind == MathNode::Kind::Sup) {
+            sup = &child;
+            break;
+        }
+    }
+
+    ASSERT_NE(sup, nullptr);
+    std::string text = collectText(*sup);
+    EXPECT_NE(text.find("\xE2\x88\x92"), std::string::npos);
+    EXPECT_EQ(text.find('-'), std::string::npos);
+}
+
+TEST(MathText, UnknownCommandKeepsBackslash) {
+    auto tree = parseMath("\\alpha");
+    std::string text = collectText(tree);
+    EXPECT_NE(text.find("\\alpha"), std::string::npos);
+}
