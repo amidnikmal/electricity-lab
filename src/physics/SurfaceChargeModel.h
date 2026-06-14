@@ -41,6 +41,17 @@ inline std::vector<SurfaceChargeSample> sampleSurfaceCharges(Vec2 a,
     double vAvg = (vA + vB) * 0.5;
     double vSwing = std::max(std::abs(dV), 1e-9);
 
+    // Физика поверхностного заряда (Jackson AJP 1996, теорема Гаусса):
+    // σ_phys ∝ ε₀·E_normal ∝ ΔV/L. Короткий провод с тем же ΔV
+    // имеет бо́льший градиент → более плотный/сильный заряд,
+    // длинный — слабее. Масштабируем отображаемую силу относительно
+    // опорного градиента сцены: gradScale = (|dV|/L) / (vRange/L_ref).
+    double lenSafe = std::max(len, 1e-9);
+    double gradientMag = std::abs(dV) / lenSafe;
+    double vRange = std::max(vMax - vMin, 1e-9);
+    double refGradient = vRange / 100.0;  // эвристическая опорная длина ~100 px
+    double gradScale = std::clamp(gradientMag / std::max(refGradient, 1e-12), 0.0, 5.0);
+
     double edgeOffset = config.wireThickness * 0.5 * 0.92;
     // Cap 64 (было 200): эти точки заряда декоративны, дробить мельче глаз не
     // видит, а при зуме len*cameraScale плодило до 200 сэмплов × 2 кружка на
@@ -54,9 +65,11 @@ inline std::vector<SurfaceChargeSample> sampleSurfaceCharges(Vec2 a,
         double absSigma = std::abs(sigma);
         if (absSigma < 0.05) continue;
 
-        // Усиление по 2-й производной убрано: при линейном потенциале
-        // лапласиан тождественно 0, блок не давал эффекта.
-        double totalStrength = std::min(1.0, absSigma * 1.2);
+        // Усиление по 2-й производной (junction/bend booster) убрано:
+        // при линейном потенциале лапласиан ≡ 0, блок не давал эффекта.
+        // Физика стыков/изгибов — накопление заряда на поворотах
+        // (Jackson роль 3: «confined flow») — пока не моделируется.
+        double totalStrength = std::min(1.0, absSigma * 1.2 * gradScale);
         Vec2 center = a + unit * (len * t);
 
         samples.push_back(SurfaceChargeSample{
