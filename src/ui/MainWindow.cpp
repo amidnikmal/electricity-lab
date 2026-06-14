@@ -353,6 +353,8 @@ void MainWindow::updateParticleSim(float realDt) {
         spec.brake = comp.type == ComponentType::Resistor;
         spec.driveSprocket = comp.type == ComponentType::VoltageSource;
         chainSpecs.push_back(spec);
+        // Mirror the sim's loop.phase: honest chain travel for the wheels.
+        m_chainTravel[comp.id] += spec.targetSpeed * dt;
     }
     if (chainSpecs.empty()) {
         m_chainLinks.clear();
@@ -632,6 +634,7 @@ void MainWindow::configureCanvasForMechanicsView(CircuitCanvas& canvas) {
     configureCanvasForPhysicsView(canvas);
     canvas.setSimParticles(nullptr); // mechanics uses the chain, not electrons
     canvas.setChainLinks(&m_chainLinks);
+    canvas.setChainTravel(&m_chainTravel);
     canvas.setProjection(current_lab::projection::ProjectionKind::Mechanical);
 }
 

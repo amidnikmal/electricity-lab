@@ -65,6 +65,9 @@ public:
     void setFlowIntegrals(const current_lab::projection::FlowIntegrals* integrals) {
         m_flowIntegrals = integrals;
     }
+    void setChainTravel(const std::unordered_map<int, double>* travel) {
+        m_chainTravel = travel;
+    }
 
     void setWireThickness(float v) { m_wireThickness = std::max(2.0f, std::min(50.0f, v)); }
     float wireThickness() const { return m_wireThickness; }
@@ -124,6 +127,7 @@ private:
     const std::vector<current_lab::physics::PaddleState>* m_paddleStates = nullptr;
     const std::vector<current_lab::physics::ChainLink>* m_chainLinks = nullptr;
     const current_lab::projection::FlowIntegrals* m_flowIntegrals = nullptr;
+    const std::unordered_map<int, double>* m_chainTravel = nullptr;
     bool m_animationPaused = false;
     float m_animationSpeed = 1.0f;
     double m_animationTime = 0.0;

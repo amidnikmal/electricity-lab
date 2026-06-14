@@ -68,6 +68,10 @@ private:
     current_lab::physics::ChainSim m_chainSim;
     std::vector<current_lab::physics::ChainLink> m_chainLinks;
     current_lab::projection::FlowIntegrals m_flowIntegrals;
+    // Honest chain travel per component (∫ targetSpeed dt) — the same quantity
+    // that moves the sim rollers, so the drive sprocket/junction gears spin
+    // WITH the chain instead of crawling on the ∫I dt phase. See ProjectionBuilder.
+    std::unordered_map<int, double> m_chainTravel;
     std::vector<current_lab::physics::SimParticle> m_electronParticles;
     std::vector<current_lab::physics::SimParticle> m_waterParticles;
     std::vector<current_lab::physics::PaddleState> m_waterPaddles;

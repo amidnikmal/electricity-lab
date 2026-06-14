@@ -870,8 +870,12 @@ std::vector<Vec2> sampleClockwiseArc(Vec2 center, double radius,
     return pts;
 }
 
+// toothPhase rotates the teeth (meshed to the chain rollers); bodyPhase rotates
+// the rigid wheel decoration (hub lightening holes). They share an average rate
+// but bodyPhase is smooth while toothPhase snaps to the gaps — drawing the holes
+// off the smooth phase stops them jittering on the sub-tooth mesh correction.
 void emitSprocket(BuildContext& ctx, Vec2 center, double pitchR,
-                  double phase, bool drive) {
+                  double toothPhase, double bodyPhase, bool drive) {
     namespace cg = physics::chain_geometry;
     const double rollerR = cg::linkRadius(ctx.p.wireThickness);
     const double tipR = cg::sprocketTipRadius(pitchR, rollerR);
@@ -890,7 +894,7 @@ void emitSprocket(BuildContext& ctx, Vec2 center, double pitchR,
 
     const double toothPitch = 2.0 * kPi / teeth;
     for (int tooth = 0; tooth < teeth; ++tooth) {
-        double mid = phase + tooth * toothPitch;
+        double mid = toothPhase + tooth * toothPitch;
         double rootHalf = toothPitch * 0.30;
         double tipHalf = toothPitch * 0.16;
         auto at = [&](double angle, double r) {
@@ -905,7 +909,7 @@ void emitSprocket(BuildContext& ctx, Vec2 center, double pitchR,
     ctx.out.circles.push_back({center, rootR * 0.30, edgeCol, 1.2, false, false});
     if (rootR > 6.0) {
         for (int h = 0; h < 4; ++h) {
-            double angle = phase + (h + 0.5) * (kPi / 2.0);
+            double angle = bodyPhase + (h + 0.5) * (kPi / 2.0);
             Vec2 pos = center + Vec2(std::cos(angle), std::sin(angle)) * (rootR * 0.62);
             ctx.out.circles.push_back({pos, rootR * 0.14, packColor(36, 40, 48, 220), 0.0, true, false});
         }
@@ -1083,34 +1087,45 @@ void emitBrake(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
                               packColor(200, 200, 200), false});
 }
 
-// When the real chain is simulated, the drive sprocket must MESH with it: its
-// teeth have to sit in the gaps between the chain rollers riding the wheel, so
-// the wheel visibly pushes the chain (no slip) instead of spinning on its own
-// integrator while the chain flies past (the sim chain runs ~100x faster than
-// the ∫I·dt wheel phase). We measure where the engaged rollers are and return
-// the tooth phase modulo the tooth pitch; false when no rollers are on the
-// wheel yet (sim cold) so the caller keeps the travel-based phase.
-bool sourceSprocketMeshPhase(BuildContext& ctx, int compId, Vec2 center,
-                             double pitchR, double rollerR, int teeth,
-                             double* meshMod) {
+// A meshing sprocket must drop its teeth into the gaps BETWEEN the chain rollers
+// riding it, so the wheel visibly pushes the chain (no slip). We measure where
+// the engaged rollers sit on the pitch circle and return the tooth phase modulo
+// the tooth pitch. compId < 0 means "any chain" (junction gears mesh every
+// branch meeting at the node). A smooth radial weight fades rollers in/out at
+// the arc ends instead of popping them at a hard gate, so the measured phase is
+// jitter-free. false when no rollers ride the wheel yet (sim cold).
+bool wheelMeshPhase(BuildContext& ctx, Vec2 center, double pitchR, double rollerR,
+                    int teeth, int compId, double* meshMod) {
     if (!ctx.p.chainLinks || teeth <= 0) return false;
-    double sx = 0.0, sy = 0.0;
-    int n = 0;
+    const double band = rollerR * 2.0;
+    double sx = 0.0, sy = 0.0, wsum = 0.0;
     for (const auto& link : *ctx.p.chainLinks) {
-        if (link.componentId != compId) continue;
+        if (compId >= 0 && link.componentId != compId) continue;
         Vec2 rel = link.pos - center;
-        double r = rel.length();
-        if (std::abs(r - pitchR) > rollerR * 2.5) continue; // only rollers hugging the wheel
+        double dr = std::abs(rel.length() - pitchR);
+        if (dr >= band) continue;
+        double w = 1.0 - dr / band; // 1 on the pitch circle, smoothly -> 0 at the band edge
         double ang = std::atan2(rel.y, rel.x);
-        // Circular mean at the tooth frequency: collapses every engaged roller
+        // Weighted circular mean at the tooth frequency: collapses every roller
         // onto one representative angle modulo the tooth pitch.
-        sx += std::cos(teeth * ang);
-        sy += std::sin(teeth * ang);
-        ++n;
+        sx += w * std::cos(teeth * ang);
+        sy += w * std::sin(teeth * ang);
+        wsum += w;
     }
-    if (n < 2) return false;
+    if (wsum < 0.25) return false;
     double rollerPhase = std::atan2(sy, sx) / teeth; // roller angle mod tooth pitch
-    *meshMod = rollerPhase + kPi / teeth;            // teeth land half a pitch on, in the gaps
+    *meshMod = rollerPhase + kPi / teeth;            // teeth half a pitch on, in the gaps
+    return true;
+}
+
+// Honest chain travel (∫ targetSpeed dt) for a component, when plumbed from the
+// sim. This advances at the real chain speed, so a wheel spun from it turns WITH
+// the chain (no slip) — unlike the ~100x slower ∫I dt phase.
+bool honestChainTravel(BuildContext& ctx, int compId, double* travel) {
+    if (!ctx.p.chainTravel) return false;
+    auto it = ctx.p.chainTravel->find(compId);
+    if (it == ctx.p.chainTravel->end()) return false;
+    *travel = it->second;
     return true;
 }
 
@@ -1121,28 +1136,34 @@ void emitCrank(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
     const double rollerR = cg::linkRadius(ctx.p.wireThickness);
     const double pitchR = cg::driveSprocketPitchRadius(chainHalfWidth(ctx), rollerR);
     const int teeth = cg::sprocketTeeth(pitchR, cg::linkPitch(rollerR));
+    const double toothPitch = 2.0 * kPi / teeth;
 
-    double chainTravel = ctx.p.flowIntegrals
-        ? componentIntegral(ctx.p.flowIntegrals, comp.id) * kVisualChainSpeed
-        : ctx.p.time * mechanics::chainSpeedFromCurrent(current) * kVisualChainSpeed;
-    double angle0 = cg::sourceDriveSprocketPhaseFromChainTravel(chainTravel, pitchR);
+    // The wheel BODY spins at the honest chain speed (no slip), continuously —
+    // this is what the hub holes/knob rotate by, smoothly. Fallback to the ∫I dt
+    // phase only when the sim travel is not plumbed (unit tests).
+    double travel = 0.0;
+    double chainTravel = honestChainTravel(ctx, comp.id, &travel)
+        ? travel
+        : (ctx.p.flowIntegrals
+               ? componentIntegral(ctx.p.flowIntegrals, comp.id) * kVisualChainSpeed
+               : ctx.p.time * mechanics::chainSpeedFromCurrent(current) * kVisualChainSpeed);
+    double bodyPhase = cg::sourceDriveSprocketPhaseFromChainTravel(chainTravel, pitchR);
 
-    // Lock the wheel to the actual chain rollers so the teeth mesh and push the
-    // chain. The travel phase stays the continuous "winding" (smooth hub/holes/
-    // knob, correct direction); the measured mesh snaps it onto the gaps. Both
-    // move continuously, so the snapped angle is continuous AND meshed.
+    // The TEETH snap onto the measured roller gaps so they mesh and push the
+    // chain; the continuous bodyPhase supplies the winding, so the snapped tooth
+    // phase is continuous AND meshed (bodyPhase and the rollers move together).
+    double toothPhase = bodyPhase;
     double meshMod = 0.0;
-    if (sourceSprocketMeshPhase(ctx, comp.id, mid, pitchR, rollerR, teeth, &meshMod)) {
-        double toothPitch = 2.0 * kPi / teeth;
-        double k = std::round((angle0 - meshMod) / toothPitch);
-        angle0 = meshMod + k * toothPitch;
+    if (wheelMeshPhase(ctx, mid, pitchR, rollerR, teeth, comp.id, &meshMod)) {
+        double k = std::round((bodyPhase - meshMod) / toothPitch);
+        toothPhase = meshMod + k * toothPitch;
     }
-    emitSprocket(ctx, mid, pitchR, angle0, true);
+    emitSprocket(ctx, mid, pitchR, toothPhase, bodyPhase, true);
 
     emitChain(ctx, a, b, va, vb, current, comp.id, true);
 
-    // Grab knob on the rim: the handle you can drag (dynamo).
-    Vec2 knobDir(std::cos(angle0), std::sin(angle0));
+    // Grab knob on the rim: the handle you can drag (dynamo). Rides the body.
+    Vec2 knobDir(std::cos(bodyPhase), std::sin(bodyPhase));
     ctx.out.circles.push_back({mid + knobDir * (pitchR * 0.92), rollerR * 1.35,
                                packColor(255, 220, 130, 245), 0.0, true, true});
 
@@ -1290,16 +1311,46 @@ void emitGears(BuildContext& ctx) {
         ctx.out.circles.push_back({node.position, rootR, bodyFill, 0.0, true, false});
         ctx.out.circles.push_back({node.position, rootR, edgeCol, 1.6, false, false});
 
-        // Teeth: trapezoids root->tip, narrower at the tip (sprocket profile);
-        // phase follows the INTEGRated chain travel over the pitch radius, so
-        // tooth surface speed equals chain speed (no slip).
-        double phase = ctx.p.flowIntegrals
-            ? nodeIntegral(ctx.p.flowIntegrals, node.id) * kVisualChainSpeed / pitchR
-            : ctx.p.time * mechanics::chainSpeedFromCurrent(meanCurrent) *
-                  kVisualChainSpeed / pitchR;
+        // Wheel BODY spins at the honest chain speed of the branches meeting
+        // here (no slip), continuously — the hub holes ride this. The chain
+        // wraps the node clockwise for forward travel, hence the minus sign.
+        // Fallback to the ∫I dt node phase only when travel is not plumbed.
         const double toothPitch = 2.0 * kPi / teeth;
+        double bestTravel = 0.0, bestAbs = -1.0;
+        int bestComp = -1; // dominant branch through this node
+        bool haveTravel = false;
+        if (ctx.p.chainTravel) {
+            for (const auto& comp : ctx.circuit.components) {
+                if (comp.type == ComponentType::Ground) continue;
+                if (comp.nodeA != node.id && comp.nodeB != node.id) continue;
+                auto it = ctx.p.chainTravel->find(comp.id);
+                if (it == ctx.p.chainTravel->end()) continue;
+                if (std::abs(it->second) > bestAbs) {
+                    bestAbs = std::abs(it->second);
+                    bestTravel = it->second;
+                    bestComp = comp.id;
+                    haveTravel = true;
+                }
+            }
+        }
+        double bodyPhase = haveTravel
+            ? -bestTravel / pitchR
+            : (ctx.p.flowIntegrals
+                   ? nodeIntegral(ctx.p.flowIntegrals, node.id) * kVisualChainSpeed / pitchR
+                   : ctx.p.time * mechanics::chainSpeedFromCurrent(meanCurrent) *
+                         kVisualChainSpeed / pitchR);
+
+        // Teeth: snapped onto the gaps between the rollers of the DOMINANT branch
+        // through this node (independent per-branch sims can't all co-phase; mesh
+        // the strongest cleanly), so the gear visibly meshes with the chain.
+        double toothPhase = bodyPhase;
+        double meshMod = 0.0;
+        if (wheelMeshPhase(ctx, node.position, pitchR, rollerR, teeth, bestComp, &meshMod)) {
+            double k = std::round((bodyPhase - meshMod) / toothPitch);
+            toothPhase = meshMod + k * toothPitch;
+        }
         for (int tooth = 0; tooth < teeth; ++tooth) {
-            double mid = phase + tooth * toothPitch;
+            double mid = toothPhase + tooth * toothPitch;
             double rootHalf = toothPitch * 0.30; // angular half-widths
             double tipHalf = toothPitch * 0.16;
             auto at = [&](double angle, double r) {
@@ -1316,7 +1367,7 @@ void emitGears(BuildContext& ctx) {
         ctx.out.circles.push_back({node.position, rootR * 0.30, edgeCol, 1.2, false, false});
         if (rootR > 6.0) {
             for (int h = 0; h < 4; ++h) {
-                double angle = phase + (h + 0.5) * (kPi / 2.0);
+                double angle = bodyPhase + (h + 0.5) * (kPi / 2.0);
                 Vec2 pos = node.position + Vec2(std::cos(angle), std::sin(angle)) * (rootR * 0.62);
                 ctx.out.circles.push_back({pos, rootR * 0.14, packColor(36, 40, 48, 220), 0.0, true, false});
             }

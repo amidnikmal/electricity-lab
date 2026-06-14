@@ -7,6 +7,7 @@
 #include "solver/CircuitSolver.h"
 #include "render/RenderPrimitives.h"
 #include "visualization/VisualizationPresets.h"
+#include <unordered_map>
 #include <vector>
 
 // Projection layer: turns (CircuitModel + CircuitSolution) into RenderPrimitives.
@@ -43,6 +44,11 @@ struct ViewParams {
     const std::vector<physics::ChainLink>* chainLinks = nullptr;
     // Continuous rotation phases: theta = k * ∫I dt (no teleporting wheels).
     const FlowIntegrals* flowIntegrals = nullptr;
+    // Honest chain travel per component (∫ targetSpeed dt = the SAME quantity
+    // that moves the sim rollers, ~100x faster than ∫I dt). Drive sprockets and
+    // junction gears spin at this rate so the wheel body turns WITH the chain
+    // (no slip) instead of crawling on the ∫I dt phase while the chain flies by.
+    const std::unordered_map<int, double>* chainTravel = nullptr;
 };
 
 // Solved values attributed to a model element inside one projection build.

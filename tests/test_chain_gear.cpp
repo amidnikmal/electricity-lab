@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <unordered_map>
 #include "circuit/Circuit.h"
 #include "physics/ChainGeometry.h"
 #include "physics/ChainSim.h"
@@ -487,4 +488,58 @@ TEST(MechanicsChain, DriveSprocketTeethMeshIntoChainRollerGaps) {
                 << "pass " << pass << ": roller at " << r
                 << " rad sits ON a tooth, not in a gap (no mesh)";
     }
+}
+
+TEST(MechanicsChain, DriveSprocketHolesSpinAtHonestChainSpeed) {
+    // The flywheel lightening holes must rotate at the REAL chain speed (the
+    // ∫ targetSpeed dt travel plumbed from the sim), no-slip dθ = -Δtravel/R —
+    // not the ~100x slower ∫I dt phase that left them crawling/jittering while
+    // the chain flew past. (User: окошки маховика дёргались, не вращались честно.)
+    Circuit c;
+    int n1 = c.addNode(Vec2(0, 0));
+    int n2 = c.addNode(Vec2(260, 0));
+    int sourceId = c.addComponent(ComponentType::VoltageSource, n1, n2, 5.0);
+
+    ViewParams p;
+    double rollerR = cg::linkRadius(p.wireThickness);
+    double pitchR = cg::driveSprocketPitchRadius(cg::chainHalfWidth(p.wireThickness), rollerR);
+    double rootR = cg::sprocketRootRadius(pitchR, rollerR);
+    double holeR = rootR * 0.14;
+    double holeOrbit = rootR * 0.62;
+    Vec2 center(130, 0);
+    ASSERT_GT(rootR, 6.0); // holes are only drawn on a big enough wheel
+
+    // 4-fold symmetric hole ring -> rotation read modulo pi/2 (circular mean).
+    auto holePhase4 = [&](const ProjectionResult& res) {
+        double sx = 0.0, sy = 0.0;
+        int n = 0;
+        for (const auto& circ : res.prims.circles) {
+            if (!circ.filled || std::abs(circ.radius - holeR) > 1e-9) continue;
+            Vec2 rel = circ.center - center;
+            if (std::abs(rel.length() - holeOrbit) > 1e-6) continue;
+            double a = std::atan2(rel.y, rel.x);
+            sx += std::cos(4.0 * a);
+            sy += std::sin(4.0 * a);
+            ++n;
+        }
+        EXPECT_EQ(n, 4);
+        return std::atan2(sy, sx) / 4.0;
+    };
+
+    double dTravel = 6.0; // the chain advances 6 world units between the frames
+    std::unordered_map<int, double> travel0{{sourceId, 0.0}};
+    std::unordered_map<int, double> travel1{{sourceId, dTravel}};
+
+    p.chainTravel = &travel0;
+    double a0 = holePhase4(buildProjection(ProjectionKind::Mechanical, c, nullptr, p));
+    p.chainTravel = &travel1;
+    double a1 = holePhase4(buildProjection(ProjectionKind::Mechanical, c, nullptr, p));
+
+    double d = a1 - a0;
+    while (d > cg::kPi / 4.0) d -= cg::kPi / 2.0;
+    while (d < -cg::kPi / 4.0) d += cg::kPi / 2.0;
+
+    double expected = -dTravel / pitchR; // no-slip wheel rotation
+    EXPECT_NEAR(d, expected, std::abs(expected) * 0.02 + 1e-9)
+        << "holes did not rotate with the honest chain travel";
 }
