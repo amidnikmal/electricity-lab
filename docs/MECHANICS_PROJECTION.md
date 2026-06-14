@@ -11,7 +11,7 @@ A third projection of the same `CircuitModel`: the circuit rendered as a mechani
 | Current I | chain linear speed (sign = direction) | moving chain links |
 | Potential V | chain tension / "height" vs anchor | tension colour (same palette as Potential layer) |
 | Resistor R | friction brake | pads clamping the chain + heat glow |
-| Voltage source | drive crank | spinning spoked wheel, pump direction follows I |
+| Voltage source | drive sprocket | large gear with taut tangent chain, pump direction follows I |
 | Capacitor C | spring | movable plate, displacement proportional to Vc |
 | Inductor L | flywheel | spinning wheel, angular momentum proportional to Il |
 | Diode | ratchet | pawl triangle, single allowed direction (A -> B) |
@@ -43,6 +43,24 @@ Metaphor / visualization:
 - the on-screen animation rates (`kVisualChainSpeed`, `kVisualSpinRate`) are amplified for visibility, like drift particles;
 - geometry (pulley sizes, pad shapes, spring teeth) is symbolic;
 - "tension" maps potential, but a real chain cannot have negative tension — sign is carried by colour and direction, not by slack chain.
+
+## Voltage source drive sprocket
+
+The voltage source is modeled as a large drive sprocket on the component
+midpoint. The chain is not made to look taut by shrinking that sprocket. Instead
+`ChainGeometry::sourceDrivePath` builds a closed bicycle-chain path from common
+external tangents between the endpoint idler sprockets and the central source
+sprocket:
+
+- two straight taut runs approach the source gear under an angle;
+- only short pitch-circle arcs touch the source gear;
+- each contacting link lies tangent to the pitch circle at its contact point;
+- source sprocket phase is `-chainTravel / pitchRadius`, so the teeth move with
+  positive chain travel rather than against it.
+
+Tests in `tests/test_chain_gear.cpp` lock this down: large visual size is
+preserved, tangent contact is enforced, the source contact arc stays short, and
+rotation direction is checked from rendered tooth motion.
 
 ## Applicability limits
 

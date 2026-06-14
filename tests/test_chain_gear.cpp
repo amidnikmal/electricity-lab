@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include "circuit/Circuit.h"
 #include "physics/ChainGeometry.h"
 #include "physics/ChainSim.h"
@@ -41,6 +42,39 @@ ChainSpec wireSpec(Vec2 a, Vec2 b, double wireThickness, double target) {
     return spec;
 }
 
+ChainSpec sourceSpec(Vec2 a, Vec2 b, double wireThickness, double target) {
+    ChainSpec spec = wireSpec(a, b, wireThickness, target);
+    spec.driveSprocket = true;
+    return spec;
+}
+
+double signedAngleDelta(double before, double after) {
+    double delta = after - before;
+    while (delta > cg::kPi) delta -= 2.0 * cg::kPi;
+    while (delta < -cg::kPi) delta += 2.0 * cg::kPi;
+    return delta;
+}
+
+double firstSprocketToothAngle(const ProjectionResult& res, Vec2 center,
+                               double rootR, double tipR) {
+    for (const auto& quad : res.prims.quads) {
+        if (!quad.filled) continue;
+        Vec2 centroid((quad.p1.x + quad.p2.x + quad.p3.x + quad.p4.x) * 0.25,
+                      (quad.p1.y + quad.p2.y + quad.p3.y + quad.p4.y) * 0.25);
+        Vec2 rel = centroid - center;
+        double d = rel.length();
+        if (d < rootR * 0.9 || d > tipR + 1e-9) continue;
+        return std::atan2(rel.y, rel.x);
+    }
+    return std::numeric_limits<double>::quiet_NaN();
+}
+
+void expectTangent(Vec2 center, Vec2 contact, Vec2 other) {
+    Vec2 radial = (contact - center).normalized();
+    Vec2 run = (other - contact).normalized();
+    EXPECT_NEAR(radial.x * run.x + radial.y * run.y, 0.0, 1e-9);
+}
+
 } // namespace
 
 // --- shared geometry invariants ----------------------------------------------
@@ -73,6 +107,49 @@ TEST(ChainGeometry, ToothPitchMatchesChainPitch) {
 TEST(ChainGeometry, TeethCountGrowsWithRadius) {
     double pitch = cg::linkPitch(1.2);
     EXPECT_GT(cg::sprocketTeeth(20.0, pitch), cg::sprocketTeeth(10.0, pitch));
+}
+
+TEST(ChainGeometry, DriveSprocketKeepsLargeVisualSize) {
+    for (double wt : {4.0, 8.0, 14.0, 24.0}) {
+        double r = cg::linkRadius(wt);
+        double half = cg::chainHalfWidth(wt);
+        double nodeR = cg::sprocketPitchRadius(half, r);
+        double driveR = cg::driveSprocketPitchRadius(half, r);
+
+        EXPECT_GE(driveR, nodeR * 2.8) << "wt=" << wt;
+        EXPECT_GE(driveR, half * 3.0) << "wt=" << wt;
+        EXPECT_GE(driveR, 15.0) << "wt=" << wt;
+    }
+}
+
+TEST(ChainGeometry, SourceDrivePathUsesTrueTangents) {
+    double wt = 8.0;
+    double rollerR = cg::linkRadius(wt);
+    double nodeR = cg::sprocketPitchRadius(cg::chainHalfWidth(wt), rollerR);
+    double driveR = cg::driveSprocketPitchRadius(cg::chainHalfWidth(wt), rollerR);
+    auto path = cg::sourceDrivePath(Vec2(0, 0), Vec2(260, 0), nodeR, driveR);
+    ASSERT_TRUE(path.valid);
+
+    expectTangent(Vec2(0, 0), path.aTop, path.driveLeftTop);
+    expectTangent(path.center, path.driveLeftTop, path.aTop);
+    expectTangent(path.center, path.driveRightTop, path.bTop);
+    expectTangent(Vec2(260, 0), path.bTop, path.driveRightTop);
+    expectTangent(path.center, path.driveRightBottom, path.bBottom);
+    expectTangent(path.center, path.driveLeftBottom, path.aBottom);
+
+    double topContact =
+        cg::clockwiseDelta(cg::angleOf(path.driveLeftTop - path.center),
+                           cg::angleOf(path.driveRightTop - path.center));
+    double bottomContact =
+        cg::clockwiseDelta(cg::angleOf(path.driveRightBottom - path.center),
+                           cg::angleOf(path.driveLeftBottom - path.center));
+    EXPECT_LT(topContact + bottomContact, cg::kPi * 0.35);
+}
+
+TEST(ChainGeometry, SourceDrivePhaseRunsOppositePositiveChainTravel) {
+    EXPECT_LT(cg::sourceDriveSprocketPhaseFromChainTravel(10.0, 5.0), 0.0);
+    EXPECT_GT(cg::sourceDriveSprocketPhaseFromChainTravel(-10.0, 5.0), 0.0);
+    EXPECT_DOUBLE_EQ(cg::sourceDriveSprocketPhaseFromChainTravel(10.0, 0.0), 0.0);
 }
 
 // --- the regression: simulated chain stays on the sprocket pitch circle -------
@@ -123,6 +200,29 @@ TEST(ChainSimEngagement, ArcRadiusEqualsRenderedGearPitchRadius) {
         EXPECT_NEAR((link.pos - node).length(), pitchR, rollerR * 1.6);
     }
     EXPECT_GE(checked, 1);
+}
+
+TEST(ChainSimEngagement, VoltageSourceLinksTouchOnlyShortDriveArc) {
+    const double wt = 8.0;
+    const Vec2 a(0, 0), b(260, 0);
+    ChainSim sim;
+    sim.configure({sourceSpec(a, b, wt, 35.0)}, cg::linkRadius(wt));
+    for (int i = 0; i < 90; ++i)
+        sim.step(1.0 / 60.0);
+
+    double rollerR = cg::linkRadius(wt);
+    double pitchR = cg::driveSprocketPitchRadius(cg::chainHalfWidth(wt), rollerR);
+    Vec2 center = (a + b) * 0.5;
+
+    int seated = 0;
+    for (const auto& link : sim.links()) {
+        double err = std::abs((link.pos - center).length() - pitchR);
+        if (err < rollerR * 0.35)
+            ++seated;
+    }
+
+    EXPECT_GE(seated, 1) << "source drive gear has no physical chain contact";
+    EXPECT_LE(seated, 6) << "source chain is stuck around too much of the gear";
 }
 
 // --- rendered sprocket comes from the same geometry ---------------------------
@@ -221,4 +321,96 @@ TEST(MechanicsChain, BicycleChainIsBuiltFromSimLinks) {
     EXPECT_EQ(outer + inner, 2 * n);
     EXPECT_GE(outer, 2);
     EXPECT_GE(inner, 2);
+}
+
+TEST(MechanicsChain, VoltageSourceDrawsLargeDriveSprocketUnderTangentLinks) {
+    Circuit c;
+    int n1 = c.addNode(Vec2(0, 0));
+    int n2 = c.addNode(Vec2(260, 0));
+    int sourceId = c.addComponent(ComponentType::VoltageSource, n1, n2, 5.0);
+
+    ViewParams p;
+    double rollerR = cg::linkRadius(p.wireThickness);
+    double half = cg::chainHalfWidth(p.wireThickness);
+    double pitchR = cg::driveSprocketPitchRadius(half, rollerR);
+    double rootR = cg::sprocketRootRadius(pitchR, rollerR);
+    double tipR = cg::sprocketTipRadius(pitchR, rollerR);
+    int teeth = cg::sprocketTeeth(pitchR, cg::linkPitch(rollerR));
+    Vec2 center(130, 0);
+
+    ChainSim sim;
+    ChainSpec spec = sourceSpec(Vec2(0, 0), Vec2(260, 0), p.wireThickness, 30.0);
+    spec.componentId = sourceId;
+    sim.configure({spec}, rollerR);
+    for (int i = 0; i < 60; ++i)
+        sim.step(1.0 / 60.0);
+    std::vector<ChainLink> links = sim.links();
+    ASSERT_GE(links.size(), 8u);
+
+    p.chainLinks = &links;
+    ProjectionResult res = buildProjection(ProjectionKind::Mechanical, c, nullptr, p);
+
+    int bodies = 0;
+    for (const auto& circle : res.prims.circles)
+        if (circle.filled && std::abs(circle.radius - rootR) < 1e-9 &&
+            (circle.center - center).length() < 1e-9)
+            ++bodies;
+    EXPECT_EQ(bodies, 1);
+
+    int toothQuads = 0;
+    for (const auto& quad : res.prims.quads) {
+        Vec2 centroid((quad.p1.x + quad.p2.x + quad.p3.x + quad.p4.x) * 0.25,
+                      (quad.p1.y + quad.p2.y + quad.p3.y + quad.p4.y) * 0.25);
+        if ((centroid - center).length() > tipR) continue;
+        if (quad.filled)
+            ++toothQuads;
+    }
+    EXPECT_EQ(toothQuads, teeth);
+
+    int seatedRollers = 0;
+    for (const auto& circle : res.prims.circles) {
+        if (!circle.filled || std::abs(circle.radius - rollerR) > 1e-9)
+            continue;
+        double err = std::abs((circle.center - center).length() - pitchR);
+        if (err < rollerR * 0.35)
+            ++seatedRollers;
+    }
+    EXPECT_GE(seatedRollers, 1);
+    EXPECT_LE(seatedRollers, 6);
+}
+
+TEST(MechanicsChain, SourceDriveSprocketTurnsWithChainNotAgainstIt) {
+    Circuit c;
+    int n1 = c.addNode(Vec2(0, 0));
+    int n2 = c.addNode(Vec2(260, 0));
+    int sourceId = c.addComponent(ComponentType::VoltageSource, n1, n2, 5.0);
+
+    CircuitSolution solution;
+    solution.nodePotentials.push_back({n1, 5.0});
+    solution.nodePotentials.push_back({n2, 0.0});
+    solution.branches.push_back({sourceId, 0.25, 5.0, -1.25});
+
+    ViewParams p;
+    double rollerR = cg::linkRadius(p.wireThickness);
+    double pitchR = cg::driveSprocketPitchRadius(cg::chainHalfWidth(p.wireThickness), rollerR);
+    double rootR = cg::sprocketRootRadius(pitchR, rollerR);
+    double tipR = cg::sprocketTipRadius(pitchR, rollerR);
+    Vec2 center(130, 0);
+
+    FlowIntegrals beforeFlow;
+    beforeFlow.component[sourceId] = 0.0;
+    p.flowIntegrals = &beforeFlow;
+    ProjectionResult before = buildProjection(ProjectionKind::Mechanical, c, &solution, p);
+
+    FlowIntegrals afterFlow;
+    afterFlow.component[sourceId] = 0.2;
+    p.flowIntegrals = &afterFlow;
+    ProjectionResult after = buildProjection(ProjectionKind::Mechanical, c, &solution, p);
+
+    double beforeAngle = firstSprocketToothAngle(before, center, rootR, tipR);
+    double afterAngle = firstSprocketToothAngle(after, center, rootR, tipR);
+    ASSERT_TRUE(std::isfinite(beforeAngle));
+    ASSERT_TRUE(std::isfinite(afterAngle));
+
+    EXPECT_LT(signedAngleDelta(beforeAngle, afterAngle), -0.05);
 }

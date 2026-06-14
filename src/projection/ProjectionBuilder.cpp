@@ -856,8 +856,64 @@ double chainHalfWidth(const BuildContext& ctx) {
     return physics::chain_geometry::chainHalfWidth(ctx.p.wireThickness);
 }
 
+std::vector<Vec2> sampleClockwiseArc(Vec2 center, double radius,
+                                     Vec2 from, Vec2 to, int steps = 16) {
+    namespace cg = physics::chain_geometry;
+    double start = cg::angleOf(from - center);
+    double delta = cg::clockwiseDelta(start, cg::angleOf(to - center));
+    std::vector<Vec2> pts;
+    pts.reserve(static_cast<size_t>(steps + 1));
+    for (int i = 0; i <= steps; ++i) {
+        double s = delta * static_cast<double>(i) / steps;
+        pts.push_back(cg::circlePoint(center, radius, start - s));
+    }
+    return pts;
+}
+
+void emitSprocket(BuildContext& ctx, Vec2 center, double pitchR,
+                  double phase, bool drive) {
+    namespace cg = physics::chain_geometry;
+    const double rollerR = cg::linkRadius(ctx.p.wireThickness);
+    const double tipR = cg::sprocketTipRadius(pitchR, rollerR);
+    const double rootR = cg::sprocketRootRadius(pitchR, rollerR);
+    const int teeth = cg::sprocketTeeth(pitchR, cg::linkPitch(rollerR));
+
+    const uint32_t bodyFill = drive ? packColor(70, 58, 46, 255)
+                                    : packColor(58, 64, 76, 255);
+    const uint32_t edgeCol = drive ? packColor(236, 178, 96, 235)
+                                   : packColor(170, 178, 190, 230);
+    const uint32_t toothFill = drive ? packColor(194, 132, 58, 248)
+                                     : packColor(120, 128, 142, 245);
+
+    ctx.out.circles.push_back({center, rootR, bodyFill, 0.0, true, false});
+    ctx.out.circles.push_back({center, rootR, edgeCol, 1.6, false, false});
+
+    const double toothPitch = 2.0 * kPi / teeth;
+    for (int tooth = 0; tooth < teeth; ++tooth) {
+        double mid = phase + tooth * toothPitch;
+        double rootHalf = toothPitch * 0.30;
+        double tipHalf = toothPitch * 0.16;
+        auto at = [&](double angle, double r) {
+            return center + Vec2(std::cos(angle), std::sin(angle)) * r;
+        };
+        ctx.out.quads.push_back({at(mid - rootHalf, rootR), at(mid - tipHalf, tipR),
+                                 at(mid + tipHalf, tipR), at(mid + rootHalf, rootR),
+                                 toothFill, true, 0.0});
+    }
+
+    ctx.out.circles.push_back({center, rootR * 0.30, packColor(36, 40, 48, 255), 0.0, true, false});
+    ctx.out.circles.push_back({center, rootR * 0.30, edgeCol, 1.2, false, false});
+    if (rootR > 6.0) {
+        for (int h = 0; h < 4; ++h) {
+            double angle = phase + (h + 0.5) * (kPi / 2.0);
+            Vec2 pos = center + Vec2(std::cos(angle), std::sin(angle)) * (rootR * 0.62);
+            ctx.out.circles.push_back({pos, rootR * 0.14, packColor(36, 40, 48, 220), 0.0, true, false});
+        }
+    }
+}
+
 void emitChain(BuildContext& ctx, Vec2 a, Vec2 b, double va, double vb,
-               double current, int compId) {
+               double current, int compId, bool sourceDrive = false) {
     Vec2 ab = b - a;
     double len = ab.length();
     if (len < 1.0) return;
@@ -879,11 +935,30 @@ void emitChain(BuildContext& ctx, Vec2 a, Vec2 b, double va, double vb,
     namespace cg = physics::chain_geometry;
     const double rollerR = cg::linkRadius(ctx.p.wireThickness);
     const double railOff = cg::sprocketPitchRadius(half, rollerR);
+    const double driveR = cg::driveSprocketPitchRadius(half, rollerR);
+    const auto drivePath =
+        sourceDrive ? cg::sourceDrivePath(a, b, railOff, driveR)
+                    : cg::SourceDrivePath{};
 
     // Guide rails follow the simulated pitch track exactly.
     uint32_t rail = packColor(150, 160, 175, 120);
-    ctx.out.lines.push_back({a + perp * railOff, b + perp * railOff, 1.2, rail, true});
-    ctx.out.lines.push_back({a - perp * railOff, b - perp * railOff, 1.2, rail, true});
+    if (drivePath.valid) {
+        ctx.out.lines.push_back({drivePath.aTop, drivePath.driveLeftTop, 1.2, rail, true});
+        ctx.out.polylines.push_back({sampleClockwiseArc(drivePath.center, drivePath.driveRadius,
+                                                        drivePath.driveLeftTop,
+                                                        drivePath.driveRightTop),
+                                     1.2, rail, true});
+        ctx.out.lines.push_back({drivePath.driveRightTop, drivePath.bTop, 1.2, rail, true});
+        ctx.out.lines.push_back({drivePath.bBottom, drivePath.driveRightBottom, 1.2, rail, true});
+        ctx.out.polylines.push_back({sampleClockwiseArc(drivePath.center, drivePath.driveRadius,
+                                                        drivePath.driveRightBottom,
+                                                        drivePath.driveLeftBottom),
+                                     1.2, rail, true});
+        ctx.out.lines.push_back({drivePath.driveLeftBottom, drivePath.aBottom, 1.2, rail, true});
+    } else {
+        ctx.out.lines.push_back({a + perp * railOff, b + perp * railOff, 1.2, rail, true});
+        ctx.out.lines.push_back({a - perp * railOff, b - perp * railOff, 1.2, rail, true});
+    }
 
     // REAL Box2D chain: rigid-jointed links from the mechanics world, drawn
     // as a bicycle chain — rollers with pins, joined by alternating outer
@@ -930,23 +1005,27 @@ void emitChain(BuildContext& ctx, Vec2 a, Vec2 b, double va, double vb,
 
     // Fallback (no sim): phase animation. Bicycle-chain look.
     double speed = mechanics::chainSpeedFromCurrent(current);
-    double spacing = std::max(half * 2.4, 10.0);
+    double spacing = drivePath.valid ? cg::linkPitch(rollerR) : std::max(half * 2.4, 10.0);
+    double perimeter = drivePath.valid ? drivePath.perimeter : len;
     double phase = std::fmod(ctx.p.time * speed * kVisualChainSpeed, spacing * 2.0);
     if (phase < 0.0) phase += spacing * 2.0;
 
     uint32_t linkCol = packColor(208, 214, 224, 230);
     uint32_t barCol = packColor(150, 160, 175, 220);
-    int count = static_cast<int>(len / spacing) + 2;
+    int count = static_cast<int>(perimeter / spacing) + 2;
     Vec2 prev;
     bool hasPrev = false;
     for (int i = 0; i < count; ++i) {
         double t = i * spacing + phase;
-        t = std::fmod(t, len);
-        if (t < 0.0) t += len;
-        Vec2 p = a + unit * t;
-        ctx.out.circles.push_back({p, half * 0.78, linkCol, 1.8, false, false});
+        t = std::fmod(t, perimeter);
+        if (t < 0.0) t += perimeter;
+        Vec2 p = drivePath.valid ? cg::sourceDrivePointAt(drivePath, t)
+                                 : a + unit * t;
+        ctx.out.circles.push_back({p, drivePath.valid ? rollerR : half * 0.78,
+                                   linkCol, 1.8, false, false});
         if (hasPrev && (p - prev).length() < spacing * 1.5) {
-            ctx.out.lines.push_back({prev + unit * (half * 0.5), p - unit * (half * 0.5),
+            Vec2 linkUnit = (p - prev).normalized();
+            ctx.out.lines.push_back({prev + linkUnit * (half * 0.5), p - linkUnit * (half * 0.5),
                                      2.2, barCol, true});
         }
         prev = p;
@@ -1006,27 +1085,22 @@ void emitBrake(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
 
 void emitCrank(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
                double va, double vb, double current) {
-    emitChain(ctx, a, b, va, vb, current, comp.id);
-
     Vec2 mid((a.x + b.x) * 0.5, (a.y + b.y) * 0.5);
-    double r = 15.0;
-    ctx.out.circles.push_back({mid, r, packColor(255, 255, 255), 2.5, false, false});
+    namespace cg = physics::chain_geometry;
+    const double rollerR = cg::linkRadius(ctx.p.wireThickness);
+    const double pitchR = cg::driveSprocketPitchRadius(chainHalfWidth(ctx), rollerR);
 
-    // Spokes spin with the integral of the mapped chain speed: continuous
-    // even while the hand crank changes the current every frame.
-    double angle0 = spinPhase(ctx, comp.id, mechanics::chainSpeedFromCurrent(current),
-                              kVisualSpinRate);
-    uint32_t spokeCol = packColor(255, 196, 110, 235);
-    for (int s = 0; s < 3; ++s) {
-        double angle = angle0 + s * (kPi * 2.0 / 3.0);
-        Vec2 dir(std::cos(angle), std::sin(angle));
-        ctx.out.lines.push_back({mid - dir * (r * 0.85), mid + dir * (r * 0.85), 2.0, spokeCol, true});
-    }
-    ctx.out.circles.push_back({mid, r * 0.18, spokeCol, 0.0, true, false});
+    double chainTravel = ctx.p.flowIntegrals
+        ? componentIntegral(ctx.p.flowIntegrals, comp.id) * kVisualChainSpeed
+        : ctx.p.time * mechanics::chainSpeedFromCurrent(current) * kVisualChainSpeed;
+    double angle0 = cg::sourceDriveSprocketPhaseFromChainTravel(chainTravel, pitchR);
+    emitSprocket(ctx, mid, pitchR, angle0, true);
+
+    emitChain(ctx, a, b, va, vb, current, comp.id, true);
 
     // Grab knob on the rim: the handle you can drag (dynamo).
     Vec2 knobDir(std::cos(angle0), std::sin(angle0));
-    ctx.out.circles.push_back({mid + knobDir * (r * 0.82), 4.0,
+    ctx.out.circles.push_back({mid + knobDir * (pitchR * 0.92), rollerR * 1.35,
                                packColor(255, 220, 130, 245), 0.0, true, true});
 
     char buf[48];
