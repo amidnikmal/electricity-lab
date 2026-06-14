@@ -107,6 +107,7 @@ void LiveSim::onCircuitEvent(const Circuit& circuit, CircuitSolver& solver) {
         ? std::clamp(3.0 * storyTau / m_cfg.storySeconds, m_cfg.minSpeed, m_cfg.maxSpeed)
         : m_cfg.maxSpeed;
     applySpeed();
+    m_state.invalidateHistory(); // trap-история несовместима с новой топологией
     wake();
 }
 
@@ -225,7 +226,9 @@ void LiveSim::snapToAsymptote(const Circuit& circuit, CircuitSolver& solver,
         if (isCap) {
             double va = potentialFor(dc, comp.nodeA);
             double vb = potentialFor(dc, comp.nodeB);
-            m_state.capVoltage[comp.id] = va - vb;
+            double dV = va - vb;
+            m_state.capCharge[comp.id] = comp.value * dV;
+            m_state.capVoltage[comp.id] = dV;
             m_state.capCurrent[comp.id] = 0.0; // в стационаре d/dt = 0
         } else {
             m_state.indCurrent[comp.id] = branchCurrentFor(dc, comp.id);

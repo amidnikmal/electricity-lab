@@ -33,12 +33,20 @@ enum class IntegrationMethod {
 // capVoltage: Vc = V(nodeA) - V(nodeB); indCurrent: Il flowing nodeA -> nodeB.
 struct TransientState {
     double time = 0.0;
-    std::unordered_map<int, double> capVoltage;
-    std::unordered_map<int, double> capCurrent; // last-step current (trapezoidal history)
+    std::unordered_map<int, double> capCharge;   // заряд конденсатора Q (Кл) — первичное состояние
+    std::unordered_map<int, double> capVoltage;  // напряжение Vc (В) — производное от Q/C
+    std::unordered_map<int, double> capCurrent;  // last-step current (trapezoidal history)
     std::unordered_map<int, double> indCurrent;
-    std::unordered_map<int, double> indVoltage; // last-step voltage (trapezoidal history)
+    std::unordered_map<int, double> indVoltage;  // last-step voltage (trapezoidal history)
 
     void reset() { *this = TransientState{}; }
+
+    // Сброс trapezoidal-истории (последний шаг) при смене топологии/переключателе:
+    // старый capCurrent/indVoltage несовместим с новой цепью и вызывает звон.
+    void invalidateHistory() {
+        capCurrent.clear();
+        indVoltage.clear();
+    }
 };
 
 class CircuitSolver {

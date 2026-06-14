@@ -49,6 +49,11 @@ double stateCapV(const TransientState& s, int id) {
     return it == s.capVoltage.end() ? 0.0 : it->second;
 }
 
+double stateCapQ(const TransientState& s, int id) {
+    auto it = s.capCharge.find(id);
+    return it == s.capCharge.end() ? 0.0 : it->second;
+}
+
 double stateIndI(const TransientState& s, int id) {
     auto it = s.indCurrent.find(id);
     return it == s.indCurrent.end() ? 0.0 : it->second;
@@ -289,4 +294,37 @@ TEST(DcSteadyState, InductorActsAsShortCircuit) {
     ASSERT_NE(ind, nullptr);
     EXPECT_NEAR(res->current, 0.5, 1e-6);    // I = V/R
     EXPECT_NEAR(ind->voltageDrop, 0.0, 1e-6); // no voltage across ideal L in DC
+}
+
+TEST(TransientCharge, ChangingCapacitancePreservesCharge) {
+    // Заряжаем конденсатор C=1мФ через RC-цепь до ~5В, затем меняем ёмкость
+    // на C=2мФ: заряд Q должен сохраниться, напряжение адаптироваться V=Q/C.
+    RcCircuit rc = makeRcCharge(5.0, 1000.0, 1e-3);
+    CircuitSolver solver;
+    TransientState state;
+    Circuit circuit = rc.c;
+
+    // Полный заряд до стационара.
+    for (int i = 0; i < 5000; ++i)
+        solver.stepTransient(circuit, state, 1e-3);
+    double Q_before = stateCapQ(state, rc.capId);
+    double V_before = stateCapV(state, rc.capId);
+    EXPECT_NEAR(V_before, 5.0, 0.02);
+    EXPECT_NEAR(Q_before, 1e-3 * V_before, 1e-9);
+
+    // Меняем ёмкость конденсатора (правка компонента в редакторе).
+    Component* cap = circuit.findComponent(rc.capId);
+    ASSERT_NE(cap, nullptr);
+    cap->value = 2e-3; // удваиваем C
+
+    // Один шаг с новым C: companion должен использовать vOld = Q/C_new.
+    solver.stepTransient(circuit, state, 1e-6);
+    double Q_after = stateCapQ(state, rc.capId);
+    double V_after = stateCapV(state, rc.capId);
+
+    // Заряд сохранился (плюс-минус крошечный ток утечки за один шаг).
+    EXPECT_NEAR(Q_after, Q_before, Q_before * 1e-6);
+    // Напряжение адаптировалось: V = Q / C_new ≈ V_before / 2.
+    EXPECT_NEAR(V_after, Q_before / cap->value, 0.02);
+    EXPECT_NEAR(V_after, V_before / 2.0, 0.02);
 }

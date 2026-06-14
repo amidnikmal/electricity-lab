@@ -193,7 +193,12 @@ CircuitSolution CircuitSolver::stepTransient(const Circuit& circuit, TransientSt
     for (const auto& comp : circuit.components) {
         if (comp.type == ComponentType::Capacitor) {
             double C = std::max(comp.value, 1e-15);
-            double vOld = state.capVoltage.count(comp.id) ? state.capVoltage[comp.id] : 0.0;
+            // vOld из заряда Q: при изменении C заряд сохраняется, напряжение адаптируется.
+            double vOld = 0.0;
+            if (state.capCharge.count(comp.id))
+                vOld = state.capCharge[comp.id] / C;
+            else if (state.capVoltage.count(comp.id))
+                vOld = state.capVoltage[comp.id];
             // Trapezoidal needs a consistent current history; the very first
             // step of a component falls back to backward Euler (standard
             // self-starting scheme), which the circuit solve makes consistent.
@@ -226,6 +231,8 @@ CircuitSolution CircuitSolver::stepTransient(const Circuit& circuit, TransientSt
         for (const auto& br : solution.branches) {
             if (br.componentId != comp.id) continue;
             if (comp.type == ComponentType::Capacitor) {
+                double C = std::max(comp.value, 1e-15);
+                state.capCharge[comp.id] = C * br.voltageDrop; // Q = C·V
                 state.capVoltage[comp.id] = br.voltageDrop;
                 state.capCurrent[comp.id] = br.current;
             } else {
