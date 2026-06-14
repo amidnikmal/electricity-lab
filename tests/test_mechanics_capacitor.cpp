@@ -97,12 +97,12 @@ const std::vector<Vec2>* longestPoly(const ProjectionResult& r) {
 } // namespace
 
 // Fix #1: the spring ends exactly on the crank attachment knobs (no gap). The
-// the in-line spring runs ALONG the component axis between the fixed wall and the
-// moving plate (no detached crank), so both endpoints lie on the axis.
-TEST(SpringCapacitor, SpringRunsAlongTheAxis) {
+// The spring is slung between the two crank-arm tips and pinned pixel-exact to
+// the attachment knobs (no gap): its endpoints coincide with filled knob circles.
+TEST(SpringCapacitor, SpringEndpointsPinnedToCrankKnobs) {
     Circuit c;
     int n1 = c.addNode(Vec2(0, 0));
-    int n2 = c.addNode(Vec2(240, 0)); // horizontal axis (y = 0)
+    int n2 = c.addNode(Vec2(240, 0));
     c.addComponent(ComponentType::Capacitor, n1, n2, 1e-3);
 
     CircuitSolver solver;
@@ -112,11 +112,13 @@ TEST(SpringCapacitor, SpringRunsAlongTheAxis) {
 
     const auto* spring = longestPoly(r);
     ASSERT_NE(spring, nullptr);
-    // Endpoints on the axis (y ≈ 0): the spring is in-line, not on a swung arm.
-    EXPECT_NEAR(spring->front().y, 0.0, 1e-6);
-    EXPECT_NEAR(spring->back().y, 0.0, 1e-6);
-    // And it spans a real length along x.
-    EXPECT_GT(std::abs(spring->back().x - spring->front().x), 10.0);
+    auto hasFilledCircleAt = [&](Vec2 pt) {
+        for (const auto& circ : r.prims.circles)
+            if (circ.filled && (circ.center - pt).length() < 1e-9) return true;
+        return false;
+    };
+    EXPECT_TRUE(hasFilledCircleAt(spring->front())) << "spring start detached from its arm knob";
+    EXPECT_TRUE(hasFilledCircleAt(spring->back())) << "spring end detached from its arm knob";
 }
 
 // The capacitor's lead chains run on the loop's chainTravel — the SAME clock as
@@ -280,19 +282,22 @@ TEST(SpringCapacitor, NoGearTurnsOutOfSyncWithTheLoop) {
         while (d < -period * 0.5) d += period;
         return d;
     };
-    std::vector<double> deltas;
+    // SPEED, not signed angle: every gear turns at the loop speed. Two separate
+    // capacitor shafts may counter-rotate (different axles), but no gear may turn
+    // at a different |rate| than the loop.
+    std::vector<double> speeds;
     for (const auto& [center, ph0] : g0) {
         double ph1 = 0; bool found = false;
         for (const auto& [c1, p1] : g1)
             if ((c1 - center).length() < 1e-9) { ph1 = p1; found = true; break; }
         ASSERT_TRUE(found);
-        deltas.push_back(wrap(ph1 - ph0, toothPitch));
+        speeds.push_back(std::abs(wrap(ph1 - ph0, toothPitch)));
     }
-    double mn = deltas[0], mx = deltas[0];
-    for (double d : deltas) { mn = std::min(mn, d); mx = std::max(mx, d); }
-    EXPECT_GT(std::abs(deltas[0]), 0.02) << "nothing rotated — test is vacuous";
+    double mn = speeds[0], mx = speeds[0];
+    for (double d : speeds) { mn = std::min(mn, d); mx = std::max(mx, d); }
+    EXPECT_GT(speeds[0], 0.02) << "nothing rotated — test is vacuous";
     EXPECT_LT(mx - mn, 1e-3)
-        << "a gear turns out of sync with the loop (spread " << (mx - mn) << " rad)";
+        << "a gear turns at a different speed than the loop (spread " << (mx - mn) << " rad)";
 }
 
 // Render-without-side-effects: building the same circuit twice yields an

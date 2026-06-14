@@ -1285,19 +1285,13 @@ void emitStaticChainOval(BuildContext& ctx, Vec2 A, Vec2 B, double R,
     }
 }
 
-// Spring capacitor: a spring slung between two crank arms on two INDEPENDENT,
-// counter-rotating shafts (NOT a shared axle — that is what makes it a
-// capacitor, vs the inductor flywheel/junction idlers). Relative shaft angle =
-// charge; spring restoring moment = voltage. Kinematics live in the pure,
-// testable mechanics::SpringCapacitorModel; this function is render-only.
-// In-line spring capacitor. The capacitor is a SPRING inserted in the chain run,
-// NOT a twist between counter-rotating shafts. Both shaft sprockets co-rotate
-// with the loop exactly like the node gears (phase = -chainTravel/R), so NO gear
-// ever turns against the system (the strict rule). The spring sits between the
-// shafts and is COMPRESSED by the net charge (= the chain displacement that fed
-// it), so spring and chain move together; in an RLC ring it breathes in sync
-// with the chain. A charged capacitor at DC steady has i->0: its chain stops and
-// the spring holds — the rest of the loop runs on (the model does not lock).
+// Spring capacitor: gear -> crank arm -> spring, ONE rigid body. Each shaft
+// sprocket carries a crank arm; the spring is slung between the two arm tips and
+// deforms as the shafts turn. A single angle (the loop travel / R) drives the
+// gear, the arm AND the spring, so the spring is a rigid part of the drive — turn
+// the gear and the spring deforms in lockstep. The two shafts are SEPARATE axles
+// so they counter-rotate (that is what lets the spring twist/compress); each
+// still turns at the loop SPEED, so nothing on a single axle is out of sync.
 void emitSpring(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
                 double va, double vb) {
     auto g = capacitorGeometry(a, b, ctx.p.wireThickness);
@@ -1305,86 +1299,77 @@ void emitSpring(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
     double len = (b - a).length();
 
     namespace cg = physics::chain_geometry;
-    const double rollerR = cg::linkRadius(ctx.p.wireThickness);
-    const double pitchR = cg::sprocketPitchRadius(cg::chainHalfWidth(ctx.p.wireThickness), rollerR);
+    double pitchR = cg::sprocketPitchRadius(cg::chainHalfWidth(ctx.p.wireThickness),
+                                            cg::linkRadius(ctx.p.wireThickness));
+
+    mechanics::SpringCapacitorModel m;
+    m.p.halfSpan = std::clamp(len * 0.30, 24.0, len * 0.42);
+    m.p.armLen = std::clamp(len * 0.11, g.plateHalf * 0.55, m.p.halfSpan * 0.8);
+    m.p.baseAmp = std::max(g.plateHalf * 0.5, ctx.p.wireThickness * 0.9);
 
     double capTravel = 0.0;
     if (ctx.p.chainTravel) {
         auto it = ctx.p.chainTravel->find(comp.id);
         if (it != ctx.p.chainTravel->end()) capTravel = it->second;
     }
+    // One shaft angle = the loop travel / R drives gear, arm and spring together.
+    // Clamp just shy of the crank's 90° fold: at the limit the spring is FULLY
+    // compressed (max charge) — it no longer sticks early (the old ±60° clamp bit
+    // almost at once and looked stuck). In the linear region the cap gear turns at
+    // exactly the loop speed, like every other gear.
+    constexpr double kMaxSwing = 1.5; // ~86°
+    double shaftAngle = std::clamp(capTravel / pitchR, -kMaxSwing, kMaxSwing);
+    m.theta = shaftAngle;
 
-    // Two shaft sprockets inboard along the axis, CO-rotating with the loop (same
-    // -travel/R the node gears use): the cap adds no out-of-sync gear.
-    double halfSpan = std::clamp(len * 0.30, 24.0, len * 0.42);
-    Vec2 shaftLW = g.mid - g.unit * halfSpan;
-    Vec2 shaftRW = g.mid + g.unit * halfSpan;
-    double gearPhase = -capTravel / pitchR;
+    auto toWorld = [&](Vec2 l) { return g.mid + g.unit * l.x + g.perp * l.y; };
+    Vec2 shaftLW = toWorld(m.shaftL());
+    Vec2 shaftRW = toWorld(m.shaftR());
+    Vec2 crankLW = toWorld(m.crankL());
+    Vec2 crankRW = toWorld(m.crankR());
+    Vec2 springMidW = (crankLW + crankRW) * 0.5;
 
-    emitStaticChainOval(ctx, a, shaftLW, pitchR, va, va, capTravel);
-    emitStaticChainOval(ctx, b, shaftRW, pitchR, vb, vb, capTravel);
-    emitSprocket(ctx, shaftLW, pitchR, gearPhase, gearPhase, false);
-    emitSprocket(ctx, shaftRW, pitchR, gearPhase, gearPhase, false);
+    double chargeMag = std::abs(m.charge());
+    uint32_t pos = packColor(127, 119, 221, 245); // stretch / charge +
+    uint32_t neg = packColor(224, 96, 122, 245);  // compress / charge −
+    uint32_t chargeCol = m.charge() >= 0.0 ? pos : neg;
+    uint32_t metal = packColor(139, 147, 176, 235);
 
-    // In-line spring between the shafts. Compression = a scaled image of the net
-    // charge (= chain displacement), sign = polarity; storing energy compresses.
-    Vec2 innerL = shaftLW + g.unit * (pitchR + 2.0);
-    Vec2 innerR = shaftRW - g.unit * (pitchR + 2.0);
-    double span0 = (innerR - innerL).length();
-    double maxComp = span0 * 0.45;
-    double springComp = std::clamp(capTravel * mechanics::kMechSpringCompress, -maxComp, maxComp);
-    double chargeMag = maxComp > 1e-9 ? std::min(1.0, std::abs(springComp) / maxComp) : 0.0;
+    // Leads roll by the same shaft motion (R·shaftAngle == clamped capTravel);
+    // gear teeth are phased onto the crank-arm directions (teeth welded to arms).
+    double chainPhase = pitchR * shaftAngle;
+    emitStaticChainOval(ctx, a, shaftLW, pitchR, va, va, -chainPhase);
+    emitStaticChainOval(ctx, b, shaftRW, pitchR, vb, vb, +chainPhase);
 
-    uint32_t violet = packColor(127, 119, 221, 245); // stretch (charge −)
-    uint32_t coral = packColor(224, 96, 122, 245);   // compress (storing, charge +)
-    uint32_t chargeCol = springComp >= 0.0 ? coral : violet;
+    double armPhaseL = cg::angleOf(crankLW - shaftLW);
+    double armPhaseR = cg::angleOf(crankRW - shaftRW);
+    emitSprocket(ctx, shaftLW, pitchR, armPhaseL, armPhaseL, false);
+    emitSprocket(ctx, shaftRW, pitchR, armPhaseR, armPhaseR, false);
 
-    // Moving plate slides in from the right end; spring innerL -> plate.
-    Vec2 plate = innerR - g.unit * springComp;
-    double springLen = (plate - innerL).length();
-    double amp = std::max(g.plateHalf * 0.5, ctx.p.wireThickness * 0.9) +
-                 std::clamp(springComp, 0.0, maxComp) * 0.25; // compressed spring bulges
+    // Crank arms shaft -> tip.
+    ctx.out.lines.push_back({shaftLW, crankLW, 4.0, metal, true});
+    ctx.out.lines.push_back({shaftRW, crankRW, 4.0, metal, true});
+    double knob = std::max(2.5, m.p.armLen * 0.16);
 
-    // Fixed wall (left) + movable plate bar (right).
-    ctx.out.lines.push_back({innerL + g.perp * g.plateHalf, innerL - g.perp * g.plateHalf,
-                             3.0, packColor(226, 226, 216, 235), true});
-    ctx.out.lines.push_back({plate + g.perp * (g.plateHalf * 0.8), plate - g.perp * (g.plateHalf * 0.8),
-                             2.5, packColor(208, 214, 224, 235), true});
-    ctx.out.lines.push_back({plate, innerR, 3.5, packColor(160, 168, 180, 235), true}); // rod to shaft R
+    // Spring between the arm tips; coil step = springLen/coils (bunch when
+    // compressed). Endpoints pinned pixel-exact to the crank tips (no gap).
+    std::vector<Vec2> pts;
+    for (const Vec2& l : m.springPath()) pts.push_back(toWorld(l));
+    pts.front() = crankLW;
+    pts.back() = crankRW;
+    uint32_t springCol =
+        render::blendColor(packColor(170, 178, 190, 230), chargeCol, 0.35 + 0.65 * chargeMag);
+    ctx.out.polylines.push_back({std::move(pts), 2.6, springCol, true});
 
-    // Procedural zigzag spring innerL -> plate: coil step = springLen/coils, so
-    // coils bunch when compressed; amplitude grows under compression.
-    if (springLen > 1e-3) {
-        Vec2 u = (plate - innerL) / springLen;
-        Vec2 perp(-u.y, u.x);
-        int coils = 10;
-        double lead = std::min(springLen * 0.10, springLen * 0.45);
-        double body = springLen - 2.0 * lead;
-        double step = body / coils;
-        std::vector<Vec2> pts;
-        pts.reserve(coils * 2 + 3);
-        pts.push_back(innerL);
-        pts.push_back(innerL + u * lead);
-        for (int i = 0; i < coils; ++i) {
-            double sdist = lead + step * (i + 0.5);
-            double edist = lead + step * (i + 1.0);
-            double side = (i % 2 == 0) ? 1.0 : -1.0;
-            pts.push_back(innerL + u * sdist + perp * (amp * side));
-            pts.push_back(innerL + u * edist);
-        }
-        pts.back() = plate;
-        uint32_t springCol =
-            render::blendColor(packColor(170, 178, 190, 230), chargeCol, 0.35 + 0.65 * chargeMag);
-        ctx.out.polylines.push_back({std::move(pts), 2.6, springCol, true});
-    }
+    ctx.out.circles.push_back({crankLW, knob, chargeCol, 0.0, true, false});
+    ctx.out.circles.push_back({crankRW, knob, chargeCol, 0.0, true, false});
 
-    // Mode + capacitance label above the spring.
-    Vec2 springMidW = (innerL + plate) * 0.5;
-    const char* modeText = springComp > 1e-3 ? tr("compressed")
-                         : springComp < -1e-3 ? tr("stretched")
-                                              : tr("neutral");
+    const char* modeText = m.mode() == mechanics::SpringCapacitorModel::Mode::Stretched
+                               ? tr("stretched")
+                           : m.mode() == mechanics::SpringCapacitorModel::Mode::Compressed
+                               ? tr("compressed")
+                               : tr("neutral");
     double s = 1.0 / ctx.safeScale();
-    Vec2 above = springMidW + g.perp * (g.plateHalf + 12.0 * s);
+    Vec2 above = springMidW + g.perp * (m.p.armLen + 12.0 * s);
     ctx.out.labels.push_back({above, modeText, packColor(200, 200, 200), false});
 
     char buf[48];

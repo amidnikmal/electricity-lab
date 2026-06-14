@@ -62,52 +62,43 @@ Tests in `tests/test_chain_gear.cpp` lock this down: large visual size is
 preserved, tangent contact is enforced, the source contact arc stays short, and
 rotation direction is checked from rendered tooth motion.
 
-## Spring capacitor (in-line spring)
+## Spring capacitor (crank-arm spring, one rigid body)
 
-The capacitor is a **spring inserted in the chain run** — not a twist between
-counter-rotating shafts (that earlier model made ONE shaft gear spin *against*
-the loop, which is forbidden: every sprocket sits on the one chain). Both shaft
-sprockets **co-rotate with the loop** exactly like the node gears
-(`phase = -chainTravel/R`), so no gear ever turns at a different speed. The
-spring between the shafts is **compressed by the net charge** (`= ∫i =` the chain
-displacement that fed it), so the spring and the chain move together; in an RLC
-ring the spring breathes in sync with the chain, compressing for one current
-direction and stretching for the other.
+The capacitor is a **spring slung between two crank arms** on the two shaft
+sprockets. Gear → arm → spring is **one rigid body**: a single shaft angle drives
+the gear teeth, the arm and the spring together, so turning the gear deforms the
+spring in lockstep (the spring is a rigid part of the drive, not a loose
+decoration). The shaft angle is the loop travel: `shaftAngle =
+clamp(chainTravel[cap]/R, ±~86°)`. In the linear region each cap gear turns at
+exactly the loop SPEED — the two shafts are SEPARATE axles so they counter-rotate
+(that is what lets the spring compress/stretch), but neither runs off-speed, so
+nothing on one axle is out of sync.
 
-- `emitSpring` in `ProjectionBuilder.cpp` (render only): two shaft sprockets
-  co-rotating with the loop; the chain leads (`emitStaticChainOval`) wrap the
-  node gear and the shaft sprocket and roll on `chainTravel[cap]`; an in-line
-  zigzag spring whose length `= span − compression`, `compression = chainTravel ·
-  kMechSpringCompress` (clamped), coil step `= springLen/coils` (coils bunch when
-  compressed), amplitude grows under compression; charge-coloured (coral =
-  compress / storing, violet = stretch); mode label + capacitance. No glow, no
-  charge bar.
-- The capacitor is a full participant in the rigid-axle coupling (`carriesChain`
-  includes it) and MainWindow accumulates `chainTravel[cap]` with the SAME
-  formula and scale (`kMechChainBoost`) as every other component, so in a series
-  branch its current equals the neighbour current and the whole thing turns as
-  one. `resetMechanicsPhases()` zeroes the travel on discharge so nothing is stale.
+- `emitSpring` (render only, from `mechanics::SpringCapacitorModel`): two shaft
+  sprockets with teeth phased onto the crank-arm directions (teeth welded to
+  arms); chain leads (`emitStaticChainOval`) rolling on `chainTravel[cap]`; the
+  zigzag spring between the arm tips (coil step `= springLen/coils`, bunches when
+  compressed) pinned pixel-exact to the charge-coloured knobs; mode + capacitance.
+- Full participant in the rigid-axle coupling (`carriesChain` includes it) and
+  MainWindow accumulates `chainTravel[cap]` at the SAME scale (`kMechChainBoost`)
+  as everything, so in a series branch its current = the neighbour current and the
+  whole thing turns as one. `resetMechanicsPhases()` zeroes the travel on discharge.
 
-Why the spring is NOT a counter-rotating twist: a 2-terminal capacitor storing
-charge needs a relative twist between its ends, but `i_A = i_B` forces equal
-through-rotation — so a twist model makes one gear run backwards. The honest
-chain-machine form is a spring **in line** with the chain: the chain that passes
-compresses it (compression = charge), all gears co-rotate, and at a parallel
-junction the only real limit is that branches with different currents can't share
-one inextensible chain (needs a differential — inherent to chain drives).
+The clamp sits just under the crank's 90° fold: at the limit the spring is FULLY
+compressed (max charge), it does not stick early (the earlier ±60° clamp bit
+almost at once and looked stuck). At a parallel junction the only real limit is
+that branches with different currents can't share one inextensible chain (needs a
+differential — inherent to chain drives); a charged capacitor at DC steady simply
+stops its own branch (i→0) while the rest of the loop runs.
 
 Locked by `tests/test_mechanics_capacitor.cpp`:
-- **`NoGearTurnsOutOfSyncWithTheLoop`** — in a series RC every node/shaft sprocket
-  rotates by the SAME angle (the strict rule; fails if any gear runs off-speed);
+- **`NoGearTurnsOutOfSyncWithTheLoop`** — every node/shaft sprocket turns at the
+  same SPEED (counter-rotation allowed for separate shafts; off-speed fails);
 - **`SpringCompressionAndGearTrackTravelTogether`** — +travel compresses & turns
   the gear one way, −travel stretches & reverses it (RLC synchrony);
-- `SpringCompressesAsCapacitorCharges`, `SpringRunsAlongTheAxis`,
-  `ChainRollsWithLoopTravelNotVoltage`, render-has-no-hidden-state.
-`test_mechanics_coupling.cpp` checks the capacitor carries a coupling sign while
-an open switch does not.
-
-(`projection/MechanicsCapacitor.h` keeps the pure crank kinematics + its unit
-tests as a documented alternative; the renderer now uses the in-line form above.)
+- `SpringEndpointsPinnedToCrankKnobs`, `SpringCompressesAsCapacitorCharges`,
+  `ChainRollsWithLoopTravelNotVoltage`, render-has-no-hidden-state, and the pure
+  `SpringCapacitorModel` kinematics (sign invariant, even energy, coil spacing).
 
 ## Rigid-axle coupling (one spindle = one rotation)
 
