@@ -44,7 +44,10 @@ inline std::vector<SurfaceChargeSample> sampleSurfaceCharges(Vec2 a,
     (void)globalRange;
 
     double edgeOffset = config.wireThickness * 0.5 * 0.92;
-    int count = std::max(8, std::min(200, static_cast<int>(len * config.cameraScale / 4.0)));
+    // Cap 64 (было 200): эти точки заряда декоративны, дробить мельче глаз не
+    // видит, а при зуме len*cameraScale плодило до 200 сэмплов × 2 кружка на
+    // проводник (тот же класс роста с зумом, что градиент/круги).
+    int count = std::max(8, std::min(64, static_cast<int>(len * config.cameraScale / 4.0)));
     double segmentLen = len / count;
 
     for (int i = 0; i <= count; ++i) {

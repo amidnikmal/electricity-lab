@@ -36,7 +36,10 @@ void drawGradient(ImDrawList* dl, const Mapper& m, const PrimGradient& g) {
     Vec2 perp(-unit.y, unit.x);
     double halfW = g.width * 0.5;
 
-    int nSeg = std::max(2, std::min(1000, static_cast<int>(len * m.camera.scale / 2.5)));
+    // Cap segments: a smooth V-ramp needs no more than ~96 bands even across a
+    // screen-wide conductor; zoomed in, len*scale exploded this to 1000 quads
+    // per gradient (same blow-up class as the auto-tessellated circles).
+    int nSeg = std::max(2, std::min(96, static_cast<int>(len * m.camera.scale / 2.5)));
     for (int i = 0; i < nSeg; ++i) {
         double t0 = static_cast<double>(i) / nSeg;
         double t1 = static_cast<double>(i + 1) / nSeg;
@@ -119,6 +122,17 @@ void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
     Mapper m{camera, origin};
     const ImVec2 clipMin(origin.x, origin.y);
     const ImVec2 clipMax(origin.x + size.x, origin.y + size.y);
+    // True when a screen-space bbox lies fully outside the pane: zoomed in, most
+    // of a circuit is off-screen, but every primitive was still tessellated and
+    // uploaded. Skipping them is the same win as the particle/circle culling.
+    auto offscreen = [&](float minx, float miny, float maxx, float maxy) {
+        return maxx < clipMin.x || minx > clipMax.x ||
+               maxy < clipMin.y || miny > clipMax.y;
+    };
+    auto offscreenSeg = [&](ImVec2 p, ImVec2 q, float pad) {
+        return offscreen(std::min(p.x, q.x) - pad, std::min(p.y, q.y) - pad,
+                         std::max(p.x, q.x) + pad, std::max(p.y, q.y) + pad);
+    };
 
     for (const auto& glow : prims.glows) {
         float r = m.px(glow.radius);
@@ -131,13 +145,21 @@ void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
         }
     }
 
-    for (const auto& grad : prims.gradients)
+    for (const auto& grad : prims.gradients) {
+        if (offscreenSeg(m.toScreen(grad.a), m.toScreen(grad.b),
+                         m.px(grad.width * 0.5) + 2.0f))
+            continue;
         drawGradient(dl, m, grad);
+    }
 
     for (const auto& quad : prims.quads) {
-        if (quad.filled)
-            dl->AddQuadFilled(m.toScreen(quad.p1), m.toScreen(quad.p2),
-                              m.toScreen(quad.p3), m.toScreen(quad.p4), quad.color);
+        if (!quad.filled) continue;
+        ImVec2 a = m.toScreen(quad.p1), b = m.toScreen(quad.p2);
+        ImVec2 c = m.toScreen(quad.p3), d = m.toScreen(quad.p4);
+        if (offscreen(std::min({a.x, b.x, c.x, d.x}), std::min({a.y, b.y, c.y, d.y}),
+                      std::max({a.x, b.x, c.x, d.x}), std::max({a.y, b.y, c.y, d.y})))
+            continue;
+        dl->AddQuadFilled(a, b, c, d, quad.color);
     }
 
     // Particles sit inside the conductors: above the fills, below the outlines
@@ -155,23 +177,35 @@ void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
     }
 
     for (const auto& quad : prims.quads) {
-        if (!quad.filled)
-            dl->AddQuad(m.toScreen(quad.p1), m.toScreen(quad.p2),
-                        m.toScreen(quad.p3), m.toScreen(quad.p4), quad.color,
-                        static_cast<float>(quad.outlineThickness));
+        if (quad.filled) continue;
+        ImVec2 a = m.toScreen(quad.p1), b = m.toScreen(quad.p2);
+        ImVec2 c = m.toScreen(quad.p3), d = m.toScreen(quad.p4);
+        if (offscreen(std::min({a.x, b.x, c.x, d.x}), std::min({a.y, b.y, c.y, d.y}),
+                      std::max({a.x, b.x, c.x, d.x}), std::max({a.y, b.y, c.y, d.y})))
+            continue;
+        dl->AddQuad(a, b, c, d, quad.color, static_cast<float>(quad.outlineThickness));
     }
 
     for (const auto& line : prims.lines) {
         float w = line.screenSpaceWidth ? static_cast<float>(line.width) : m.px(line.width);
-        dl->AddLine(m.toScreen(line.a), m.toScreen(line.b), line.color, w);
+        ImVec2 a = m.toScreen(line.a), b = m.toScreen(line.b);
+        if (offscreenSeg(a, b, w + 1.0f)) continue;
+        dl->AddLine(a, b, line.color, w);
     }
 
     for (const auto& poly : prims.polylines) {
         if (poly.pts.size() < 2) continue;
+        float w = poly.screenSpaceWidth ? static_cast<float>(poly.width) : m.px(poly.width);
         std::vector<ImVec2> pts;
         pts.reserve(poly.pts.size());
-        for (const auto& p : poly.pts) pts.push_back(m.toScreen(p));
-        float w = poly.screenSpaceWidth ? static_cast<float>(poly.width) : m.px(poly.width);
+        float minx = 1e30f, miny = 1e30f, maxx = -1e30f, maxy = -1e30f;
+        for (const auto& p : poly.pts) {
+            ImVec2 s = m.toScreen(p);
+            pts.push_back(s);
+            minx = std::min(minx, s.x); maxx = std::max(maxx, s.x);
+            miny = std::min(miny, s.y); maxy = std::max(maxy, s.y);
+        }
+        if (offscreen(minx - w, miny - w, maxx + w, maxy + w)) continue;
         dl->AddPolyline(pts.data(), static_cast<int>(pts.size()), poly.color, ImDrawFlags_None, w);
     }
 
@@ -187,11 +221,18 @@ void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
             dl->AddCircle(c, r, circle.color, circleSegs(r), static_cast<float>(circle.thickness));
     }
 
-    for (const auto& arrow : prims.arrows)
+    for (const auto& arrow : prims.arrows) {
+        ImVec2 p = m.toScreen(arrow.pos);
+        float r = m.px(arrow.size) + 2.0f;
+        if (offscreen(p.x - r, p.y - r, p.x + r, p.y + r)) continue;
         drawArrowHead(dl, m, arrow.pos, arrow.dir, arrow.size, arrow.color);
+    }
 
-    for (const auto& label : prims.labels)
-        dl->AddText(m.toScreen(label.pos), label.color, label.text.c_str());
+    for (const auto& label : prims.labels) {
+        ImVec2 p = m.toScreen(label.pos);
+        if (offscreen(p.x, p.y, p.x + 120.0f, p.y + 16.0f)) continue; // ~text extent
+        dl->AddText(p, label.color, label.text.c_str());
+    }
 
     drawLegend(dl, origin, size, prims.legend);
 }
