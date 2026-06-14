@@ -26,12 +26,17 @@ const BranchResult* branchFor(const CircuitSolution* solution, int componentId) 
     return nullptr;
 }
 
+// Все 8 типов ComponentType покрыты (баг №2: Capacitor/Inductor/Diode/Switch давали "?")
 const char* componentTypeLabel(ComponentType type) {
     switch (type) {
         case ComponentType::Wire: return "Wire";
         case ComponentType::Resistor: return "Resistor";
         case ComponentType::VoltageSource: return "Voltage Source";
         case ComponentType::Ground: return "Ground";
+        case ComponentType::Capacitor: return "Capacitor";
+        case ComponentType::Inductor: return "Inductor";
+        case ComponentType::Diode: return "Diode";
+        case ComponentType::Switch: return "Switch";
     }
     return "?";
 }
@@ -42,6 +47,10 @@ const char* componentModelLabel(const Component& component) {
         case ComponentType::Resistor: return "Lumped linear resistor";
         case ComponentType::VoltageSource: return "Ideal voltage source";
         case ComponentType::Ground: return "Reference potential definition";
+        case ComponentType::Capacitor: return "Lumped linear capacitor";
+        case ComponentType::Inductor: return "Lumped linear inductor";
+        case ComponentType::Diode: return "Ideal piecewise-linear diode";
+        case ComponentType::Switch: return "Ideal switch (open/closed)";
     }
     return "?";
 }
@@ -56,6 +65,14 @@ current_lab::visualization::VisualizationStatus layerInfoForComponent(const Comp
         case ComponentType::VoltageSource:
             return layerStatus(VisualizationLayer::Power);
         case ComponentType::Ground:
+            return layerStatus(VisualizationLayer::Potential);
+        case ComponentType::Capacitor:
+            return layerStatus(VisualizationLayer::Potential);
+        case ComponentType::Inductor:
+            return layerStatus(VisualizationLayer::Potential);
+        case ComponentType::Diode:
+            return layerStatus(VisualizationLayer::Power);
+        case ComponentType::Switch:
             return layerStatus(VisualizationLayer::Potential);
     }
     return layerStatus(VisualizationLayer::Potential);
