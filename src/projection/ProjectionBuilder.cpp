@@ -1735,7 +1735,8 @@ void emitTurbine(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
     uint32_t col = packColor(static_cast<unsigned>(120 + 60 * iFrac),
                              static_cast<unsigned>(170 + 30 * iFrac), 255, 235);
     ctx.out.circles.push_back({mid, radius, col, 2.0 + 2.0 * iFrac, false, false});
-    double angle0 = ctx.p.time * flow * kVisualSpinRate;
+    // турбина теперь использует интеграл потока (spinPhase), как насос/индуктор — без рывков при смене тока
+    double angle0 = spinPhase(ctx, comp.id, flow, kVisualSpinRate);
     for (int s = 0; s < 4; ++s) {
         double angle = angle0 + s * (kPi / 2.0);
         Vec2 dir(std::cos(angle), std::sin(angle));
