@@ -681,7 +681,7 @@ struct ParticleSim::Impl {
             totalWeight += weight;
             // weighted reservoir pick, deterministic enough via running hash
             pickState = pickState * 1664525u + 1013904223u;
-            double roll = (pickState % 10000u) / 10000.0;
+            double roll = (pickState >> 16) / 65536.0;
             if (roll < weight / totalWeight) best = static_cast<int>(i);
         }
         return best;
