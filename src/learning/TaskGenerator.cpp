@@ -14,10 +14,15 @@ const BranchResult* branchFor(const CircuitSolution& solution, int componentId) 
     return nullptr;
 }
 
-std::string format(const char* fmt, double a, double b = 0.0, double c = 0.0, double d = 0.0) {
-    char buf[256];
-    std::snprintf(buf, sizeof(buf), fmt, a, b, c, d);
-    return buf;
+// Функция сама определяет нужный размер буфера через snprintf(nullptr, 0, ...),
+// чтобы длинные строки (например, многострочные solutionExplanation) не усекались.
+std::string format(const char* fmt, double a = 0.0, double b = 0.0, double c = 0.0, double d = 0.0) {
+    int needed = std::snprintf(nullptr, 0, fmt, a, b, c, d);
+    if (needed < 0) return {};
+    std::string out(static_cast<size_t>(needed) + 1, '\0');
+    std::snprintf(out.data(), out.size(), fmt, a, b, c, d);
+    out.resize(static_cast<size_t>(needed));
+    return out;
 }
 
 double toleranceFor(double truth, double absFloor) {
@@ -120,9 +125,10 @@ GeneratedTask TaskGenerator::generate(TaskFamily family, int difficulty) {
                 double R3 = pickR();
                 r2Id = c.addComponent(ComponentType::Resistor, n2, n3, R2);
                 c.addComponent(ComponentType::Resistor, n3, gnd, R3);
+                // R3 теперь выводится в условии, чтобы студент мог решить задачу аналитически
                 task.prompt = format(
-                    "Three resistors in series across a source: R1 = %.0f, R2 = %.0f, R3 (third) Ohm.\n",
-                    R1, R2);
+                    "Three resistors in series across a source: R1 = %.0f Ohm, R2 = %.0f Ohm, R3 = %.0f Ohm.\n",
+                    R1, R2, R3);
                 task.prompt += format("Source voltage: %.1f V. Find the voltage across R2, in V.", V);
             } else {
                 r2Id = c.addComponent(ComponentType::Resistor, n2, gnd, R2);

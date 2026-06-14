@@ -116,7 +116,9 @@ The test suite covers:
 
 ## Known Limitations
 
-- No transient simulation, capacitance or inductance
+- Transient RC/RL with capacitance and inductance is implemented (companion
+  models, Backward Euler / trapezoidal); however there is no AC (sinusoidal)
+  source yet, and the diode is an ideal piecewise-linear model (no Shockley)
 - No full Maxwell / Laplace / Poisson field solve
 - Surface charge remains heuristic
 - Magnetic field remains a local qualitative teaching overlay, not a full 3D solve

@@ -17,6 +17,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <format>
 
 namespace {
 
@@ -1043,15 +1044,15 @@ void MainWindow::renderRightInspector(const DistributedWireParameters& params) {
     ImGui::Spacing();
     ImGui::SeparatorText(tr("Oscilloscope"));
     if (selectedComp && selectedComp->type != ComponentType::Ground) {
-        char lbl[64];
-        if (ImGui::SmallButton(tr("Pin I"))) { snprintf(lbl,sizeof lbl,"I %s%d",componentTypeLabel(selectedComp->type),selectedComp->id); m_recorder.addChannel(lbl, current_lab::simulation::SignalChannel::Kind::BranchI, selectedComp->id); }
+        std::string lbl;
+        if (ImGui::SmallButton(tr("Pin I"))) { lbl = std::format("I {}{}", componentTypeLabel(selectedComp->type), selectedComp->id); m_recorder.addChannel(lbl, current_lab::simulation::SignalChannel::Kind::BranchI, selectedComp->id); }
         ImGui::SameLine();
-        if (ImGui::SmallButton(tr("Pin T"))) { snprintf(lbl,sizeof lbl,"T %s%d",componentTypeLabel(selectedComp->type),selectedComp->id); m_recorder.addChannel(lbl, current_lab::simulation::SignalChannel::Kind::ElemT, selectedComp->id); }
+        if (ImGui::SmallButton(tr("Pin T"))) { lbl = std::format("T {}{}", componentTypeLabel(selectedComp->type), selectedComp->id); m_recorder.addChannel(lbl, current_lab::simulation::SignalChannel::Kind::ElemT, selectedComp->id); }
         ImGui::SameLine();
-        if (ImGui::SmallButton(tr("Pin P"))) { snprintf(lbl,sizeof lbl,"P %s%d",componentTypeLabel(selectedComp->type),selectedComp->id); m_recorder.addChannel(lbl, current_lab::simulation::SignalChannel::Kind::ElemP, selectedComp->id); }
+        if (ImGui::SmallButton(tr("Pin P"))) { lbl = std::format("P {}{}", componentTypeLabel(selectedComp->type), selectedComp->id); m_recorder.addChannel(lbl, current_lab::simulation::SignalChannel::Kind::ElemP, selectedComp->id); }
     }
     if (selectedNode) {
-        if (ImGui::SmallButton(tr("Pin V"))) { char lbl[64]; snprintf(lbl,sizeof lbl,"V n%d",selectedNode->id); m_recorder.addChannel(lbl, current_lab::simulation::SignalChannel::Kind::NodeV, selectedNode->id); }
+        if (ImGui::SmallButton(tr("Pin V"))) { std::string lbl = std::format("V n{}", selectedNode->id); m_recorder.addChannel(lbl, current_lab::simulation::SignalChannel::Kind::NodeV, selectedNode->id); }
     }
     if (m_recorder.channelCount() > 0) { ImGui::SameLine(); if (ImGui::SmallButton(tr("Clear"))) m_recorder.clear(); }
     auto& chans = m_recorder.channels();
@@ -1066,9 +1067,9 @@ void MainWindow::renderRightInspector(const DistributedWireParameters& params) {
         }
         if (hi - lo < 1e-6f) { hi += 0.5f; lo -= 0.5f; }
         int offset = ch.count < current_lab::simulation::kSignalRingSize ? 0 : ch.head;
-        char overlay[80]; snprintf(overlay, sizeof overlay, "%s = %.3f", ch.label.c_str(), newest);
+        std::string overlay = std::format("{} = {:.3f}", ch.label, newest);
         ImGui::PushID(i);
-        ImGui::PlotLines("##scope", ch.ring, ch.count, offset, overlay, lo, hi, ImVec2(-1, 48));
+        ImGui::PlotLines("##scope", ch.ring, ch.count, offset, overlay.c_str(), lo, hi, ImVec2(-1, 48));
         if (ImGui::SmallButton(tr("Remove"))) { m_recorder.removeChannel(i); ImGui::PopID(); break; }
         ImGui::PopID();
     }
@@ -1246,7 +1247,6 @@ void MainWindow::renderElementEditor(const DistributedWireParameters& params) {
     double current = br ? br->current : 0.0;
     double power = br ? br->power : 0.0;
 
-    char name[32];
     const char* prefix = "X";
     if (component->type == ComponentType::Resistor) prefix = "R";
     else if (component->type == ComponentType::VoltageSource) prefix = "V";
@@ -1256,9 +1256,9 @@ void MainWindow::renderElementEditor(const DistributedWireParameters& params) {
     else if (component->type == ComponentType::Inductor) prefix = "L";
     else if (component->type == ComponentType::Diode) prefix = "D";
     else if (component->type == ComponentType::Switch) prefix = "S";
-    std::snprintf(name, sizeof(name), "%s%d", prefix, component->id);
+    std::string name = std::format("{}{}", prefix, component->id);
 
-    ImGui::Text("Name: %s", name);
+    ImGui::Text("Name: %s", name.c_str());
     ImGui::TextDisabled("ComponentId: %d", component->id);
     ImGui::Separator();
 
@@ -1436,12 +1436,3 @@ void MainWindow::renderBottomAnalysis(const DistributedWireParameters& params) {
     ImGui::EndChild();
 }
 
-void MainWindow::renderToolbar() {
-    renderToolRail();
-}
-
-void MainWindow::renderLog() {
-    ImGui::BeginChild("LogPanel", ImVec2(0, m_logHeight), ImGuiChildFlags_Border);
-    m_inspector.log().render();
-    ImGui::EndChild();
-}

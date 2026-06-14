@@ -130,7 +130,11 @@ bool httpPost(const std::string& host, int port, const std::string& path,
     char buf[4096];
     for (;;) {
         long n = recvSome(fd, buf, sizeof(buf));
-        if (n <= 0) break;
+        if (n == 0) break;              // штатный EOF — соединение закрыто корректно
+        if (n < 0) {                    // ошибка или таймаут recv
+            closeSocket(fd);
+            return fail(error, "recv failed or timed out");
+        }
         raw.append(buf, static_cast<size_t>(n));
     }
     closeSocket(fd);

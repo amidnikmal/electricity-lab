@@ -3,6 +3,7 @@
 #include "learning/TaskGenerator.h"
 #include <cmath>
 #include <optional>
+#include <format>
 #include <string>
 
 // Learning-session state machine. The AI-resilience safeguards live HERE as
@@ -141,11 +142,10 @@ public:
         if (m_predictionRecorded)
             context += "Student's prediction: " + m_prediction + "\n";
         if (m_lastAttempt) {
-            char buf[128];
-            std::snprintf(buf, sizeof(buf), "Student's attempt: %.6g %s (%s)\n",
-                          m_lastAttempt->submittedValue, m_task->answerUnit.c_str(),
-                          m_lastAttempt->correct ? "matches the measurement"
-                                                 : "does not match the measurement");
+            std::string buf = std::format("Student's attempt: {:.6g} {} ({})\n",
+                                          m_lastAttempt->submittedValue, m_task->answerUnit,
+                                          m_lastAttempt->correct ? "matches the measurement"
+                                                                 : "does not match the measurement");
             context += buf;
         }
         return context;

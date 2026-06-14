@@ -263,3 +263,12 @@ TEST(LlmClient, CriticPromptForbidsSolving) {
     EXPECT_NE(prompt.find("never produce the final numeric answer"), std::string::npos);
     EXPECT_NE(prompt.find("counter-question"), std::string::npos);
 }
+
+TEST(TaskGenerator, ThreeSeriesResistorsPromptIsSolvable) {
+    TaskGenerator generator(7);
+    auto task = generator.generate(TaskFamily::SeriesResistors, 3);
+
+    EXPECT_EQ(task.prompt.find("(third)"), std::string::npos);
+    EXPECT_NE(task.prompt.find("R3"), std::string::npos);
+    EXPECT_NE(task.prompt.find("R3 ="), std::string::npos);
+}

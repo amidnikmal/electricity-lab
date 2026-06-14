@@ -30,8 +30,6 @@ private:
     void rebuildDistributed();
     void refreshSolution();
     void setupTestCircuit();
-    void renderToolbar();
-    void renderLog();
     void renderTopBar();
     void renderToolRail();
     void renderRightInspector(const DistributedWireParameters& params);
@@ -108,7 +106,6 @@ private:
 
     float m_leftWidth = 76;
     float m_rightWidth = 320;
-    float m_logHeight = 120;
     float m_bottomHeight = 118;
     bool m_showCurrent = true;
     bool m_electronFlow = false;

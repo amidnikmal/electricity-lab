@@ -6,6 +6,7 @@
 #include "learning/Lessons.h"
 #include "imgui.h"
 
+#include <cstdio>
 #include <cstring>
 
 using namespace current_lab::learning;
@@ -131,6 +132,9 @@ void LearningPanel::renderTaskSection() {
     if (ImGui::Button(tr("Submit attempt"))) {
         auto result = m_session.submitAttempt(m_attemptInput);
         if (result.accepted) {
+            // Формат-строка переводимая (tr() возвращает её во время выполнения),
+            // а std::format требует строку формата времени компиляции — поэтому
+            // здесь намеренно остаётся snprintf с printf-спецификаторами.
             char buf[160];
             std::snprintf(buf, sizeof(buf),
                           tr("Measured: %.4g %s. Your attempt is %s (tolerance %.3g)."),

@@ -156,32 +156,29 @@ TEST(LlmReplyExtractor, UnescapesCommonEscapeSequences) {
     EXPECT_EQ(reply, "a\"b\\c\nd\te\rf/g");
 }
 
-TEST(LlmReplyExtractor, UnknownEscapeKeepsFollowingChar) {
-    // Not valid JSON, but the unescaper's documented fallback is to drop the
-    // backslash and keep the next character.
+TEST(LlmReplyExtractor, InvalidEscapeIsRejected) {
+    // A real JSON parser rejects unsupported escape sequences such as \q and \z.
     std::string response = R"json({"message":{"content":"a\qb\zc"}})json";
     std::string reply;
-    ASSERT_TRUE(extractAssistantReply(response, &reply));
-    EXPECT_EQ(reply, "aqbzc");
+    EXPECT_FALSE(extractAssistantReply(response, &reply));
 }
 
-TEST(LlmReplyExtractor, UnicodeEscapeBecomesQuestionMark) {
+TEST(LlmReplyExtractor, UnicodeEscapeDecodesToUtf8) {
     std::string reply;
-    // v1 limitation: every \uXXXX (even plain ASCII A == 'A') becomes '?'.
+    // Unicode escapes are decoded correctly: Cyrillic is preserved as UTF-8.
     // Raw string literals keep the backslash-u bytes intact.
     ASSERT_TRUE(extractAssistantReply(
         R"json({"message":{"content":"pre\u0416mid\u0041post"}})json", &reply));
-    EXPECT_EQ(reply, "pre?mid?post");
+    EXPECT_EQ(reply, "pre\xD0\x96midApost");
 
-    // A surrogate pair (one emoji) becomes two question marks.
+    // A surrogate pair decodes to one UTF-8 emoji.
     ASSERT_TRUE(extractAssistantReply(
         R"json({"message":{"content":"x\ud83d\ude00y"}})json", &reply));
-    EXPECT_EQ(reply, "x??y");
+    EXPECT_EQ(reply, "x\xF0\x9F\x98\x80y");
 
-    // The four chars after \u are skipped blindly, hex or not.
-    ASSERT_TRUE(extractAssistantReply(
+    // Invalid \u escapes make the whole JSON invalid.
+    EXPECT_FALSE(extractAssistantReply(
         R"json({"message":{"content":"a\uZZZZb"}})json", &reply));
-    EXPECT_EQ(reply, "a?b");
 }
 
 TEST(LlmReplyExtractor, EmptyContentYieldsEmptyReply) {
@@ -251,15 +248,14 @@ TEST(LlmReplyExtractor, FailsWhenStringEndsWithEscapedQuote) {
         R"json({"message":{"content":"trailing\"})json", &reply));
 }
 
-TEST(LlmReplyExtractor, NumericContentGrabsNextStringToken) {
-    // Quirk of the targeted scanner (not a general parser): when content is a
-    // number, the first quote after the colon belongs to the NEXT key, so the
-    // call "succeeds" and returns that key's text instead of failing.
+TEST(LlmReplyExtractor, NumericContentFails) {
+    // content must be a string; real JSON structure is validated instead of
+    // scanning forward to the next quoted token.
     std::string response =
         R"json({"choices":[{"index":0,"message":{"role":"assistant","content":42},"finish_reason":"stop"}]})json";
-    std::string reply;
-    ASSERT_TRUE(extractAssistantReply(response, &reply));
-    EXPECT_EQ(reply, "finish_reason");
+    std::string reply = "sentinel";
+    EXPECT_FALSE(extractAssistantReply(response, &reply));
+    EXPECT_EQ(reply, "sentinel");
 }
 
 TEST(LlmReplyExtractor, NumericContentWithNoLaterStringFails) {
@@ -279,13 +275,11 @@ TEST(LlmReplyExtractor, EarlierMessageValueStillFindsRealContent) {
     EXPECT_EQ(reply, "real reply");
 }
 
-TEST(LlmReplyExtractor, DoesNotValidateSurroundingStructure) {
-    // Quirk: any "content" key after any "message" substring is accepted —
-    // the scanner never checks that content is nested inside a message object.
+TEST(LlmReplyExtractor, ValidatesSurroundingStructure) {
+    // Extraction checks real nesting; decoy content outside message is ignored.
     std::string reply;
-    ASSERT_TRUE(extractAssistantReply(
+    EXPECT_FALSE(extractAssistantReply(
         R"json({"note":"message","content":"decoy"})json", &reply));
-    EXPECT_EQ(reply, "decoy");
 }
 
 TEST(LlmReplyExtractor, ShortUnicodeEscapeEatsClosingQuoteAndFails) {
