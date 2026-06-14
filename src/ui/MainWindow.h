@@ -11,6 +11,7 @@
 #include "ui/LearningPanel.h"
 #include "ui/PaneLayout.h"
 #include "physics/ParticleSim.h"
+#include "projection/MechanicsCoupling.h"
 #include <memory>
 #include <unordered_map>
 
@@ -72,6 +73,9 @@ private:
     // that moves the sim rollers, so the drive sprocket/junction gears spin
     // WITH the chain instead of crawling on the ∫I dt phase. See ProjectionBuilder.
     std::unordered_map<int, double> m_chainTravel;
+    // Rigid-axle rotation signs (one per connected mechanism) so all chains on a
+    // shared node turn together. See projection/MechanicsCoupling.h.
+    current_lab::mechanics::AxleCoupling m_axleCoupling;
     std::vector<current_lab::physics::SimParticle> m_electronParticles;
     std::vector<current_lab::physics::SimParticle> m_waterParticles;
     std::vector<current_lab::physics::PaddleState> m_waterPaddles;

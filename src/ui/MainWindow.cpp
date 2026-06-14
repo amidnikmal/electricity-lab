@@ -3,6 +3,7 @@
 #include "ui/UiHelpers.h"
 #include "circuit/DemoCircuits.h"
 #include "projection/MechanicsMapping.h"
+#include "projection/MechanicsCoupling.h"
 #include "visualization/VisualizationStatus.h"
 #include "visualization/VisualizationPresets.h"
 #include "ui/Format.h"
@@ -326,6 +327,11 @@ void MainWindow::updateParticleSim(float realDt) {
                                                       solution, dt);
         return;
     }
+    // Rigid-axle coupling: every chain in one connected mechanism shares a
+    // single rotation sign, so gears on a shared node spin together instead of
+    // fighting (see MechanicsCoupling.h). Computed once per frame from the SAME
+    // model + solution the chains are built from.
+    m_axleCoupling = current_lab::mechanics::computeAxleCoupling(m_circuit, solution);
     for (const auto& comp : m_circuit.components) {
         if (comp.type == ComponentType::Ground || comp.type == ComponentType::Capacitor)
             continue;
@@ -346,9 +352,13 @@ void MainWindow::updateParticleSim(float realDt) {
         spec.halfWidth = current_lab::physics::chain_geometry::chainHalfWidth(m_wireThickness);
         // Same visual ceiling as the electron drift (±120): the chain shows
         // the SAME current, it must not look slower than the electrons.
+        // Direction comes from the rigid-axle coupling (one sign per connected
+        // mechanism), NOT from this component's arbitrary nodeA->nodeB order, so
+        // the whole chain system turns as one body.
+        double mappedSpeed = current_lab::mechanics::chainSpeedFromCurrent(current) *
+                             current_lab::mechanics::kVisualChainSpeed * 100.0;
         spec.targetSpeed = std::clamp(
-            current_lab::mechanics::chainSpeedFromCurrent(current) *
-                current_lab::mechanics::kVisualChainSpeed * 100.0,
+            m_axleCoupling.signFor(comp.id) * std::abs(mappedSpeed),
             -120.0, 120.0);
         spec.brake = comp.type == ComponentType::Resistor;
         spec.driveSprocket = comp.type == ComponentType::VoltageSource;
@@ -635,6 +645,7 @@ void MainWindow::configureCanvasForMechanicsView(CircuitCanvas& canvas) {
     canvas.setSimParticles(nullptr); // mechanics uses the chain, not electrons
     canvas.setChainLinks(&m_chainLinks);
     canvas.setChainTravel(&m_chainTravel);
+    canvas.setAxleCoupling(&m_axleCoupling);
     canvas.setProjection(current_lab::projection::ProjectionKind::Mechanical);
 }
 
