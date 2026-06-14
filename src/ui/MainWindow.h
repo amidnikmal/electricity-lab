@@ -11,6 +11,8 @@
 #include "ui/LearningPanel.h"
 #include "ui/PaneLayout.h"
 #include "physics/ParticleSim.h"
+#include "physics/ThermalModel.h"
+#include "simulation/SignalRecorder.h"
 #include <memory>
 #include <unordered_map>
 
@@ -48,6 +50,7 @@ private:
     void onCircuitChanged();
     void mapDistributedSolution();
     void applyVisualizationPreset(int presetIndex);
+    double elementTemperatureK(int originalComponentId) const;
 
     Circuit m_circuit;
     Circuit m_distributedCircuit;
@@ -59,6 +62,8 @@ private:
     // Единый живой режим: DC steady и Transient слиты (см. simulation/LiveSim.h).
     current_lab::simulation::LiveSim m_liveSim;
     float m_manualSimSpeed = 1.0f; // слайдер ручной скорости (когда авто выключено)
+    current_lab::physics::ThermalState m_thermal;
+    current_lab::simulation::SignalRecorder m_recorder;
 
     current_lab::ui::PaneLayoutTree m_paneTree;
     // Two separate microdynamics worlds: electrons must not collide with the

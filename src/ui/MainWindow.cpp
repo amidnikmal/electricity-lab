@@ -108,7 +108,7 @@ MainWindow::MainWindow() {
         m_fitDualViewsRequested = true;
         // Новая цепь = новое id-пространство: старый заряд не должен
         // прилипнуть к чужим компонентам.
-        m_liveSim.discharge();
+        m_liveSim.discharge(); m_thermal.reset();
         onCircuitChanged();
     };
     applyVisualizationPreset(m_visualPreset);
@@ -379,6 +379,12 @@ void MainWindow::advanceLiveSim(float realDt) {
     if (m_liveSim.advance(m_distributedCircuit, m_solver, realDt, m_distributedSolution)) {
         mapDistributedSolution();
         m_solved = true;
+        current_lab::physics::stepThermal(m_thermal, m_distributedCircuit, m_distributedSolution, m_liveSim.dt());
+        current_lab::physics::ThermalState aggregated;
+        for (const auto& c : m_circuit.components)
+            if (c.type != ComponentType::Ground)
+                aggregated.temperature[c.id] = elementTemperatureK(c.id);
+        m_recorder.sample(m_solution, aggregated, m_liveSim.time());
     }
 }
 
@@ -386,6 +392,12 @@ void MainWindow::stepLiveSimOnce() {
     m_liveSim.stepOnce(m_distributedCircuit, m_solver, m_distributedSolution);
     mapDistributedSolution();
     m_solved = true;
+    current_lab::physics::stepThermal(m_thermal, m_distributedCircuit, m_distributedSolution, m_liveSim.dt());
+    current_lab::physics::ThermalState aggregated;
+    for (const auto& c : m_circuit.components)
+        if (c.type != ComponentType::Ground)
+            aggregated.temperature[c.id] = elementTemperatureK(c.id);
+    m_recorder.sample(m_solution, aggregated, m_liveSim.time());
 }
 
 void MainWindow::mapDistributedSolution() {
@@ -475,6 +487,17 @@ void MainWindow::applyVisualizationPreset(int presetIndex) {
     m_showCanvasReadouts = layers.canvasReadouts;
     m_debugMode = layers.debugMarkers;
     m_showDebugLog = layers.debugLog;
+}
+
+double MainWindow::elementTemperatureK(int originalComponentId) const {
+    double hottest = current_lab::physics::kAmbientTemperature;
+    for (int i = 0; i < (int)m_distributedCircuit.distributedSource.size(); ++i) {
+        if (m_distributedCircuit.distributedSource[i] == originalComponentId) {
+            double t = current_lab::physics::temperatureFor(m_thermal, m_distributedCircuit.components[i].id);
+            if (t > hottest) hottest = t;
+        }
+    }
+    return hottest;
 }
 
 static const char* modeLabel(EditorMode m) {
@@ -798,7 +821,7 @@ void MainWindow::renderTopBar() {
         stepLiveSimOnce();
     ImGui::SameLine();
     if (ImGui::Button(tr("Discharge"))) {
-        m_liveSim.discharge();
+        m_liveSim.discharge(); m_thermal.reset();
         refreshSolution();
         m_inspector.log().addMessage("Discharged: Vc = 0, Il = 0, t = 0.");
     }
@@ -853,7 +876,7 @@ void MainWindow::renderTopBar() {
                 // Живой режим: демка просто загружается разряженной и сама
                 // проигрывает свой процесс (в авто-замедлении); никакого
                 // переключения режимов больше нет.
-                m_liveSim.discharge();
+                m_liveSim.discharge(); m_thermal.reset();
                 m_fitDualViewsRequested = true;
                 onCircuitChanged();
             }
@@ -986,6 +1009,50 @@ void MainWindow::renderRightInspector(const DistributedWireParameters& params) {
     }
 
     ImGui::Spacing();
+    ImGui::SeparatorText(tr("Thermometer"));
+    if (selectedComp && selectedComp->type != ComponentType::Ground) {
+        double tc = current_lab::physics::celsius(elementTemperatureK(selectedComp->id));
+        ImGui::Text("%s %d: %.1f %s", tr(componentTypeLabel(selectedComp->type)), selectedComp->id, tc, tr("degC"));
+    } else {
+        ImGui::TextDisabled("%s", tr("Select an element for temperature."));
+    }
+
+    ImGui::Spacing();
+    ImGui::SeparatorText(tr("Oscilloscope"));
+    if (selectedComp && selectedComp->type != ComponentType::Ground) {
+        char lbl[64];
+        if (ImGui::SmallButton(tr("Pin I"))) { snprintf(lbl,sizeof lbl,"I %s%d",componentTypeLabel(selectedComp->type),selectedComp->id); m_recorder.addChannel(lbl, current_lab::simulation::SignalChannel::Kind::BranchI, selectedComp->id); }
+        ImGui::SameLine();
+        if (ImGui::SmallButton(tr("Pin T"))) { snprintf(lbl,sizeof lbl,"T %s%d",componentTypeLabel(selectedComp->type),selectedComp->id); m_recorder.addChannel(lbl, current_lab::simulation::SignalChannel::Kind::ElemT, selectedComp->id); }
+        ImGui::SameLine();
+        if (ImGui::SmallButton(tr("Pin P"))) { snprintf(lbl,sizeof lbl,"P %s%d",componentTypeLabel(selectedComp->type),selectedComp->id); m_recorder.addChannel(lbl, current_lab::simulation::SignalChannel::Kind::ElemP, selectedComp->id); }
+    }
+    if (selectedNode) {
+        if (ImGui::SmallButton(tr("Pin V"))) { char lbl[64]; snprintf(lbl,sizeof lbl,"V n%d",selectedNode->id); m_recorder.addChannel(lbl, current_lab::simulation::SignalChannel::Kind::NodeV, selectedNode->id); }
+    }
+    if (m_recorder.channelCount() > 0) { ImGui::SameLine(); if (ImGui::SmallButton(tr("Clear"))) m_recorder.clear(); }
+    auto& chans = m_recorder.channels();
+    for (int i = 0; i < (int)chans.size(); ++i) {
+        const auto& ch = chans[i];
+        float lo = 0.0f, hi = 0.0f; bool first = true; float newest = 0.0f;
+        for (int k = 0; k < ch.count; ++k) {
+            int idx = (ch.head - ch.count + k + current_lab::simulation::kSignalRingSize) % current_lab::simulation::kSignalRingSize;
+            float v = ch.ring[idx];
+            if (first) { lo = hi = v; first = false; } else { lo = std::min(lo,v); hi = std::max(hi,v); }
+            newest = v;
+        }
+        if (hi - lo < 1e-6f) { hi += 0.5f; lo -= 0.5f; }
+        int offset = ch.count < current_lab::simulation::kSignalRingSize ? 0 : ch.head;
+        char overlay[80]; snprintf(overlay, sizeof overlay, "%s = %.3f", ch.label.c_str(), newest);
+        ImGui::PushID(i);
+        ImGui::PlotLines("##scope", ch.ring, ch.count, offset, overlay, lo, hi, ImVec2(-1, 48));
+        if (ImGui::SmallButton(tr("Remove"))) { m_recorder.removeChannel(i); ImGui::PopID(); break; }
+        ImGui::PopID();
+    }
+    if (m_recorder.channelCount() == 0)
+        ImGui::TextDisabled("%s", tr("Pin a node (V) or element (I/T/P) to scope."));
+
+    ImGui::Spacing();
     ImGui::SeparatorText(tr("Selected Element"));
     if (selectedComp) {
         const Node* a = m_circuit.findNode(selectedComp->nodeA);
@@ -1103,14 +1170,14 @@ void MainWindow::renderRightInspector(const DistributedWireParameters& params) {
         m_solved = false;
         // Свежая цепь начинает id с нуля: разряд, чтобы старый заряд не
         // прилип к будущим компонентам с теми же id.
-        m_liveSim.discharge();
+        m_liveSim.discharge(); m_thermal.reset();
     }
     ImGui::SameLine();
     if (ImGui::Button(tr("Reset Demo"))) {
         setupTestCircuit();
         m_selNode = -1;
         m_selComp = -1;
-        m_liveSim.discharge();
+        m_liveSim.discharge(); m_thermal.reset();
         circuitEvent();
     }
 
