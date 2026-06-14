@@ -9,15 +9,23 @@
 
 namespace current_lab::physics {
 
-// Lumped RC thermal model, DISPLAY-ONLY (no R(T) feedback). Mirror of
-// TransientState: temperature per componentId, advanced by backward Euler
-// on the same dt as the electrical transient.
+// Сосредоточенная (lumped) RC тепловая модель, DISPLAY-ONLY (без обратной связи R(T)).
+// Зеркало TransientState: температура по componentId, продвигается обратным Эйлером
+// с тем же dt, что и электрический transient.
 //   C_th dT/dt = P_diss - (T - T_amb)/R_th
-// Steady state: T = T_amb + P_diss * R_th.
+// Установившийся режим: T = T_amb + P_diss * R_th.
 struct ThermalState {
     double time = 0.0;
-    std::unordered_map<int, double> temperature; // K, by componentId
+    std::unordered_map<int, double> temperature; // K, по componentId
     void reset() { *this = ThermalState{}; }
+};
+
+// Конфигурация теплового шага: позволяет переопределить R_th и C_th
+// для отдельных компонентов (по componentId). Пустые map —
+// используются глобальные константы kThermalResistance/kThermalCapacitance.
+struct ThermalConfig {
+    std::unordered_map<int, double> rThOverride; // componentId -> R_th (K/W)
+    std::unordered_map<int, double> cThOverride; // componentId -> C_th (J/K)
 };
 
 // Temperature of a component in Kelvin; kAmbientTemperature if absent.
@@ -28,13 +36,13 @@ inline double temperatureFor(const ThermalState& state, int componentId) {
 
 inline double celsius(double kelvin) { return kelvin - 273.15; }
 
-// One backward-Euler step over dt. For EVERY branch in `solution`, look up the
-// component type in `circuit` (circuit.findComponent(branch.componentId)),
-// compute P_diss = dissipatedPowerOnly(type, branch.power), and integrate that
-// component's temperature. Components not yet present start at kAmbientTemperature.
-// Advances state.time by dt. If dt <= 0, do nothing.
+// Один шаг обратным Эйлером за dt. Для КАЖДОЙ ветви в `solution` ищет тип компонента
+// в `circuit`, вычисляет P_diss = dissipatedPowerOnly, интегрирует температуру.
+// Компоненты, отсутствующие в state, начинают с kAmbientTemperature.
+// Продвигает state.time на dt. При dt <= 0 — бездействует.
 inline void stepThermal(ThermalState& state, const Circuit& circuit,
-                        const CircuitSolution& solution, double dt) {
+                        const CircuitSolution& solution, double dt,
+                        const ThermalConfig& config) {
     if (dt <= 0.0)
         return;
     for (const auto& branch : solution.branches) {
@@ -43,12 +51,31 @@ inline void stepThermal(ThermalState& state, const Circuit& circuit,
             continue;
         double Pdiss = dissipatedPowerOnly(comp->type, branch.power);
         double Told = temperatureFor(state, branch.componentId);
-        double a = kThermalCapacitance / dt;
-        double Tnew = (a * Told + Pdiss + kAmbientTemperature / kThermalResistance)
-                      / (a + 1.0 / kThermalResistance);
+
+        // Per-component override R_th, иначе глобальная константа
+        double Rth = kThermalResistance;
+        auto rit = config.rThOverride.find(branch.componentId);
+        if (rit != config.rThOverride.end())
+            Rth = rit->second;
+
+        // Per-component override C_th, иначе глобальная константа
+        double Cth = kThermalCapacitance;
+        auto cit = config.cThOverride.find(branch.componentId);
+        if (cit != config.cThOverride.end())
+            Cth = cit->second;
+
+        double a = Cth / dt;
+        double Tnew = (a * Told + Pdiss + kAmbientTemperature / Rth)
+                      / (a + 1.0 / Rth);
         state.temperature[branch.componentId] = Tnew;
     }
     state.time += dt;
+}
+
+// Версия без конфигурации — использует глобальные константы по умолчанию
+inline void stepThermal(ThermalState& state, const Circuit& circuit,
+                        const CircuitSolution& solution, double dt) {
+    stepThermal(state, circuit, solution, dt, ThermalConfig{});
 }
 
 } // namespace current_lab::physics
