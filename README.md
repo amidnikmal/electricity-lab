@@ -5,14 +5,15 @@
 
 Проект ориентирован на учебную физическую честность:
 
-- solver даёт схемное DC-решение через MNA;
+- solver даёт схемное DC-решение через MNA, плюс переходные процессы (transient)
+  для конденсаторов и катушек (companion-модели, Backward Euler / трапеции);
 - distributed wire даёт 1D-приближение конечного сопротивления провода;
-- визуальные слои помечены как `exact-sign`, `approximation`, `educational`,
-  `heuristic` или `qualitative quasi-static`;
+- визуальные слои помечены статусами `exact-sign`, `approximation`, `educational`,
+  `heuristic`, `qualitative` (см. `src/visualization/VisualizationStatus.h`);
 - renderer больше не придумывает E-field / drift / surface charge / B-field
   прямо внутри UI-логики: эти слои вынесены в чистые модели в `src/physics/`.
 
-## Quick Start
+## Быстрый старт
 
 ```bash
 cd current-lab
@@ -22,63 +23,77 @@ cmake --build build -j$(nproc)
 DISPLAY=:0 ./build/current-lab
 ```
 
-## Current Scope
+На Windows проект собирается через Ninja + MinGW (UCRT):
+`cmake -S . -B build -G Ninja && cmake --build build -j`.
 
-- Circuit editor: node, wire, resistor, voltage source, ground
-- DC steady-state solver: modified nodal analysis
-- Distributed wire mode: configurable `segments` and `R / unit`
-- Potential gradient on conductors
-- Current arrows with sign-correct branch current
-- E-field layer with `E ~= -dV/dx` along wires
-- Drift particles with explicit note that visual speed is amplified
-- Surface charge layer explicitly marked as heuristic
-- Magnetic field layer updated to `B ~ I/r` page-normal glyphs, marked qualitative
-- Heat and power layers with dissipation vs supply sign convention
-- Inspector with `Va`, `Vb`, `dV`, `I`, `P`, `Length`, distributed `R`, `E`
-- Visual presets:
-  - Circuit view
-  - Potential view
-  - E-field view
-  - Electron drift view
-  - Power/heat view
-  - Surface charge view
-  - Full educational overlay
-- Animation controls:
-  - pause
-  - speed slider
-  - reset time
+## Возможности
 
-## Physical Status Of Layers
+- Редактор цепей: узел, провод, резистор, источник напряжения, земля,
+  конденсатор, катушка, диод, ключ
+- DC-решатель установившегося режима: модифицированный узловой анализ (MNA)
+- Переходные процессы RC/RL: companion-модели C/L, Backward Euler / трапеции,
+  конденсатор хранит заряд Q = C·V
+- Диод: кусочно-линейная модель с порогом ~0.7 В (не идеальный «нулевой» порог)
+- Режим distributed wire: настраиваемые `segments` и `R / unit`
+- Градиент потенциала вдоль проводников (перцептивная палитра viridis)
+- Стрелки тока со знаково-корректным током ветви
+- Слой E-field: `E ≈ -dV/dx` вдоль проводов
+- Частицы дрейфа: скорость ∝ |I| (ноль при I=0), с явной пометкой, что
+  визуальная скорость усилена
+- Слой поверхностного заряда (эвристика): плотность ∝ градиенту |dV|/L
+- Слой магнитного поля: Био–Савар для конечного отрезка, видимый спад ~1/r,
+  модель соленоида (внутри однородное поле, снаружи диполь); static DC
+- Слои тепла и мощности (знак: рассеяние vs выдача)
+- Тепловая модель (сосредоточенная RC), осциллограф и термометр как потребители
+  посчитанного решения (`src/simulation/SignalRecorder.h`, `src/physics/ThermalModel.h`)
+- Двойная/тройная проекция: схема ↔ физика ↔ механика, плюс вид «вода» (гидроаналогия)
+- Инспектор: `Va`, `Vb`, `dV`, `I`, `P`, `Length`, distributed `R`, `E`, статус слоёв
+- Выбор reference-узла прямо в UI
+- Пресеты визуализации:
+  - вид «Схема»
+  - вид «Потенциал»
+  - вид «E-field»
+  - вид «Дрейф электронов»
+  - вид «Мощность/тепло»
+  - вид «Поверхностный заряд»
+  - полный учебный оверлей
+- Управление анимацией: пауза, слайдер скорости, сброс времени
+- Учебный модуль (predict-then-verify, attempt-first, critic-not-solver,
+  экспорт в Anki/FSRS)
 
-| Layer | Status | Notes |
+## Физический статус слоёв
+
+| Слой | Статус | Примечания |
 |---|---|---|
-| Solver current / voltage / power signs | `exact-sign` | From MNA solution |
-| Potential | `approximation` | Interpolated along distributed 1D wire model |
-| Electric field | `approximation` | `E ~= -dV/dx` along each conductor |
-| Drift | `educational` | Direction logic preserved, speed amplified for visibility |
-| Surface charge | `heuristic` | `sigma ~ (V - Vavg)` with junction-strength boost |
-| Magnetic field | `qualitative quasi-static` | `B ~ I/r`, right-hand-rule page glyphs |
-| Heat | `approximation` | Dissipated power only |
+| Ток / напряжение / знак мощности из solver | `exact-sign` | Из решения MNA |
+| Потенциал | `approximation` | Интерполяция вдоль 1D distributed-модели провода |
+| Электрическое поле | `approximation` | `E ≈ -dV/dx` вдоль каждого проводника |
+| Дрейф | `educational` | Направление сохранено, скорость ∝ \|I\|, усилена для наглядности |
+| Поверхностный заряд | `heuristic` | Плотность ∝ градиенту \|dV\|/L (теорема Гаусса), знаковый узор |
+| Магнитное поле | `qualitative static DC` | Био–Савар отрезка, спад ~1/r, модель соленоида |
+| Тепло | `approximation` | Сосредоточенная RC; readout — самый горячий сегмент |
 
-## Architecture
+## Архитектура
 
-Current data flow:
+Текущий поток данных:
 
 ```text
 Circuit
   -> Circuit::toDistributed(...)
-  -> CircuitSolver
-  -> physics/* pure visualization models
+  -> CircuitSolver  (DC + transient companion-модели)
+  -> physics/* чистые модели визуализации
   -> CircuitCanvas renderer
   -> MainWindow / InspectorPanel
 ```
 
-Key files:
+Ключевые файлы:
 
 ```text
 src/
   circuit/Circuit.h
+  circuit/CircuitValidator.h
   solver/CircuitSolver.h/.cpp
+  simulation/LiveSim.h/.cpp        (единая live-модель: DC как предел transient)
   physics/
     PhysicalUnits.h
     WirePhysics.h
@@ -86,7 +101,10 @@ src/
     DriftModel.h
     SurfaceChargeModel.h
     MagneticFieldModel.h
+    SolenoidModel.h
+    ThermalModel.h
     PowerModel.h
+  render/ColorMaps.h               (viridis/magma LUT)
   visualization/VisualizationStatus.h
   ui/
     MainWindow.h/.cpp
@@ -94,42 +112,50 @@ src/
     InspectorPanel.h/.cpp
 ```
 
-Important second-pass changes:
+Важные изменения второго прохода:
 
-- non-contiguous `node.id` and `component.id` are handled explicitly instead of
-  assuming `id == vector index`;
-- distributed-wire source mapping uses original component IDs, not vector offsets;
-- `CircuitCanvas` now consumes pure model samples for field, drift, magnetic and
-  surface-charge layers;
-- inspector exposes model status and per-element physical quantities.
+- непрерывность `node.id` и `component.id` не предполагается (не `id == индекс`);
+- distributed-wire маппинг источников использует оригинальные ID компонентов,
+  а не смещения в векторе;
+- `CircuitCanvas` потребляет чистые сэмплы моделей для слоёв поля, дрейфа,
+  магнитного поля и поверхностного заряда;
+- инспектор показывает статус моделей и физические величины по элементам.
 
-## Tests
+## Тесты
 
-The test suite covers:
+Набор тестов покрывает:
 
-- circuit graph operations and ID stability
-- solver correctness, sign conventions and distributed wire behaviour
-- consistency checks (KCL / KVL / power balance / Tellegen)
-- canvas state and geometry
-- pure visualization model behaviour for field, drift, magnetic field and
-  surface charge
+- операции над графом цепи и стабильность ID;
+- корректность solver, знаковые конвенции и поведение distributed wire;
+- проверки согласованности (KCL / KVL / баланс мощности / Tellegen);
+- переходные процессы (transient C/L);
+- состояние и геометрию канваса;
+- поведение чистых моделей визуализации (поле, дрейф, магнитное поле,
+  поверхностный заряд, палитры);
+- валидацию цепи (`CircuitValidator`).
 
-## Known Limitations
+## Известные ограничения
 
-- Transient RC/RL with capacitance and inductance is implemented (companion
-  models, Backward Euler / trapezoidal); however there is no AC (sinusoidal)
-  source yet, and the diode is an ideal piecewise-linear model (no Shockley)
-- No full Maxwell / Laplace / Poisson field solve
-- Surface charge remains heuristic
-- Magnetic field remains a local qualitative teaching overlay, not a full 3D solve
-- Potential is still referenced to the chosen ground; arbitrary reference switching
-  is not yet exposed in UI
-- Temperature evolution is not simulated; heat is power-based only
-- Save/load and undo/redo are still absent
+- Переходные процессы RC/RL реализованы (companion-модели, Backward Euler /
+  трапеции); однако **AC-источника (синусоидального) пока нет**, а диод —
+  кусочно-линейный (без модели Шокли);
+- интегратор по умолчанию — Backward Euler (демпфирует LC-колебания);
+- нет полного решения Максвелла / Лапласа / Пуассона для поля;
+- поверхностный заряд остаётся эвристикой;
+- магнитное поле — локальный учебный оверлей, не полный 3D-расчёт;
+- линейный solver не возвращает статус сингулярности/обусловленности
+  (`CircuitValidator` ловит грубые случаи: нет земли, плавающие узлы,
+  конфликт источников), но **не подключён к solve-пути / UI**;
+- эволюция температуры — упрощённая сосредоточенная RC, без R(T);
+- save/load и undo/redo пока отсутствуют.
 
-## Documentation
+Актуальный статус ресёрч-бэклога (что сделано / частично / нет, с пруфами в коде):
+**[docs/RESEARCH_BACKLOG_STATUS_2026-06-15.md](docs/RESEARCH_BACKLOG_STATUS_2026-06-15.md)**.
+
+## Документация
 
 - [docs/HANDOFF.md](docs/HANDOFF.md)
+- [docs/RESEARCH_BACKLOG_STATUS_2026-06-15.md](docs/RESEARCH_BACKLOG_STATUS_2026-06-15.md)
 - [docs/model_assumptions.md](docs/model_assumptions.md)
 - [docs/electricity_model_notes.md](docs/electricity_model_notes.md)
 - [docs/ARCHITECTURE_REVIEW.md](docs/ARCHITECTURE_REVIEW.md)
