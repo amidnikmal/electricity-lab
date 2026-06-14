@@ -1,5 +1,68 @@
 # Current Lab — Agent Handoff
 
+Date: 2026-06-15 (СДЕЛАНО: Партия А ресёрч-бэклога + КРИТИЧНЫЙ УРОК про устаревший
+бэклог. 515 зелёных, влито в main и запушено. ЧИТАЙ ЭТУ СЕКЦИЮ ПЕРВОЙ.)
+
+## 2026-06-15 — ПАРТИЯ А + ПЕРЕБАЗИРОВАНИЕ БЭКЛОГА (515 зелёных, в main)
+
+### ГЛАВНЫЙ УРОК (не повторять ошибку): БЭКЛОГ RESEARCH_REVIEW УСТАРЕЛ
+`docs/RESEARCH_REVIEW_2026-06-14.md` и `docs/research/*` писались ДО волны фиксов
+в ветке `fix/research-p0p1` (26 коммитов, влиты в main). Поэтому многие находки
+там УЖЕ ИСПРАВЛЕНЫ. Я сначала сверял бэклог с веткой `claude/analysis` (она
+смержила main на коммите b42506f — ДО p0p1) и решил, что Партия А не сделана.
+**ВСЕГДА сверяй задачи с `origin/main`, а не с claude/analysis или с текстом
+research-доков.** Быстрая проверка: `git show origin/main:<файл>` / `git grep ... origin/main`.
+
+### ЧТО УЖЕ СДЕЛАНО В main (проверено чтением кода origin/main, НЕ делать заново):
+- **V8 дрейф** ∝|I|, ноль при I=0 — `DriftModel.h` (коммит `154b9b6`, `kDriftVisualScale`).
+- **V9 поверхностный заряд** ∝|dV|/L — `SurfaceChargeModel.h` (`gradientMag=|dV|/lenSafe`, `gradScale`).
+- **B5 viridis** — `ColorMaps.h` (`kViridisLut` 17 анкеров + `kMagmaLut`, `potentialColor` на viridis).
+- **V6 диод** — НЕ нулевой порог: `kDiodeForwardDrop=0.7` (`CircuitSolver.cpp`).
+- **CircuitValidator** — есть `src/circuit/CircuitValidator.h` (находка A1 #3 частично закрыта).
+- **SolenoidModel** — есть `src/physics/SolenoidModel.h` (находка A6/#8 частично закрыта).
+- Ранее (из p0p1, тоже в main): HiDPI uiScale (V13), heat-glow по температуре (V15),
+  частицы V14 (радиус/застревание/LCG старшие биты), механика пружина∝q/тормоз/турбина (V11/V12).
+
+### ЧТО РЕАЛЬНО ДОБАВЛЕНО В ЭТОЙ СЕССИИ (Партия А, ветка `p2a-merge` → main):
+Ядро уже было готово, поэтому добавлены только недостающие РЕГРЕССИОННЫЕ ТЕСТЫ +
+мелочи (всё аддитивно, поведение ядра не менялось):
+- `fix(drift)` `f25ef0f`: вынес расчёт скорости в `inline driftSpeed()` (single-source) +
+  2 теста (`DriftSpeedIsExactlyZeroAtZeroCurrent`, `DriftSpeedScalesLinearlyWithCurrent`) в test_canvas.cpp.
+- `feat(render)` `2bcc418`: абстракция `enum class Colormap{Viridis,Magma}` + `colormapSample()`;
+  `potentialColor` через неё; вырожденный диапазон → нейтральный сине-серый. NEW tests/test_colormap.cpp
+  (5 тестов: эндпоинты viridis, МОНОТОННОСТЬ СВЕТЛОТЫ по Rec.709, клампы, вырожденный диапазон) + CMake.
+- `docs` `93e6d39`: сверка docs↔код — model_assumptions.md (Drift/E-field больше не «будущий слой»);
+  VISUALIZATION_MODEL.md (B-поле «quasi-static»→«static-DC», согласовано с VisualizationStatus.h).
+  «junction booster» в актуальном коде/доках уже нет (остался лишь в исторических PHYSICS_AUDIT/
+  RESEARCH_REVIEW/research — НЕ трогать, это летопись).
+
+### ПРОЦЕСС / ИНФРА (на заметку):
+- Многоагентный веер (4 агента в отдельных worktree от origin/main). **Сеть в этой сессии
+  рвала соединения: 3 из 4 агентов упали** (socket closed / stream idle timeout / watchdog 600s).
+  Уцелевшую работу подобрал, остальное (docs, charge-косметику) доделал/решил инлайн.
+- **charge-агент** (#7) дропнут: фикс ∝dV/L уже в main, агент успел лишь косметику (вынос
+  магических чисел в `kRefWireLength`/`kMaxGradScale`) и упал без теста — ценность ~0.
+- Сборка централизованная в `build/` (Ninja/MinGW), инкрементально на тёплом кэше. 515 зелёных.
+- Воркфлоу залоченного main: он в worktree `C:/Users/amidn/electricity-lab`; мёрж туда через
+  `git -C <путь> merge --ff-only <ветка>` (worktree чистый), затем push.
+
+### ОСТАВШИЕСЯ РЕАЛЬНЫЕ ЗАДАЧИ (сверены с main, НЕ сделаны) — кандидаты на «лёгкие»:
+- **AC-источник** (V7/находка A3, B3): в коде только DC `VoltageSource`, нет типа AC/частоты/sin.
+  Это корневая дыра (выпрямление, AC-демо, осциллограф V(t)). Объём средний — НЕ «лёгкая».
+- Транзиент A2: **хранить Q вместо V** (V3) и **инвалидация trapezoidal-истории на событиях**
+  (V4) — проверить статус в main перед стартом (могли тоже починить). Корректность ядра.
+- Выбор интегратора BE/Trapezoidal/Gear2 для LC (V5) — проверить статус.
+- LinearSolveResult{status,rank,residual,rcond} (A1) — есть ли уже? CircuitValidator уже есть.
+- Магнитное: проверить, что даёт SolenoidModel (Био–Савар отрезка, видимый спад 1/r).
+- Learning: prediction-вопросы против «ток расходуется»/«батарея=ток» (B8).
+- ПЕРЕД любой задачей из RESEARCH_REVIEW — сверь актуальность с origin/main!
+
+### ВЕТКИ/ЧИСТКА:
+- `p2a-merge` влита в main (FF) и запушена. Временные worktree `wt-drift/charge/colormap/docs`
+  и ветки `p2a-drift/charge/colormap/docs` — подлежат удалению (см. конец секции, чистил после мёржа).
+
+---
+
 Date: 2026-06-14 (СДЕЛАНО: ПРУЖИННЫЙ КОНДЕНСАТОР в механике (ветка
 feat/spring-capacitor, 496 зелёных) — пружина между кривошипами на двух встречно
 вращающихся валах; ранее — осциллограф+термометр влиты в main, жёсткая связь осей
