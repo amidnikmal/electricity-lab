@@ -1,119 +1,128 @@
-# Hydraulic Flow Test Plan
+# План тестирования гидравлического потока
 
-This plan defines how the water analogy should be tested against the electrical
-model. The goal is not to make Box2D water numerically identical to electron
-transport. The goal is to preserve the invariants that make the two pictures
-explain the same circuit behavior.
+> Статус 2026-06-15: тест-план реализован практически полностью — см. tests/test_water_network.cpp (поток/сохранение/равномерность через резистор, масштабирование с током) и tests/test_hydraulic.cpp (`HydraulicPowerEqualsElectricalPower`, сравнение мощности). Помощники замера потока (`FlowMeterCountsSignedVolumeCrossings`) на месте. Переведён на русский.
 
-## Source Of Truth
+Этот план определяет, как водяную аналогию тестировать против электрической
+модели. Цель — не сделать воду на Box2D численно тождественной переносу
+электронов. Цель — сохранить инварианты, благодаря которым обе картины
+объясняют одно и то же поведение цепи.
 
-- The circuit solver owns electrical truth: branch current `I`, voltage drop
-  `dV`, and power `P = I * dV`.
-- Hydraulic particles are coarse visual carriers. They must preserve flow
-  direction, monotonic flow magnitude, continuity through a series path, and
-  resistor dissipation cues.
-- Visual speed is amplified, so tests compare normalized rates and ratios, not
-  SI units.
+## Источник истины
 
-## Measured Quantity
+- Электрическую истину держит решатель цепи: ток ветви `I`, падение напряжения
+  `dV` и мощность `P = I * dV`.
+- Гидравлические частицы — грубые визуальные переносчики. Они обязаны сохранять
+  направление потока, монотонность модуля потока, непрерывность вдоль
+  последовательного пути и подсказки о диссипации на резисторе.
+- Визуальная скорость усилена, поэтому тесты сравнивают нормированные темпы и
+  отношения, а не единицы СИ.
 
-The main measured quantity is signed visual volume flow through a virtual
-cross-section of a pipe:
+## Измеряемая величина
+
+Главная измеряемая величина — знаковый визуальный объёмный поток через
+виртуальное поперечное сечение трубы:
 
 ```text
 Q_vis = signed_crossings * particle_area / elapsed_time
 particle_area = pi * particle_radius^2
 ```
 
-A crossing is counted when the same particle moves from one side of a station
-`t = constant` to the other side along the component axis. Positive crossings
-follow `nodeA -> nodeB`; negative crossings oppose it.
+Пересечение засчитывается, когда одна и та же частица переходит с одной стороны
+станции `t = constant` на другую вдоль оси компонента. Положительные пересечения
+идут по `nodeA -> nodeB`; отрицательные — против.
 
-This is deliberately different from mean velocity. Mean velocity can look right
-while particles pile up before a resistor. Cross-section transport catches
-actual throughput.
+Это намеренно отличается от средней скорости. Средняя скорость может выглядеть
+верно, пока частицы скапливаются перед резистором. Перенос через сечение ловит
+реальную пропускную способность.
 
-## Required Tests
+## Требуемые тесты
 
-### 1. Flow Rate Scales With Current
+### 1. Темп потока масштабируется с током
 
-Build two otherwise identical loops with different resistor values. After
-spin-up, measure `Q_vis` through the same wire section.
+Построить два в остальном идентичных контура с разными значениями резистора.
+После выхода на режим измерить `Q_vis` через одно и то же сечение провода.
+(есть: tests/test_water_network.cpp — `VolumeFlowScalesWithCircuitCurrent`)
 
-Expectation:
+Ожидание:
 
-- The sign of `Q_vis` matches branch current.
-- The higher-current loop has higher `abs(Q_vis)`.
-- The flow ratio is within a broad statistical band around the solver current
-  ratio. Granular contacts and visual clamps make exact proportionality
-  inappropriate.
+- Знак `Q_vis` совпадает с током ветви.
+- У контура с большим током выше `abs(Q_vis)`.
+- Отношение потоков лежит в широкой статистической полосе вокруг отношения
+  токов решателя. Гранулярные контакты и визуальные клампы делают точную
+  пропорциональность неуместной.
 
-### 2. Series Flow Is Conserved Through The Resistor
+### 2. Поток в последовательной цепи сохраняется через резистор
 
-In a single source-resistor-wire loop, measure `Q_vis` at:
+В одиночном контуре «источник-резистор-провод» измерить `Q_vis` в:
 
-- a pipe section before the resistor,
-- the resistor body,
-- a pipe section after the resistor.
+- сечении трубы до резистора,
+- теле резистора,
+- сечении трубы после резистора.
 
-Expectation:
+(есть: tests/test_water_network.cpp — `SeriesVolumeFlowIsConservedThroughResistor`)
 
-- Signs match each branch current.
-- Magnitudes are comparable inside one time window.
-- No section is near zero while the others are moving.
+Ожидание:
 
-This is the water analogue of the same current through every element in a
-series circuit.
+- Знаки совпадают с током каждой ветви.
+- Модули сопоставимы внутри одного временного окна.
+- Ни одно сечение не около нуля, пока остальные движутся.
 
-### 3. Resistor Does Not Accumulate Water
+Это водяной аналог одинакового тока через каждый элемент последовательной цепи.
 
-Track particle count inside the resistor body over several equal time windows.
+### 3. Резистор не накапливает воду
 
-Expectation:
+Отслеживать число частиц внутри тела резистора на нескольких равных временных
+окнах.
+(есть: tests/test_water_network.cpp — `ResistorDoesNotAccumulateWater`)
 
-- Count has no sustained upward or downward trend.
-- Final count remains close to the time-window average.
+Ожидание:
 
-This catches "particles enter the resistor but do not leave" and "the resistor
-acts like a hidden sink/source".
+- У счётчика нет устойчивого тренда вверх или вниз.
+- Финальное значение близко к среднему по окнам.
 
-### 4. Flow Through Resistor Is Temporally Uniform
+Это ловит «частицы входят в резистор, но не выходят» и «резистор работает как
+скрытый сток/источник».
 
-Measure per-window crossing counts through the resistor body.
+### 4. Поток через резистор равномерен во времени
 
-Expectation:
+Измерить число пересечений тела резистора по окнам.
+(есть: tests/test_water_network.cpp — `ResistorFlowIsTemporallyUniform`)
 
-- Most windows have nonzero transport.
-- Coefficient of variation is bounded by a loose granular-flow threshold.
+Ожидание:
 
-The visual should read as continuous current, not occasional bursts separated
-by long stalls.
+- В большинстве окон перенос ненулевой.
+- Коэффициент вариации ограничен мягким порогом гранулярного потока.
 
-### 5. Hydraulic Power Cue Tracks Electrical Power
+Визуально это должно читаться как непрерывный ток, а не редкие всплески,
+разделённые долгими остановками.
 
-For resistors with different `I` and `dV`, compare the solver power with the
-hydraulic projection cues.
+### 5. Гидравлическая подсказка мощности отслеживает электрическую мощность
 
-Expectation:
+Для резисторов с разными `I` и `dV` сравнить мощность решателя с подсказками
+гидравлической проекции.
+(есть: tests/test_hydraulic.cpp — `HydraulicPowerEqualsElectricalPower`, `AnalogEnergiesMatchElectricalEnergies`)
 
-- Larger dissipated electrical power gives a stronger resistor heat/constriction
-  cue.
-- This is tested via projection primitives or the existing power/heat model,
-  not via particle kinetic energy.
+Ожидание:
 
-## Statistical Policy
+- Большая рассеиваемая электрическая мощность даёт более сильную подсказку
+  нагрева/сужения на резисторе.
+- Это тестируется через примитивы проекции или существующую модель
+  мощности/тепла, а не через кинетическую энергию частиц.
 
-- Always include a spin-up period before measuring.
-- Measure over many fixed windows instead of one frame.
-- Prefer ratio/order assertions over exact equality.
-- Keep tolerances loose enough for deterministic Box2D contact noise, but tight
-  enough to catch frozen flow, one-way accumulation, and broken current scaling.
+## Статистическая политика
 
-## Implementation Order
+- Всегда включать период выхода на режим перед измерением.
+- Измерять по множеству фиксированных окон, а не по одному кадру.
+- Предпочитать утверждения об отношениях/порядке точному равенству.
+- Держать допуски достаточно широкими под детерминированный контактный шум
+  Box2D, но достаточно узкими, чтобы ловить замороженный поток, одностороннее
+  накопление и сломанное масштабирование тока.
 
-1. Add test-only flow measurement helpers.
-2. Add conservation and accumulation tests around the resistor.
-3. Add current-scaling tests.
-4. Add temporal-uniformity tests.
-5. Add projection-level power cue tests if existing projection tests do not
-   already cover the same contract.
+## Порядок реализации
+
+1. Добавить тест-only помощники замера потока.
+2. Добавить тесты сохранения и накопления вокруг резистора.
+3. Добавить тесты масштабирования с током.
+4. Добавить тесты временной равномерности.
+5. Добавить тесты подсказки мощности на уровне проекции, если существующие
+   тесты проекции ещё не покрывают тот же контракт.
