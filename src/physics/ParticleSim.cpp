@@ -72,8 +72,19 @@ struct ParticleSim::Impl {
     uint64_t signature = 0;
     bool connectedMode = false; // water network: one collision domain
 
+    std::vector<b2Body*> scratchBodies; // стены/столбики/лопасти — удаляются при реконфигурации
+    std::vector<b2Body*> bodyPool;      // пул динамических тел частиц
+    size_t poolActive = 0;
+
     void clear() {
-        world.reset();
+        for (b2Body* b : scratchBodies) world->DestroyBody(b);
+        scratchBodies.clear();
+        for (b2Body* b : bodyPool) {
+            b2Fixture* f = b->GetFixtureList();
+            while (f) { b2Fixture* n = f->GetNext(); b->DestroyFixture(f); f = n; }
+            b->SetEnabled(false);
+        }
+        poolActive = 0;
         channels.clear();
         junctions.clear();
     }
@@ -126,6 +137,7 @@ struct ParticleSim::Impl {
                 b2BodyDef pillarDef;
                 pillarDef.position = toSim(center);
                 b2Body* pillar = world->CreateBody(&pillarDef);
+                scratchBodies.push_back(pillar);
                 b2CircleShape circle;
                 circle.m_radius = static_cast<float>(pillarR) * kToSim;
                 b2FixtureDef fixture;
@@ -149,6 +161,7 @@ struct ParticleSim::Impl {
             paddleDef.type = b2_kinematicBody;
             paddleDef.position = toSim(mid);
             channel.paddleBody = world->CreateBody(&paddleDef);
+            scratchBodies.push_back(channel.paddleBody);
             double bladeLen = spec.connected ? pumpImpellerRadius(spec.halfWidth)
                                              : spec.halfWidth * 0.85;
             int blades = spec.connected ? 4 : 3;
@@ -225,12 +238,26 @@ struct ParticleSim::Impl {
             }
             Vec2 pos = spec.a + channel.unit * t + channel.perp * lateral;
 
-            b2BodyDef bodyDef;
-            bodyDef.type = b2_dynamicBody;
-            bodyDef.position = toSim(pos);
-            bodyDef.fixedRotation = true;
-            bodyDef.linearDamping = spec.connected ? 0.10f : 0.4f;
-            b2Body* body = world->CreateBody(&bodyDef);
+            b2Body* body;
+            if (poolActive < bodyPool.size()) {
+                body = bodyPool[poolActive];
+                body->SetEnabled(true);
+                body->SetTransform(toSim(pos), 0.0f);
+                body->SetLinearVelocity(b2Vec2_zero);
+                body->SetAngularVelocity(0.0f);
+                body->SetLinearDamping(spec.connected ? 0.10f : 0.4f);
+                body->SetFixedRotation(true);
+                ++poolActive;
+            } else {
+                b2BodyDef bodyDef;
+                bodyDef.type = b2_dynamicBody;
+                bodyDef.position = toSim(pos);
+                bodyDef.fixedRotation = true;
+                bodyDef.linearDamping = spec.connected ? 0.10f : 0.4f;
+                body = world->CreateBody(&bodyDef);
+                bodyPool.push_back(body);
+                ++poolActive;
+            }
 
             b2CircleShape circle;
             circle.m_radius = static_cast<float>(particleRadius) * kToSim;
@@ -264,6 +291,7 @@ struct ParticleSim::Impl {
         const ChannelSpec& spec = channel.spec;
         b2BodyDef wallDef;
         b2Body* walls = world->CreateBody(&wallDef);
+        scratchBodies.push_back(walls);
         double t0 = channel.trimA;
         double t1 = channel.length - channel.trimB;
         if (t1 <= t0) return;
@@ -354,6 +382,7 @@ struct ParticleSim::Impl {
 
         b2BodyDef bodyDef;
         b2Body* body = world->CreateBody(&bodyDef);
+        scratchBodies.push_back(body);
         const size_t k = mouths.size();
         for (size_t i = 0; i < k; ++i) {
             Vec2 from = mouths[i].cornerCCW;
@@ -850,11 +879,15 @@ uint64_t ParticleSim::layoutSignature(const std::vector<ChannelSpec>& channels) 
 }
 
 void ParticleSim::configure(const std::vector<ChannelSpec>& channels, double particleRadius) {
-    m_impl->clear();
+    bool firstTime = !m_impl->world;
+    if (firstTime) {
+        m_impl->world = std::make_unique<b2World>(b2Vec2(0.0f, 0.0f));
+        m_impl->world->SetContactFilter(&m_impl->contactFilter);
+    } else {
+        m_impl->clear();
+    }
     m_impl->particleRadius = std::max(0.5, particleRadius);
     m_impl->connectedMode = !channels.empty() && channels.front().connected;
-    m_impl->world = std::make_unique<b2World>(b2Vec2(0.0f, 0.0f));
-    m_impl->world->SetContactFilter(&m_impl->contactFilter);
     for (const auto& spec : channels)
         m_impl->buildChannel(spec);
     if (m_impl->connectedMode) {
