@@ -137,11 +137,13 @@ void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
     for (const auto& glow : prims.glows) {
         float r = m.px(glow.radius);
         ImVec2 c = m.toScreen(glow.center);
-        dl->AddCircleFilled(c, r * 1.8f, withAlpha(glow.color, 6), 48);
-        dl->AddCircleFilled(c, r, glow.color, 48);
+        const float k = static_cast<float>(std::clamp(glow.intensity, 0.0, 1.0));
+        auto scaleA = [k](int a) { return static_cast<int>(std::lround(a * k)); };
+        dl->AddCircleFilled(c, r * 1.8f, withAlpha(glow.color, scaleA(6)), 48);
+        dl->AddCircleFilled(c, r, withAlpha(glow.color, scaleA(255)), 48);
         for (int ring = 1; ring <= 4; ++ring) {
             float rr = r * (0.45f + 0.32f * ring);
-            dl->AddCircle(c, rr, withAlpha(glow.color, std::max(0, 28 - ring * 4)), 64, 1.0f);
+            dl->AddCircle(c, rr, withAlpha(glow.color, scaleA(std::max(0, 28 - ring * 4))), 64, 1.0f);
         }
     }
 
