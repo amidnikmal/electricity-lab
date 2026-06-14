@@ -109,7 +109,7 @@ MainWindow::MainWindow() {
         m_fitDualViewsRequested = true;
         // Новая цепь = новое id-пространство: старый заряд не должен
         // прилипнуть к чужим компонентам.
-        m_liveSim.discharge(); m_thermal.reset();
+        m_liveSim.discharge(); m_thermal.reset(); resetMechanicsPhases();
         onCircuitChanged();
     };
     applyVisualizationPreset(m_visualPreset);
@@ -345,15 +345,16 @@ void MainWindow::updateParticleSim(float realDt) {
             for (const auto& br : solution->branches)
                 if (br.componentId == comp.id) { current = br.current; break; }
         }
-        // Same visual ceiling as the electron drift (±120): the chain shows
-        // the SAME current, it must not look slower than the electrons.
-        // Direction comes from the rigid-axle coupling (one sign per connected
-        // mechanism), NOT from this component's arbitrary nodeA->nodeB order, so
-        // the whole chain system turns as one body. ONE scale for every
-        // component (incl. the capacitor) — that is what keeps the capacitor's
-        // lead chains synchronised with the rest of the loop.
+        // ONE visual scale for the WHOLE mechanics view (every component incl.
+        // the capacitor). This is the single "speed knob": big enough the chain
+        // reads as fast as the electron drift, small enough that a capacitor's
+        // shaft (driven by ∫chain travel) winds its spring within the crank's
+        // ±θmax over a normal charge — that is what lets gear, arm and spring
+        // stay one rigid body AND stay synced with the loop. Direction comes from
+        // the rigid-axle coupling, not this component's nodeA->nodeB order.
         double mappedSpeed = current_lab::mechanics::chainSpeedFromCurrent(current) *
-                             current_lab::mechanics::kVisualChainSpeed * 100.0;
+                             current_lab::mechanics::kVisualChainSpeed *
+                             current_lab::mechanics::kMechChainBoost;
         double targetSpeed = std::clamp(
             m_axleCoupling.signFor(comp.id) * std::abs(mappedSpeed),
             -120.0, 120.0);
@@ -843,7 +844,7 @@ void MainWindow::renderTopBar() {
         stepLiveSimOnce();
     ImGui::SameLine();
     if (ImGui::Button(tr("Discharge"))) {
-        m_liveSim.discharge(); m_thermal.reset();
+        m_liveSim.discharge(); m_thermal.reset(); resetMechanicsPhases();
         refreshSolution();
         m_inspector.log().addMessage("Discharged: Vc = 0, Il = 0, t = 0.");
     }
@@ -898,7 +899,7 @@ void MainWindow::renderTopBar() {
                 // Живой режим: демка просто загружается разряженной и сама
                 // проигрывает свой процесс (в авто-замедлении); никакого
                 // переключения режимов больше нет.
-                m_liveSim.discharge(); m_thermal.reset();
+                m_liveSim.discharge(); m_thermal.reset(); resetMechanicsPhases();
                 m_fitDualViewsRequested = true;
                 onCircuitChanged();
             }
@@ -1192,14 +1193,14 @@ void MainWindow::renderRightInspector(const DistributedWireParameters& params) {
         m_solved = false;
         // Свежая цепь начинает id с нуля: разряд, чтобы старый заряд не
         // прилип к будущим компонентам с теми же id.
-        m_liveSim.discharge(); m_thermal.reset();
+        m_liveSim.discharge(); m_thermal.reset(); resetMechanicsPhases();
     }
     ImGui::SameLine();
     if (ImGui::Button(tr("Reset Demo"))) {
         setupTestCircuit();
         m_selNode = -1;
         m_selComp = -1;
-        m_liveSim.discharge(); m_thermal.reset();
+        m_liveSim.discharge(); m_thermal.reset(); resetMechanicsPhases();
         circuitEvent();
     }
 

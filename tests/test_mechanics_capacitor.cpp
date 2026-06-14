@@ -158,6 +158,90 @@ TEST(SpringCapacitor, ChainRollsWithLoopTravelNotVoltage) {
     EXPECT_TRUE(moved) << "capacitor lead chain did not roll with the loop travel";
 }
 
+// STRICT rigidity chain (user's requirement): gear -> arm -> spring are ONE
+// rigid body. The shaft sprocket rotates with the loop; the crank arm is welded
+// to the gear (turns by the exact same angle); the spring end rides the arm tip.
+// Take two loop-travel values: the arm must rotate by exactly the gear's tooth
+// rotation, and the spring end must sit exactly on the crank knob — if the arm
+// moved but the spring did not follow in lockstep, this fails.
+TEST(SpringCapacitor, GearArmSpringAreOneRigidBody) {
+    namespace cg = current_lab::physics::chain_geometry;
+    Circuit c;
+    int n1 = c.addNode(Vec2(0, 0));
+    int n2 = c.addNode(Vec2(240, 0));
+    int capId = c.addComponent(ComponentType::Capacitor, n1, n2, 1e-3);
+
+    CircuitSolver solver;
+    CircuitSolution sol = solver.solve(c);
+    ViewParams p;
+    const double rollerR = cg::linkRadius(p.wireThickness);
+    const double pitchR = cg::sprocketPitchRadius(cg::chainHalfWidth(p.wireThickness), rollerR);
+    const double rootR = cg::sprocketRootRadius(pitchR, rollerR);
+    const double tipR = cg::sprocketTipRadius(pitchR, rollerR);
+    const int teeth = cg::sprocketTeeth(pitchR, cg::linkPitch(rollerR));
+    const double toothPitch = 2.0 * cg::kPi / teeth;
+
+    struct Sample { Vec2 springFront; Vec2 center; double armAngle; double gearPhase; };
+    auto sample = [&](double travel) {
+        std::unordered_map<int, double> ct{{capId, travel}};
+        p.chainTravel = &ct;
+        ProjectionResult r = buildProjection(ProjectionKind::Mechanical, c, &sol, p);
+
+        const auto* spring = longestPoly(r);
+        EXPECT_NE(spring, nullptr);
+        Vec2 front = spring->front();
+
+        // The left shaft sprocket centre = the filled body circle (radius rootR)
+        // nearest the spring's left end.
+        Vec2 center;
+        double bestD = 1e18;
+        for (const auto& circ : r.prims.circles)
+            if (circ.filled && std::abs(circ.radius - rootR) < 1e-9) {
+                double d = (circ.center - front).length();
+                if (d < bestD) { bestD = d; center = circ.center; }
+            }
+
+        // The spring end must sit EXACTLY on a crank knob (rigid arm<->spring).
+        bool pinned = false;
+        for (const auto& circ : r.prims.circles)
+            if (circ.filled && (circ.center - front).length() < 1e-9) pinned = true;
+        EXPECT_TRUE(pinned) << "spring end is not on its crank knob (travel=" << travel << ")";
+
+        // Gear rotation: circular mean of the tooth centroids (teeth-fold sym).
+        double sx = 0, sy = 0; int n = 0;
+        for (const auto& q : r.prims.quads) {
+            if (!q.filled) continue;
+            Vec2 cen((q.p1.x + q.p2.x + q.p3.x + q.p4.x) * 0.25,
+                     (q.p1.y + q.p2.y + q.p3.y + q.p4.y) * 0.25);
+            double d = (cen - center).length();
+            if (d < rootR * 0.9 || d > tipR + 1e-9) continue;
+            double a = std::atan2(cen.y - center.y, cen.x - center.x);
+            sx += std::cos(teeth * a); sy += std::sin(teeth * a); ++n;
+        }
+        EXPECT_EQ(n, teeth);
+        double gearPhase = std::atan2(sy, sx) / teeth;
+        double armAngle = std::atan2(front.y - center.y, front.x - center.x);
+        return Sample{front, center, armAngle, gearPhase};
+    };
+
+    Sample s0 = sample(0.0);
+    Sample s1 = sample(0.3 * pitchR); // shaft turns ~0.3 rad, below one tooth pitch
+
+    auto wrap = [](double d, double period) {
+        while (d > period * 0.5) d -= period;
+        while (d < -period * 0.5) d += period;
+        return d;
+    };
+    double dArm = wrap(s1.armAngle - s0.armAngle, 2.0 * cg::kPi);
+    double dGear = wrap(s1.gearPhase - s0.gearPhase, toothPitch);
+
+    ASSERT_GT(std::abs(dArm), 0.1) << "arm did not move — test would be vacuous";
+    // The crank arm turns by EXACTLY the gear's tooth rotation: one rigid body.
+    EXPECT_NEAR(dArm, dGear, 1e-6)
+        << "arm rotated " << dArm << " but the gear teeth rotated " << dGear
+        << " — gear, arm and spring are not rigidly locked";
+}
+
 // Render-without-side-effects: building the same circuit twice yields an
 // identical capacitor spring polyline (no hidden render state). DC steady, so
 // no time-driven animation perturbs the result.

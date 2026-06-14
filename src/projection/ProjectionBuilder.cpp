@@ -1296,16 +1296,31 @@ void emitSpring(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
     if (!g.valid) return;
     double len = (b - a).length();
 
-    // Charge angle from the (transient) capacitor voltage; +Vc -> compression,
-    // so "spring contracts as the cap charges" holds.
-    double vc = va - vb;
-    double vRange = std::max(std::abs(ctx.vMax - ctx.vMin), 1e-9);
+    namespace cg = physics::chain_geometry;
+    double pitchR = cg::sprocketPitchRadius(cg::chainHalfWidth(ctx.p.wireThickness),
+                                            cg::linkRadius(ctx.p.wireThickness));
 
     mechanics::SpringCapacitorModel m;
     m.p.halfSpan = std::clamp(len * 0.30, 24.0, len * 0.42);
     m.p.armLen = std::clamp(len * 0.11, g.plateHalf * 0.55, m.p.halfSpan * 0.8);
     m.p.baseAmp = std::max(g.plateHalf * 0.5, ctx.p.wireThickness * 0.9);
-    m.theta = mechanics::capacitorThetaFromVoltage(vc, vRange, m.p.thetaMax);
+
+    // ONE rigid drive: a single shaft angle drives the gear, the arm and the
+    // spring, and it comes from the capacitor's own chainTravel — the SAME
+    // quantity, at the SAME scale, as every other component (MainWindow
+    // accumulates it with the rigid-axle sign). So the shaft sprocket turns in
+    // sync with the loop; the arm is welded to the shaft (same angle); the spring
+    // end rides the arm tip. Gear -> arm -> spring move together, exactly, by
+    // construction. chainTravel ∝ ∫i = net charge, so the spring also reads the
+    // charge. Clamped to the crank range (fully charged -> spring maxed, and in a
+    // series branch i->0 there too, so the chain stops with it).
+    double capTravel = 0.0;
+    if (ctx.p.chainTravel) {
+        auto it = ctx.p.chainTravel->find(comp.id);
+        if (it != ctx.p.chainTravel->end()) capTravel = it->second;
+    }
+    double shaftAngle = std::clamp(capTravel / pitchR, -m.p.thetaMax, m.p.thetaMax);
+    m.theta = shaftAngle;
 
     // local (x along axis, y along +perp) -> world.
     auto toWorld = [&](Vec2 l) { return g.mid + g.unit * l.x + g.perp * l.y; };
@@ -1323,30 +1338,17 @@ void emitSpring(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
     uint32_t chargeCol = m.charge() >= 0.0 ? pos : neg;
     uint32_t metal = packColor(139, 147, 176, 235);
 
-    namespace cg = physics::chain_geometry;
-    double pitchR = cg::sprocketPitchRadius(cg::chainHalfWidth(ctx.p.wireThickness),
-                                            cg::linkRadius(ctx.p.wireThickness));
+    // Leads roll by the same shaft motion (R·shaftAngle == clamped capTravel),
+    // the two shafts counter-rotating; the gear TEETH are phased onto the crank
+    // arm directions, so the teeth are welded to the arms (rigid gear<->arm).
+    double chainPhase = pitchR * shaftAngle;
+    emitStaticChainOval(ctx, a, shaftLW, pitchR, va, va, -chainPhase);
+    emitStaticChainOval(ctx, b, shaftRW, pitchR, vb, vb, +chainPhase);
 
-    // RIGIDLY TIED TO THE LOOP: the lead chains and the shaft sprockets run on
-    // the capacitor's own chainTravel — the SAME quantity, at the SAME scale, as
-    // every other component (MainWindow accumulates it with the rigid-axle sign).
-    // In a series branch the capacitor current == the neighbour current, so the
-    // capacitor's leads roll at exactly the neighbour rate and direction: they
-    // move as one with the system, no separate clock. The spring/crank below
-    // shows the stored CHARGE (the shaft twist) — a different quantity, so it
-    // honestly moves at its own rate (current flows fast then decays while the
-    // charge climbs steadily). Through-rotation = current; twist = charge.
-    double capTravel = 0.0;
-    if (ctx.p.chainTravel) {
-        auto it = ctx.p.chainTravel->find(comp.id);
-        if (it != ctx.p.chainTravel->end()) capTravel = it->second;
-    }
-    double sprocketPhase = -capTravel / pitchR; // node-gear convention (meshes)
-    emitStaticChainOval(ctx, a, shaftLW, pitchR, va, va, capTravel);
-    emitStaticChainOval(ctx, b, shaftRW, pitchR, vb, vb, capTravel);
-
-    emitSprocket(ctx, shaftLW, pitchR, sprocketPhase, sprocketPhase, false);
-    emitSprocket(ctx, shaftRW, pitchR, sprocketPhase, sprocketPhase, false);
+    double armPhaseL = cg::angleOf(crankLW - shaftLW);
+    double armPhaseR = cg::angleOf(crankRW - shaftRW);
+    emitSprocket(ctx, shaftLW, pitchR, armPhaseL, armPhaseL, false);
+    emitSprocket(ctx, shaftRW, pitchR, armPhaseR, armPhaseR, false);
 
     // Crank arms shaft -> tip, tips marked in the charge colour.
     ctx.out.lines.push_back({shaftLW, crankLW, 4.0, metal, true});

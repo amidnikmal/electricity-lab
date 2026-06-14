@@ -42,6 +42,14 @@ private:
     void configureCanvasForMechanicsView(CircuitCanvas& canvas);
     void configureCanvasForProjection(CircuitCanvas& canvas, int projection);
     void updateParticleSim(float realDt);
+    // Zero the accumulated mechanics animation phases (chain travel + spin
+    // integrals). Called on discharge/reset so the capacitor spring (which winds
+    // with chain travel) and the spinning wheels return to neutral, not stale.
+    void resetMechanicsPhases() {
+        m_chainTravel.clear();
+        m_flowIntegrals.component.clear();
+        m_flowIntegrals.node.clear();
+    }
     CircuitCanvas& canvasForPane(int paneId);
     void wireCanvas(CircuitCanvas& canvas);
     void syncCamerasFrom(const CircuitCanvas& source);

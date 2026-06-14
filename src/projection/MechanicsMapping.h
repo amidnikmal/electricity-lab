@@ -23,6 +23,10 @@ namespace current_lab::mechanics {
 constexpr double kTensionPerVolt = 1.0;
 // Visual amplification constants (animation only, magnitudes stay honest):
 constexpr double kVisualChainSpeed = 40.0; // world units per (chain-speed unit * s)
+// The single "speed knob" for the whole mechanics view (see MainWindow). One
+// uniform factor on every component so the capacitor's chain/gear/arm/spring
+// stay one rigid body in sync with the loop; tune here for faster/calmer motion.
+constexpr double kMechChainBoost = 20.0;
 constexpr double kVisualSpinRate = 6.0;    // rad per (angular-momentum unit * s)  // tension units per volt
 constexpr double kLinkSpeedPerAmp = 1.0; // chain speed units per ampere
 
