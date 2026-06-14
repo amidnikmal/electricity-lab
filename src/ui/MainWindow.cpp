@@ -63,6 +63,7 @@ const char* componentTypeLabel(ComponentType type) {
         case ComponentType::Inductor: return "Inductor";
         case ComponentType::Diode: return "Diode";
         case ComponentType::Switch: return "Switch";
+        case ComponentType::AcVoltageSource: return "AC Voltage Source";
     }
     return "?";
 }
@@ -535,6 +536,7 @@ static const char* modeLabel(EditorMode m) {
         case EditorMode::PlaceInductor:    return "Inductor";
         case EditorMode::PlaceDiode:       return "Diode";
         case EditorMode::PlaceSwitch:      return "Switch";
+        case EditorMode::PlaceAcVoltageSource: return "AC Source";
     }
     return "?";
 }
@@ -941,6 +943,7 @@ void MainWindow::renderToolRail() {
         EditorMode::PlaceInductor,
         EditorMode::PlaceDiode,
         EditorMode::PlaceSwitch,
+        EditorMode::PlaceAcVoltageSource,
     };
 
     for (auto m : modes) {
@@ -1258,6 +1261,7 @@ void MainWindow::renderElementEditor(const DistributedWireParameters& params) {
     else if (component->type == ComponentType::Inductor) prefix = "L";
     else if (component->type == ComponentType::Diode) prefix = "D";
     else if (component->type == ComponentType::Switch) prefix = "S";
+    else if (component->type == ComponentType::AcVoltageSource) prefix = "AC";
     std::string name = std::format("{}{}", prefix, component->id);
 
     ImGui::Text("Name: %s", name.c_str());
@@ -1272,6 +1276,14 @@ void MainWindow::renderElementEditor(const DistributedWireParameters& params) {
     } else if (component->type == ComponentType::VoltageSource) {
         ImGui::InputDouble(tr("Voltage (V)"), &m_elementEdit.pendingValue, 0.1, 1.0, "%.3f");
         ImGui::TextDisabled("%s", tr("Internal resistance: ideal source in current model"));
+    } else if (component->type == ComponentType::AcVoltageSource) {
+        ImGui::InputDouble(tr("Amplitude (V)"), &m_elementEdit.pendingValue, 0.1, 1.0, "%.3f");
+        double freq = component->frequency;
+        if (ImGui::InputDouble(tr("Frequency (Hz)"), &freq, 1.0, 10.0, "%.1f"))
+            component->frequency = std::max(0.01, freq);
+        double ph = component->phase;
+        if (ImGui::InputDouble(tr("Phase (rad)"), &ph, 0.1, 1.0, "%.3f"))
+            component->phase = ph;
     } else if (component->type == ComponentType::Wire) {
         // Wire parameters are global model settings; edit them live so the
         // canvas updates immediately, no Apply required.

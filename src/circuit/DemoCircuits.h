@@ -23,6 +23,7 @@ enum class DemoCircuit {
     RlcCirculating,   // RLC с ШУНТОВЫМ C: путь DC через R-L сохранён -> вода
                       // ЦИРКУЛИРУЕТ по контуру и после устаканивания тока
     PeakDetector,     // диод + RC (пик-детектор)
+    AcRectifier,      // полупериодный выпрямитель: AC-источник + диод + RC
     Count,
 };
 
@@ -38,6 +39,7 @@ inline const char* demoName(DemoCircuit demo) {
         case DemoCircuit::RlcSeries: return "Demo: RLC series";
         case DemoCircuit::RlcCirculating: return "Demo: RLC (circulating water)";
         case DemoCircuit::PeakDetector: return "Demo: diode peak detector";
+        case DemoCircuit::AcRectifier: return "Demo: AC half-wave rectifier";
         case DemoCircuit::Count: break;
     }
     return "?";
@@ -176,6 +178,23 @@ inline Circuit buildDemo(DemoCircuit demo) {
             c.addComponent(ComponentType::Diode, n1, n2, 0.0);
             c.addComponent(ComponentType::Capacitor, n2, corner, 1e-3);
             c.addComponent(ComponentType::Resistor, n2, corner, 100000.0); // slow bleed
+            c.addComponent(ComponentType::Wire, corner, gnd, 0.0);
+            break;
+        }
+        case DemoCircuit::AcRectifier: {
+            // Half-wave rectifier: AC source -> diode -> RC load.
+            // On the positive half-cycle the diode conducts and C charges
+            // toward amplitude − Vf; on the negative half-cycle the diode
+            // blocks and C discharges slowly through R.
+            c.components[1].type = ComponentType::AcVoltageSource;
+            c.components[1].value = 5.0;       // amplitude, V
+            c.components[1].frequency = 50.0;  // Hz
+            c.components[1].phase = 0.0;
+            int n2 = c.addNode(Vec2(480, 140), "N2");
+            int corner = c.addNode(Vec2(480, 320));
+            c.addComponent(ComponentType::Diode, n1, n2, 0.0);
+            c.addComponent(ComponentType::Capacitor, n2, corner, 10e-6); // 10 μF
+            c.addComponent(ComponentType::Resistor, n2, corner, 1000.0);  // 1 kΩ load
             c.addComponent(ComponentType::Wire, corner, gnd, 0.0);
             break;
         }

@@ -159,6 +159,7 @@ void CanvasInteraction::handlePlace(Circuit& circuit, const InteractionInput& in
     if (m_mode == EditorMode::PlaceInductor)      ctype = ComponentType::Inductor;
     if (m_mode == EditorMode::PlaceDiode)         ctype = ComponentType::Diode;
     if (m_mode == EditorMode::PlaceSwitch)        ctype = ComponentType::Switch;
+    if (m_mode == EditorMode::PlaceAcVoltageSource) ctype = ComponentType::AcVoltageSource;
 
     if (m_placeFromNode < 0 && input.clicked) {
         int hit = hitTestNode(circuit, input.mouseWorld);
