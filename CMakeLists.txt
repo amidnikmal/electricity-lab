@@ -117,6 +117,7 @@ set(TEST_SOURCES
     tests/test_canvas.cpp
     tests/test_dual_view.cpp
     tests/test_projection.cpp
+    tests/test_colormap.cpp
     tests/test_transient.cpp
     tests/test_elements.cpp
     tests/test_mechanics.cpp

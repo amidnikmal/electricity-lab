@@ -69,11 +69,31 @@ inline constexpr uint32_t kMagmaLut[kMagmaLutSize] = {
     packColor(252, 253, 191, 255), // t=1.0000 pale yellow
 };
 
+// Небольшая переиспользуемая абстракция: выбор палитры по имени.
+// Добавление новой карты = новый enum-кейс + ветка в colormapSample().
+enum class Colormap {
+    Viridis, // перцептивно-равномерная, для потенциала
+    Magma,   // перцептивно-равномерная, для тока
+};
+
+// Семплирование палитры в точке t∈[0,1] с заданной прозрачностью (alpha 0..255).
+// Чистая функция: альфа из LUT (255) переопределяется параметром.
+inline uint32_t colormapSample(Colormap which, double t, int alpha) {
+    uint32_t c;
+    switch (which) {
+        case Colormap::Magma: c = lutSample(kMagmaLut, kMagmaLutSize, t); break;
+        case Colormap::Viridis:
+        default:              c = lutSample(kViridisLut, kViridisLutSize, t); break;
+    }
+    return withAlpha(c, static_cast<unsigned>(std::clamp(alpha, 0, 255)));
+}
+
 inline uint32_t potentialColor(double v, double vMin, double vMax) {
     double range = vMax - vMin;
-    if (range < 1e-12) return kViridisLut[0];
+    // Вырожденный диапазон: возвращаем нейтральный сине-серый (как раньше).
+    if (range < 1e-12) return packColor(93, 128, 196, 220);
     double t = std::clamp((v - vMin) / range, 0.0, 1.0);
-    return lutSample(kViridisLut, kViridisLutSize, t);
+    return colormapSample(Colormap::Viridis, t, 220);
 }
 
 inline uint32_t currentColor(double absI, double maxI) {
