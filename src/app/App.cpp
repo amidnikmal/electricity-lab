@@ -51,7 +51,10 @@ bool App::init() {
     m_window = glfwCreateWindow(current_lab::app::scaledWindowDimension(m_width, m_uiScale),
                                 current_lab::app::scaledWindowDimension(m_height, m_uiScale),
                                 "Current Lab — Milestone 1", nullptr, nullptr);
-    if (!m_window) return false;
+    if (!m_window) {
+        glfwTerminate(); // окно не создано — освобождаем уже проинициализированный GLFW
+        return false;
+    }
 
     glfwMakeContextCurrent(m_window);
     glfwSwapInterval(1);
