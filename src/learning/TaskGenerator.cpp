@@ -145,7 +145,7 @@ GeneratedTask TaskGenerator::generate(TaskFamily family, int difficulty) {
             task.answerUnit = "V";
             task.tolerance = toleranceFor(task.groundTruth, 0.005);
             task.predictionPrompt =
-                "Before solving: which resistor gets the larger share of the source voltage?";
+                "Before solving: is the current through R1 larger than, smaller than, or equal to the current through R2?";
             task.solutionExplanation = format(
                 "Situation: resistors share one current path.\n"
                 "Action: the same current flows through every series element.\n"
@@ -171,7 +171,7 @@ GeneratedTask TaskGenerator::generate(TaskFamily family, int difficulty) {
                 V, R1, R2);
             task.prompt += "Find the total current delivered by the source, in mA.";
             task.predictionPrompt =
-                "Before solving: is the total current larger or smaller than through R1 alone?";
+                "Before solving: if we remove R2, will the current through R1 change?";
             task.solutionExplanation = format(
                 "Situation: both resistors see the full source voltage.\n"
                 "Action: each draws its own current; the source supplies the sum.\n"
