@@ -47,7 +47,7 @@ These types live in `src/physics/` and are consumed by `CircuitCanvas`.
 
 - Source: `MagneticFieldModel`
 - Meaning:
-  - local quasi-static `B ~ I/r`
+  - local static-DC `B ~ I/r`
   - page-normal glyphs follow right-hand rule
   - not a full 3D Biot-Savart integration
 
