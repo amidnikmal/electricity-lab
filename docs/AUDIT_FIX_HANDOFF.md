@@ -35,15 +35,22 @@
 
 ---
 
-## Волна 2 — физика/рендер/проекция/app (план)
+## Волна 2 — физика/рендер/проекция/app (ЗАВЕРШЕНА ✅)
 
-| Баг | Серьёзность | Файл | Суть |
-|-----|-------------|------|------|
-| №1 | medium | `physics/SurfaceChargeModel.h:57-65` | `junctionStrength` всегда 0 (лапласиан линейного потенциала). Удалить мёртвый блок или считать по реальным узлам. |
-| №5 | medium | `projection/ProjectionBuilder.cpp` (`emitTurbine`) | Угол турбины = `t·ω(t)` вместо `spinPhase()` (интеграл тока) → рывки. |
-| №6 | medium | `render/PrimitiveRenderer.cpp:110-119` | `PrimGlow::intensity` не читается при отрисовке — слабый/сильный источник одинаково ярки. |
-| №7,№9 | low | `ui/MathTextParse.cpp` | `parseGroup` не заменяет `-`→U+2212; неизвестная `\command` теряет бэкслеш. |
-| №11 | low | `app/App.cpp` | Утечка GLFW: `glfwTerminate()` не вызывается на пути ошибки `glfwCreateWindow`. |
+Сборка чистая, 494 теста проходят (491 + 3 новых регрессионных).
+
+| Баг | Серьёзность | Файл | Что сделано | Коммит |
+|-----|-------------|------|-------------|--------|
+| №1 | medium | `physics/SurfaceChargeModel.h` | Удалён мёртвый блок `junctionStrength` (лапласиан линейного потенциала ≡ 0) + неиспользуемый `globalRange` и осиротевший `segmentLen`. | `c75a585`, `f4c2d7d` |
+| №5 | medium | `projection/ProjectionBuilder.cpp` (`emitTurbine`) | Угол турбины теперь `spinPhase(ctx, comp.id, flow, …)` — интеграл потока, без рывков (как насос/индуктор). | `15b415c` |
+| №6 | medium | `render/PrimitiveRenderer.cpp` | Альфа всех слоёв glow умножается на `glow.intensity` — слабый/сильный источник различаются яркостью. | `b760942` |
+| №7,№9 | low | `ui/MathTextParse.cpp` | `parseGroup` заменяет `-`→U+2212 (согласовано с `parseRow`); неизвестная `\command` сохраняет `\`. | `fab2550` |
+| №11 | low | `app/App.cpp` | `glfwTerminate()` на пути ошибки `glfwCreateWindow` — нет утечки GLFW. | `e01c474` |
+
+**Регрессионные тесты (codex), коммит `8880d69`:**
+- `TaskGenerator.ThreeSeriesResistorsPromptIsSolvable` — баг №4 (R3 в условии, нет «(third)»).
+- `MathText.MinusInUnbracedScriptBecomesProperMinus` — баг №7.
+- `MathText.UnknownCommandKeepsBackslash` — баг №9.
 
 ## Волна 3 — мёртвый код + README (план)
 
