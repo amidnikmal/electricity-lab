@@ -103,9 +103,22 @@ void drawGrid(ImDrawList* dl, const CanvasCamera& camera, ImVec2 origin, ImVec2 
         dl->AddLine(ImVec2(origin.x, y), ImVec2(xEnd, y), color);
 }
 
+// ImGui auto-tessellates circles to a ~0.3px error → up to 512 segments for a
+// big radius. Zooming in makes world-space particles/wheels huge on screen, so
+// hundreds of auto circles exploded into millions of triangles (the "zoom lags"
+// report). Cap the segment count: dots stay cheap, gears stay round enough.
+inline int particleSegs(float r) {
+    return static_cast<int>(std::clamp(r * 0.8f, 6.0f, 14.0f));
+}
+inline int circleSegs(float r) {
+    return static_cast<int>(std::clamp(r * 0.5f, 10.0f, 40.0f));
+}
+
 void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
                     const CanvasCamera& camera, ImVec2 origin, ImVec2 size) {
     Mapper m{camera, origin};
+    const ImVec2 clipMin(origin.x, origin.y);
+    const ImVec2 clipMax(origin.x + size.x, origin.y + size.y);
 
     for (const auto& glow : prims.glows) {
         float r = m.px(glow.radius);
@@ -132,7 +145,13 @@ void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
     for (const auto& particle : prims.particles) {
         float r = particle.screenSpaceRadius ? static_cast<float>(particle.radius)
                                              : m.px(particle.radius);
-        dl->AddCircleFilled(m.toScreen(particle.pos), r, particle.color);
+        ImVec2 p = m.toScreen(particle.pos);
+        // Cull off-screen particles: zoomed in, most of a dense water loop is
+        // outside the pane and would otherwise still be tessellated + uploaded.
+        if (p.x + r < clipMin.x || p.x - r > clipMax.x ||
+            p.y + r < clipMin.y || p.y - r > clipMax.y)
+            continue;
+        dl->AddCircleFilled(p, r, particle.color, particleSegs(r));
     }
 
     for (const auto& quad : prims.quads) {
@@ -159,10 +178,13 @@ void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
     for (const auto& circle : prims.circles) {
         float r = circle.screenSpaceRadius ? static_cast<float>(circle.radius) : m.px(circle.radius);
         ImVec2 c = m.toScreen(circle.center);
+        if (c.x + r < clipMin.x || c.x - r > clipMax.x ||
+            c.y + r < clipMin.y || c.y - r > clipMax.y)
+            continue;
         if (circle.filled)
-            dl->AddCircleFilled(c, r, circle.color, 0);
+            dl->AddCircleFilled(c, r, circle.color, circleSegs(r));
         else
-            dl->AddCircle(c, r, circle.color, 0, static_cast<float>(circle.thickness));
+            dl->AddCircle(c, r, circle.color, circleSegs(r), static_cast<float>(circle.thickness));
     }
 
     for (const auto& arrow : prims.arrows)
