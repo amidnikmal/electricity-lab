@@ -145,23 +145,57 @@ void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
     }
 
     for (const auto& glow : prims.glows) {
-        float r = m.px(glow.radius);
+        float r_px = m.px(glow.radius);
         ImVec2 c = m.toScreen(glow.center);
-        // Intensity scales each layer's OWN (deliberately soft) alpha — it must
-        // not force the core opaque. glow.color carries the intended softness
-        // (e.g. a field source is alpha ~16); dim it by intensity for weak/strong
-        // sources, never replace it with a solid fill (that turned the smooth
-        // potential field into bright filled discs).
-        const float k = static_cast<float>(std::clamp(glow.intensity, 0.0, 1.0));
+        const float intensity = static_cast<float>(std::clamp(glow.intensity, 0.0, 1.0));
         const unsigned baseA = (glow.color >> 24) & 0xFFu;
-        auto fade = [&](unsigned a) {
-            return withAlpha(glow.color, static_cast<unsigned>(std::lround(a * k)));
-        };
-        dl->AddCircleFilled(c, r * 1.8f, fade(6), 48);     // outer halo
-        dl->AddCircleFilled(c, r, fade(baseA), 48);        // soft core (own alpha)
-        for (int ring = 1; ring <= 4; ++ring) {
-            float rr = r * (0.45f + 0.32f * ring);
-            dl->AddCircle(c, rr, fade(static_cast<unsigned>(std::max(0, 28 - ring * 4))), 64, 1.0f);
+
+        // Гауссовское приближение bloom без FBO: N концентрических кругов
+        // с профилем α(r) ∝ exp(-r²/(2σ²)). Аддитивное наложение полупрозрачных
+        // кругов друг на друга даёт мягкое «дышащее» свечение вместо жёстких колец.
+        constexpr int N_BLOOM = 10;
+        const float max_radius = r_px * 2.0f;     // до какого радиуса тянется свечение
+        const float sigma     = r_px * 0.7f;       // σ управляет «размытостью» гауссианы
+        const float two_s2    = 2.0f * sigma * sigma;
+
+        float radii[N_BLOOM];
+        float gval[N_BLOOM]; // target alpha = gaussian(radius)
+
+        for (int i = 0; i < N_BLOOM; ++i) {
+            float t  = static_cast<float>(i + 1) / N_BLOOM;
+            radii[i] = max_radius * t;
+            float r2 = radii[i] * radii[i];
+            gval[i]  = static_cast<float>(baseA) * intensity * std::exp(-r2 / two_s2);
+        }
+
+        // Якорь в центре: компенсирует ошибку дискретизации на малых радиусах,
+        // чтобы пиковая яркость в центре свечения точно равнялась baseA * intensity.
+        float anchor_a = static_cast<float>(baseA) * intensity - gval[0];
+        if (anchor_a >= 1.0f) {
+            unsigned aa = static_cast<unsigned>(std::lround(anchor_a));
+            if (aa > 255) aa = 255;
+            dl->AddCircleFilled(c, std::max(1.0f, radii[0] * 0.5f),
+                                withAlpha(glow.color, aa), 12);
+        }
+
+        // Рисуем от внешнего круга к внутреннему: большие полупрозрачные круги —
+        // фон, маленькие — яркое ядро поверх. Стандартный альфа-блендинг ImDrawList
+        // при малых alpha визуально близок к аддитивному наложению.
+        for (int i = N_BLOOM - 1; i >= 0; --i) {
+            float da = (i == N_BLOOM - 1)
+                           ? gval[i]                     // внешний круг: остаток гауссианы
+                           : (gval[i] - gval[i + 1]);    // вклад i-го кольца
+
+            if (da < 1.0f) continue;
+
+            unsigned a = static_cast<unsigned>(std::lround(da));
+            if (a > 255) a = 255;
+            if (a == 0) continue;
+
+            // Адаптивная сегментация: чем крупнее круг на экране, тем больше
+            // сегментов, чтобы избежать полигональности. Ограничиваем 12..96.
+            int segs = static_cast<int>(std::clamp(radii[i] * 1.2f, 12.0f, 96.0f));
+            dl->AddCircleFilled(c, radii[i], withAlpha(glow.color, a), segs);
         }
     }
 
