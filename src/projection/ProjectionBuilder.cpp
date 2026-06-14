@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <format>
 
 namespace current_lab::projection {
 
@@ -224,11 +225,11 @@ void emitResistor(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
 
     Vec2 mid((a.x + b.x) * 0.5, (a.y + b.y) * 0.5);
     Vec2 lbl = mid + perp * (rectH + 8.0 / ctx.safeScale());
-    char buf[32];
+    std::string buf;
     if (comp.value >= 1000.0)
-        std::snprintf(buf, sizeof(buf), "%.1f %s", comp.value / 1000.0, tr("k\xCE\xA9"));
+        buf = std::format("{:.1f} {}", comp.value / 1000.0, tr("k\xCE\xA9"));
     else
-        std::snprintf(buf, sizeof(buf), "%.0f %s", comp.value, tr("\xCE\xA9"));
+        buf = std::format("{:.0f} {}", comp.value, tr("\xCE\xA9"));
     ctx.out.labels.push_back({lbl, buf, packColor(200, 200, 200), false});
 }
 
@@ -264,8 +265,7 @@ void emitVoltageSource(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
     ctx.out.lines.push_back({minusCenter - perp * s, minusCenter + perp * s, 2.0,
                              packColor(100, 100, 255), true});
 
-    char buf[32];
-    std::snprintf(buf, sizeof(buf), "%.1f %s", comp.value, tr("V"));
+    std::string buf = std::format("{:.1f} {}", comp.value, tr("V"));
     ctx.out.labels.push_back({mid + perp * 22.0, buf, packColor(200, 200, 200), false});
 }
 
@@ -280,18 +280,19 @@ void emitGround(BuildContext& ctx, Vec2 pos) {
     ctx.out.lines.push_back({P(-5, 22), P(5, 22), 2.0, col, true});
 }
 
-void formatCapacitance(double farads, char* buf, size_t n) {
-    if (farads >= 1.0) std::snprintf(buf, n, "%.2f %s", farads, tr("F"));
-    else if (farads >= 1e-3) std::snprintf(buf, n, "%.1f %s", farads * 1e3, tr("mF"));
-    // разделяем строковые литералы, чтобы 'F' не вошёл в hex-escape
-    else if (farads >= 1e-6) std::snprintf(buf, n, "%.1f %s", farads * 1e6, tr("\xC2\xB5" "F"));
-    else std::snprintf(buf, n, "%.1f %s", farads * 1e9, tr("nF"));
+// перешли на std::format, без фиксированного буфера
+std::string formatCapacitance(double farads) {
+    if (farads >= 1.0) return std::format("{:.2f} {}", farads, tr("F"));
+    else if (farads >= 1e-3) return std::format("{:.1f} {}", farads * 1e3, tr("mF"));
+    else if (farads >= 1e-6) return std::format("{:.1f} {}", farads * 1e6, tr("\xC2\xB5" "F"));
+    else return std::format("{:.1f} {}", farads * 1e9, tr("nF"));
 }
 
-void formatInductance(double henries, char* buf, size_t n) {
-    if (henries >= 1.0) std::snprintf(buf, n, "%.2f %s", henries, tr("H"));
-    else if (henries >= 1e-3) std::snprintf(buf, n, "%.1f %s", henries * 1e3, tr("mH"));
-    else std::snprintf(buf, n, "%.1f %s", henries * 1e6, tr("\xC2\xB5H"));
+// перешли на std::format, без фиксированного буфера
+std::string formatInductance(double henries) {
+    if (henries >= 1.0) return std::format("{:.2f} {}", henries, tr("H"));
+    else if (henries >= 1e-3) return std::format("{:.1f} {}", henries * 1e3, tr("mH"));
+    else return std::format("{:.1f} {}", henries * 1e6, tr("\xC2\xB5H"));
 }
 
 void emitCapacitorSymbol(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
@@ -311,8 +312,7 @@ void emitCapacitorSymbol(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 
     ctx.out.lines.push_back({g.plateATop, g.plateABottom, 3.0, colA, true});
     ctx.out.lines.push_back({g.plateBTop, g.plateBBottom, 3.0, colB, true});
 
-    char buf[32];
-    formatCapacitance(comp.value, buf, sizeof(buf));
+    std::string buf = formatCapacitance(comp.value);
     ctx.out.labels.push_back({g.mid + g.perp * (g.plateHalf + 8.0 / ctx.safeScale()), buf,
                               packColor(200, 200, 200), false});
 }
@@ -403,8 +403,7 @@ void emitInductorSymbol(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b
         ctx.out.polylines.push_back(std::move(bump));
     }
 
-    char buf[32];
-    formatInductance(comp.value, buf, sizeof(buf));
+    std::string buf = formatInductance(comp.value);
     ctx.out.labels.push_back({g.coilStart + g.perp * (g.bumpRadius + 10.0 / ctx.safeScale()) +
                                   g.unit * (g.coilEnd - g.coilStart).length() * 0.5,
                               buf, packColor(200, 200, 200), false});
@@ -817,8 +816,7 @@ void emitNodes(BuildContext& ctx) {
                                       packColor(200, 200, 200, 210), true});
 
         if (ctx.solution && (ctx.p.debugView || (selected && ctx.p.layers.canvasReadouts))) {
-            char buf[64];
-            std::snprintf(buf, sizeof(buf), "%.3f %s", potentialFor(ctx.solution, node.id), tr("V"));
+            std::string buf = std::format("{:.3f} {}", potentialFor(ctx.solution, node.id), tr("V"));
             ctx.out.labels.push_back({node.position + Vec2(10 * s, 2 * s), buf,
                                       packColor(130, 205, 255, 230), false});
         }
@@ -829,11 +827,10 @@ void emitReadoutLabels(BuildContext& ctx, const Component& comp, Vec2 mid, Vec2 
                        double current, double power) {
     if (!(ctx.p.debugView || (ctx.p.layers.canvasReadouts && comp.id == ctx.p.selectedComponent)))
         return;
-    char buf[64];
-    std::snprintf(buf, sizeof(buf), "I=%.2f %s", current * 1000.0, tr("mA"));
+    std::string buf = std::format("I={:.2f} {}", current * 1000.0, tr("mA"));
     ctx.out.labels.push_back({mid + perp * 18.0, buf, packColor(255, 220, 50, 235), false});
     if (ctx.p.layers.power) {
-        std::snprintf(buf, sizeof(buf), "P=%.2f %s", power * 1000.0, tr("mW"));
+        buf = std::format("P={:.2f} {}", power * 1000.0, tr("mW"));
         ctx.out.labels.push_back({mid + perp * 30.0, buf, packColor(255, 160, 80, 235), false});
     }
 }
@@ -1078,11 +1075,11 @@ void emitBrake(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
                                  packColor(255, 140, 60, static_cast<unsigned>(12 + 40 * frac))});
     }
 
-    char buf[48];
+    std::string buf;
     if (comp.value >= 1000.0)
-        std::snprintf(buf, sizeof(buf), "%.1f %s", comp.value / 1000.0, tr("k\xCE\xA9 brake"));
+        buf = std::format("{:.1f} {}", comp.value / 1000.0, tr("k\xCE\xA9 brake"));
     else
-        std::snprintf(buf, sizeof(buf), "%.0f %s", comp.value, tr("\xCE\xA9 brake"));
+        buf = std::format("{:.0f} {}", comp.value, tr("\xCE\xA9 brake"));
     Vec2 mid = (body->start + body->end) * 0.5;
     ctx.out.labels.push_back({mid + perp * (half + padTh + 10.0 / ctx.safeScale()), buf,
                               packColor(200, 200, 200), false});
@@ -1168,8 +1165,7 @@ void emitCrank(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
     ctx.out.circles.push_back({mid + knobDir * (pitchR * 0.92), rollerR * 1.35,
                                packColor(255, 220, 130, 245), 0.0, true, true});
 
-    char buf[48];
-    std::snprintf(buf, sizeof(buf), "%.1f %s", comp.value, tr("V drive"));
+    std::string buf = std::format("{:.1f} {}", comp.value, tr("V drive"));
     Vec2 dir = (b - a).normalized();
     Vec2 perp(-dir.y, dir.x);
     ctx.out.labels.push_back({mid + perp * 24.0, buf, packColor(200, 200, 200), false});
@@ -1230,8 +1226,7 @@ void emitSpring(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
         : render::blendColor(packColor(170, 178, 190, 230), packColor(110, 170, 255, 245), c);
     ctx.out.polylines.push_back({std::move(pts), 2.2, springCol, true});
 
-    char buf[48];
-    formatCapacitance(comp.value, buf, sizeof(buf));
+    std::string buf = formatCapacitance(comp.value);
     ctx.out.labels.push_back({g.mid + g.perp * (g.plateHalf + 9.0 / ctx.safeScale()), buf,
                               packColor(200, 200, 200), false});
 }
@@ -1273,8 +1268,7 @@ void emitFlywheel(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
                                  packColor(168, 130, 255, static_cast<unsigned>(8 + 30 * iFrac))});
     }
 
-    char buf[32];
-    formatInductance(comp.value, buf, sizeof(buf));
+    std::string buf = formatInductance(comp.value);
     ctx.out.labels.push_back({mid + g.perp * (radius + 10.0 / ctx.safeScale()), buf,
                               packColor(200, 200, 200), false});
 }
@@ -1582,11 +1576,11 @@ void emitConstriction(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
                                  packColor(255, 140, 60, static_cast<unsigned>(10 + 36 * frac))});
     }
 
-    char buf[32];
+    std::string buf;
     if (comp.value >= 1000.0)
-        std::snprintf(buf, sizeof(buf), "%.1f %s", comp.value / 1000.0, tr("k\xCE\xA9"));
+        buf = std::format("{:.1f} {}", comp.value / 1000.0, tr("k\xCE\xA9"));
     else
-        std::snprintf(buf, sizeof(buf), "%.0f %s", comp.value, tr("\xCE\xA9"));
+        buf = std::format("{:.0f} {}", comp.value, tr("\xCE\xA9"));
     ctx.out.labels.push_back({bodyMid + perp * (simHalf + margin + 10.0 / ctx.safeScale()), buf,
                               packColor(200, 200, 200), false});
 }
@@ -1631,8 +1625,7 @@ void emitPump(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
     }
     ctx.out.circles.push_back({center, r * 0.22, packColor(96, 170, 255, 245), 0.0, true, false});
 
-    char buf[48];
-    std::snprintf(buf, sizeof(buf), "%.1f %s", comp.value, tr("V pump"));
+    std::string buf = std::format("{:.1f} {}", comp.value, tr("V pump"));
     Vec2 dir = (b - a).normalized();
     Vec2 perp(-dir.y, dir.x);
     Vec2 mid((a.x + b.x) * 0.5, (a.y + b.y) * 0.5);
@@ -1712,8 +1705,7 @@ void emitTank(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
     // Tank outline on top.
     ctx.out.quads.push_back({A1, A2, B2, B1, packColor(110, 150, 200, 230), false, 1.8});
 
-    char buf[32];
-    formatCapacitance(comp.value, buf, sizeof(buf));
+    std::string buf = formatCapacitance(comp.value);
     ctx.out.labels.push_back({g.mid + perp * (ph + 9.0 / ctx.safeScale()), buf,
                               packColor(200, 200, 200), false});
 }
@@ -1745,8 +1737,7 @@ void emitTurbine(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
                                  1.8, col, true});
     }
 
-    char buf[32];
-    formatInductance(comp.value, buf, sizeof(buf));
+    std::string buf = formatInductance(comp.value);
     ctx.out.labels.push_back({mid + g.perp * (radius + 10.0 / ctx.safeScale()), buf,
                               packColor(200, 200, 200), false});
 }
