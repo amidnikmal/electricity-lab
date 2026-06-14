@@ -19,8 +19,11 @@ AnkiNote noteFromTask(const GeneratedTask& task) {
 
     std::string answer = std::format("{:.4g} {}", task.groundTruth, task.answerUnit);
     note.back = answer + "\n\n" + task.solutionExplanation;
+    if (!task.predictionPrompt.empty())
+        note.back += "\n\n" + task.predictionPrompt;
 
-    note.tags = {"current-lab", taskFamilyName(task.family)};
+    note.tags = {"current-lab", taskFamilyName(task.family),
+                 std::format("d{}", task.difficulty)};
     for (auto& tag : note.tags)
         for (auto& ch : tag)
             if (ch == ' ' || ch == '\'') ch = '-';
