@@ -328,3 +328,60 @@ TEST(TransientCharge, ChangingCapacitancePreservesCharge) {
     EXPECT_NEAR(V_after, Q_before / cap->value, 0.02);
     EXPECT_NEAR(V_after, V_before / 2.0, 0.02);
 }
+
+TEST(TransientAc, SignAlternatesOverFullPeriod) {
+    // AC-источник (амплитуда 5 В, 50 Гц, фаза 0) должен давать
+    // положительное напряжение на одной полуволне и отрицательное на другой.
+    Circuit c;
+    int gnd = c.addNode(Vec2(0, 100));
+    int n1 = c.addNode(Vec2(0, 0));
+    c.groundNodeId = gnd;
+    c.addComponent(ComponentType::Ground, gnd, gnd, 0.0);
+    int acId = c.addComponent(ComponentType::AcVoltageSource, n1, gnd, 5.0);
+    Component* ac = c.findComponent(acId);
+    ASSERT_NE(ac, nullptr);
+    ac->frequency = 50.0; // T = 20 ms
+    ac->phase = 0.0;
+    c.addComponent(ComponentType::Resistor, n1, gnd, 1000.0); // load
+
+    CircuitSolver solver;
+    TransientState state;
+    double dt = 1e-4; // 0.1 ms per step
+
+    bool sawPositive = false, sawNegative = false;
+    for (int i = 0; i < 500; ++i) { // 50 ms = 2.5 periods
+        auto sol = solver.stepTransient(c, state, dt);
+        double vOut = 0.0;
+        for (const auto& np : sol.nodePotentials) {
+            if (np.nodeId == n1) { vOut = np.potential; break; }
+        }
+        if (vOut > 0.5) sawPositive = true;
+        if (vOut < -0.5) sawNegative = true;
+    }
+    EXPECT_TRUE(sawPositive) << "AC source should produce positive voltage on the positive half-cycle";
+    EXPECT_TRUE(sawNegative) << "AC source should produce negative voltage on the negative half-cycle";
+}
+
+TEST(TransientAc, ReturnsAmplitudeAtQuarterPeriod) {
+    // v(t) = A·sin(2π·f·t). При t = T/4 = 5 мс: v(5ms) = A·sin(π/2) = A.
+    Circuit c;
+    int gnd = c.addNode(Vec2(0, 100));
+    int n1 = c.addNode(Vec2(0, 0));
+    c.groundNodeId = gnd;
+    c.addComponent(ComponentType::Ground, gnd, gnd, 0.0);
+    int acId = c.addComponent(ComponentType::AcVoltageSource, n1, gnd, 5.0);
+    Component* ac = c.findComponent(acId);
+    ASSERT_NE(ac, nullptr);
+    ac->frequency = 50.0; // T = 20 ms
+    ac->phase = 0.0;
+    c.addComponent(ComponentType::Resistor, n1, gnd, 1000.0);
+
+    CircuitSolver solver;
+    TransientState state;
+    double dt = 5e-3; // один шаг = T/4
+    auto sol = solver.stepTransient(c, state, dt);
+    double vOut = 0.0;
+    for (const auto& np : sol.nodePotentials)
+        if (np.nodeId == n1) { vOut = np.potential; break; }
+    EXPECT_NEAR(vOut, 5.0, 0.1);
+}

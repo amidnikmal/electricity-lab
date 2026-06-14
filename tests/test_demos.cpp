@@ -120,6 +120,28 @@ TEST(DemoCircuits, RlcCirculatingActuallyCirculatesAtSteadyState) {
            "иначе контраст с циркуляцией теряется";
 }
 
+TEST(DemoCircuits, AcRectifierChargesCapacitorTowardAmplitudeMinusVf) {
+    // Half-wave rectifier: AC 5V/50Hz -> diode -> 10uF || 1k.
+    // C charges through diode on positive half-cycles toward amplitude − Vf
+    // (≈ 5 − 0.7 = 4.3 V) and discharges slowly through the 1k load.
+    CircuitSolver solver;
+    TransientState state;
+    Circuit c = buildDemo(DemoCircuit::AcRectifier);
+    double dt = 1e-4; // 0.1 ms
+    int steps = 50000; // 5 s total -> 250 periods at 50 Hz
+
+    double maxVc = 0.0;
+    for (int i = 0; i < steps; ++i) {
+        solver.stepTransient(c, state, dt);
+        for (const auto& [id, vc] : state.capVoltage)
+            maxVc = std::max(maxVc, vc);
+    }
+    // C should charge to amplitude − Vf (≈ 4.3 V), though ripple keeps it
+    // slightly below the ideal peak.
+    EXPECT_GT(maxVc, 3.8) << "capacitor should charge above 3.8 V in the rectifier";
+    EXPECT_LT(maxVc, 5.1) << "capacitor voltage cannot exceed source amplitude";
+}
+
 TEST(DemoCircuits, EveryDemoNameIsTranslated) {
     current_lab::i18n::setLanguage(current_lab::i18n::Language::Russian);
     for (int d = 0; d < static_cast<int>(DemoCircuit::Count); ++d) {
