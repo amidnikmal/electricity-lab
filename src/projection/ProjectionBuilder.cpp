@@ -9,6 +9,7 @@
 #include "physics/DriftModel.h"
 #include "physics/FieldModel.h"
 #include "physics/MagneticFieldModel.h"
+#include "physics/SolenoidModel.h"
 #include "physics/PowerModel.h"
 #include "physics/ResistiveElementModel.h"
 #include "physics/SurfaceChargeModel.h"
@@ -423,6 +424,42 @@ void emitInductorPhysics(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 
         double radius = (g.coilEnd - g.coilStart).length() * 0.7;
         ctx.out.glows.push_back({mid, radius, iFrac,
                                  packColor(168, 130, 255, static_cast<unsigned>(8 + 30 * iFrac))});
+    }
+}
+
+void emitSolenoidField(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
+                      double branchCurrent) {
+    auto g = inductorGeometry(a, b, ctx.p.wireThickness);
+    if (!g.valid) return;
+
+    physics::SolenoidGeometry geom;
+    geom.center = (g.coilStart + g.coilEnd) * 0.5;
+    geom.axis = g.unit;
+    geom.halfLength = (g.coilEnd - g.coilStart).length() * 0.5;
+    geom.coilRadius = g.bumpRadius * 1.5;
+
+    auto samples = physics::sampleSolenoidField(
+        geom, branchCurrent, ctx.p.wireThickness, ctx.p.cameraScale, ctx.maxI);
+    if (samples.empty()) return;
+
+    double maxMag = 0.0;
+    for (const auto& s : samples)
+        maxMag = std::max(maxMag, s.magnitude);
+
+    double s = 1.0 / ctx.safeScale();
+    for (const auto& sample : samples) {
+        double frac = maxMag > 1e-18 ? sample.magnitude / maxMag : 0.0;
+        double arrowSize = (3.0 + frac * 4.5) / ctx.safeScale();
+        // Внутренние стрелки — насыщенный фиолетовый; внешние — бледнее.
+        unsigned alpha = sample.inside
+            ? static_cast<unsigned>(160 + 70 * frac)
+            : static_cast<unsigned>(70 + 80 * frac);
+        uint32_t col = packColor(
+            static_cast<unsigned>(120 + 80 * frac),
+            static_cast<unsigned>(80 + 60 * frac),
+            static_cast<unsigned>(220 + 30 * frac),
+            alpha);
+        ctx.out.arrows.push_back({sample.position, sample.direction, arrowSize, col});
     }
 }
 
@@ -1975,11 +2012,15 @@ void buildCircuitShapes(BuildContext& ctx, bool physicsLayers) {
             }
 
             if (ctx.p.layers.magnetic && std::abs(branchCurrent) > 1e-12 &&
-                comp.type != ComponentType::Capacitor)
+                comp.type != ComponentType::Capacitor &&
+                comp.type != ComponentType::Inductor)
                 emitMagneticField(ctx, a, b, branchCurrent);
 
-            if (comp.type == ComponentType::Inductor)
+            if (comp.type == ComponentType::Inductor) {
                 emitInductorPhysics(ctx, comp, a, b, branchCurrent);
+                if (ctx.p.layers.magnetic && std::abs(branchCurrent) > 1e-12)
+                    emitSolenoidField(ctx, comp, a, b, branchCurrent);
+            }
         } else if (ctx.p.layers.current && std::abs(branchCurrent) > 1e-12) {
             emitCurrentArrows(ctx, a, b, branchCurrent);
         }
