@@ -181,17 +181,11 @@ TEST(MechanicsProjection, SpringCompressesAsCapacitorCharges) {
     int capId, indId, resId;
     Circuit c = makeRlcCircuit(capId, indId, resId);
     CircuitSolver solver;
-
     TransientState empty;
-    auto uncharged = solver.solveTransientSnapshot(c, empty);
-    auto unchargedSpin = buildProjection(ProjectionKind::Mechanical, c, &uncharged, spinParams());
+    auto sol = solver.solveTransientSnapshot(c, empty);
 
-    TransientState charged;
-    charged.capVoltage[capId] = 5.0;
-    auto chargedSolution = solver.solveTransientSnapshot(c, charged);
-    auto chargedSpin = buildProjection(ProjectionKind::Mechanical, c, &chargedSolution, spinParams());
-
-    // Spring polyline (the longest polyline) must contract when charged.
+    // The spring now winds with the capacitor's chainTravel (∝ net charge), the
+    // SAME drive as its gear — so charge = a wound shaft, not a snapshot voltage.
     auto springSpanX = [](const ProjectionResult& r) {
         double best = 0.0;
         for (const auto& poly : r.prims.polylines) {
@@ -202,8 +196,15 @@ TEST(MechanicsProjection, SpringCompressesAsCapacitorCharges) {
         return best;
     };
 
-    double freeSpan = springSpanX(unchargedSpin);
-    double chargedSpan = springSpanX(chargedSpin);
+    ViewParams p = spinParams();
+    std::unordered_map<int, double> travel;
+    p.chainTravel = &travel;
+
+    travel[capId] = 0.0;
+    double freeSpan = springSpanX(buildProjection(ProjectionKind::Mechanical, c, &sol, p));
+    travel[capId] = 1000.0; // shaft wound (clamped) -> spring compressed
+    double chargedSpan = springSpanX(buildProjection(ProjectionKind::Mechanical, c, &sol, p));
+
     ASSERT_GT(freeSpan, 0.0);
     EXPECT_LT(chargedSpan, freeSpan - 1e-6);
 }

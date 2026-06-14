@@ -2,6 +2,7 @@
 #include "projection/ElementGeometry.h"
 #include "projection/HydraulicMapping.h"
 #include "projection/MechanicsMapping.h"
+#include "projection/MechanicsCapacitor.h"
 #include "render/ColorMaps.h"
 #include "ui/I18n.h"
 #include "physics/ChainGeometry.h"
@@ -1007,8 +1008,12 @@ void emitChain(BuildContext& ctx, Vec2 a, Vec2 b, double va, double vb,
         return;
     }
 
-    // Fallback (no sim): phase animation. Bicycle-chain look.
-    double speed = mechanics::chainSpeedFromCurrent(current);
+    // Fallback (no sim): phase animation. Bicycle-chain look. Direction follows
+    // the rigid-axle coupling so the whole mechanism animates as one body.
+    double speed = ctx.p.coupling
+        ? ctx.p.coupling->signFor(compId) *
+              std::abs(mechanics::chainSpeedFromCurrent(current))
+        : mechanics::chainSpeedFromCurrent(current);
     double spacing = drivePath.valid ? cg::linkPitch(rollerR) : std::max(half * 2.4, 10.0);
     double perimeter = drivePath.valid ? drivePath.perimeter : len;
     double phase = std::fmod(ctx.p.time * speed * kVisualChainSpeed, spacing * 2.0);
@@ -1140,13 +1145,21 @@ void emitCrank(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
 
     // The wheel BODY spins at the honest chain speed (no slip), continuously —
     // this is what the hub holes/knob rotate by, smoothly. Fallback to the ∫I dt
-    // phase only when the sim travel is not plumbed (unit tests).
+    // phase only when the sim travel is not plumbed (unit tests). When the
+    // rigid-axle coupling is supplied the fallback direction follows it, so the
+    // drive sprocket turns with the rest of the mechanism.
+    const int crankSign = ctx.p.coupling ? ctx.p.coupling->signFor(comp.id) : 0;
     double travel = 0.0;
     double chainTravel = honestChainTravel(ctx, comp.id, &travel)
         ? travel
         : (ctx.p.flowIntegrals
-               ? componentIntegral(ctx.p.flowIntegrals, comp.id) * kVisualChainSpeed
-               : ctx.p.time * mechanics::chainSpeedFromCurrent(current) * kVisualChainSpeed);
+               ? (crankSign ? crankSign * std::abs(componentIntegral(ctx.p.flowIntegrals, comp.id))
+                            : componentIntegral(ctx.p.flowIntegrals, comp.id)) *
+                     kVisualChainSpeed
+               : ctx.p.time *
+                     (crankSign ? crankSign * std::abs(mechanics::chainSpeedFromCurrent(current))
+                                : mechanics::chainSpeedFromCurrent(current)) *
+                     kVisualChainSpeed);
     double bodyPhase = cg::sourceDriveSprocketPhaseFromChainTravel(chainTravel, pitchR);
 
     // The TEETH snap onto the measured roller gaps so they mesh and push the
@@ -1186,53 +1199,182 @@ void emitAnchor(BuildContext& ctx, Vec2 pos) {
         ctx.out.lines.push_back({P(-10 + i * 8, 16), P(-4 + i * 8, 22), 1.5, col, true});
 }
 
+// Render-only: a closed bicycle-chain OVAL between two equal-radius sprockets
+// centred at A and B (pitch radius R) — two straight runs tangent to both tooth
+// circles plus a semicircle wrap arc around EACH sprocket. This is the same
+// racetrack the chain sim runs for every other component. It threads onto both
+// gears — the node gear at A and the shaft sprocket at B — instead of collapsing
+// into the node point. `phase` (arc length) advances the rollers so the chain
+// turns WITH the sprockets: for the capacitor it is driven by the shaft angle θ
+// (= charge), so winding the spring and moving the chain are the same motion,
+// fed by the neighbouring node gear during charging.
+void emitStaticChainOval(BuildContext& ctx, Vec2 A, Vec2 B, double R,
+                         double va, double vb, double phase = 0.0) {
+    namespace cg = physics::chain_geometry;
+    Vec2 ab = B - A;
+    double len = ab.length();
+    if (len < 1e-3) return;
+    Vec2 unit = ab / len;
+    Vec2 perp(-unit.y, unit.x);
+
+    // Oval racetrack point at arc-length t (matches ChainSim::Oval, ccw).
+    double arc = kPi * R;
+    double perimeter = 2.0 * len + 2.0 * arc;
+    auto ovalAt = [&](double t) -> Vec2 {
+        t = std::fmod(t, perimeter);
+        if (t < 0.0) t += perimeter;
+        if (t < len) return A + unit * t + perp * R;                  // top a->b
+        if (t < len + arc) {
+            double phi = (t - len) / R, ang = kPi * 0.5 - phi;        // wrap B
+            return B + perp * (R * std::sin(ang)) + unit * (R * std::cos(ang));
+        }
+        if (t < 2.0 * len + arc)
+            return B - unit * (t - len - arc) - perp * R;             // bottom b->a
+        double phi = (t - 2.0 * len - arc) / R, ang = -kPi * 0.5 - phi; // wrap A
+        return A + perp * (R * std::sin(ang)) + unit * (R * std::cos(ang));
+    };
+
+    const double rollerR = cg::linkRadius(ctx.p.wireThickness);
+    const double pitch = cg::linkPitch(rollerR);
+    int count = std::max(8, static_cast<int>(perimeter / pitch));
+    double spacing = perimeter / count;
+
+    // Potential tint, same palette as the rest of the chain.
+    if (ctx.p.layers.potential && ctx.hasPotentialRange()) {
+        render::PrimGradient grad;
+        grad.a = A; grad.b = B;
+        grad.width = cg::chainHalfWidth(ctx.p.wireThickness) * 2.0;
+        grad.vA = va; grad.vB = vb; grad.vMin = ctx.vMin; grad.vMax = ctx.vMax;
+        grad.alpha = 90;
+        ctx.out.gradients.push_back(grad);
+    }
+
+    // Faint guide rails along the two straight runs (as emitChain draws them).
+    uint32_t rail = packColor(150, 160, 175, 120);
+    ctx.out.lines.push_back({A + perp * R, B + perp * R, 1.2, rail, true});
+    ctx.out.lines.push_back({A - perp * R, B - perp * R, 1.2, rail, true});
+
+    // Same bicycle-chain look as the sim: alternating outer/inner plate pairs
+    // between consecutive rollers, then rollers (fill + edge + pin) on top.
+    const uint32_t rollerFill = packColor(70, 76, 88, 255);
+    const uint32_t rollerEdge = packColor(208, 214, 224, 235);
+    const uint32_t pinCol = packColor(228, 232, 240, 245);
+    const uint32_t outerPlate = packColor(196, 204, 216, 225);
+    const uint32_t innerPlate = packColor(140, 148, 162, 215);
+    auto emitPlates = [&](Vec2 from, Vec2 to, bool outer) {
+        Vec2 d = to - from;
+        double dl = d.length();
+        if (dl < 1e-6) return;
+        Vec2 n(-d.y / dl, d.x / dl);
+        double off = outer ? rollerR * 0.62 : rollerR * 0.34;
+        uint32_t col = outer ? outerPlate : innerPlate;
+        double w = outer ? cg::kOuterPlateWidth : cg::kInnerPlateWidth;
+        ctx.out.lines.push_back({from + n * off, to + n * off, w, col, true});
+        ctx.out.lines.push_back({from - n * off, to - n * off, w, col, true});
+    };
+    for (int i = 0; i < count; ++i) {
+        Vec2 p = ovalAt(spacing * i + phase);
+        Vec2 q = ovalAt(spacing * ((i + 1) % count) + phase);
+        emitPlates(p, q, i % 2 == 0);
+    }
+    for (int i = 0; i < count; ++i) {
+        Vec2 p = ovalAt(spacing * i + phase);
+        ctx.out.circles.push_back({p, rollerR, rollerFill, 0.0, true, false});
+        ctx.out.circles.push_back({p, rollerR, rollerEdge, 1.4, false, false});
+        ctx.out.circles.push_back({p, rollerR * 0.35, pinCol, 0.0, true, false});
+    }
+}
+
+// Spring capacitor: gear -> crank arm -> spring, ONE rigid body. Each shaft
+// sprocket carries a crank arm; the spring is slung between the two arm tips and
+// deforms as the shafts turn. A single angle (the loop travel / R) drives the
+// gear, the arm AND the spring, so the spring is a rigid part of the drive — turn
+// the gear and the spring deforms in lockstep. The two shafts are SEPARATE axles
+// so they counter-rotate (that is what lets the spring twist/compress); each
+// still turns at the loop SPEED, so nothing on a single axle is out of sync.
 void emitSpring(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
                 double va, double vb) {
     auto g = capacitorGeometry(a, b, ctx.p.wireThickness);
     if (!g.valid) return;
+    double len = (b - a).length();
 
-    double vc = va - vb; // spring displacement is proportional to this
-    double vRange = std::max(std::abs(ctx.vMax - ctx.vMin), 1e-9);
-    double c = std::clamp(std::abs(mechanics::springCompressionFromVoltage(vc)) / vRange, 0.0, 1.0);
+    namespace cg = physics::chain_geometry;
+    double pitchR = cg::sprocketPitchRadius(cg::chainHalfWidth(ctx.p.wireThickness),
+                                            cg::linkRadius(ctx.p.wireThickness));
 
-    emitChain(ctx, a, g.leadAEnd, va, va, 0.0, comp.id);
-    emitChain(ctx, g.leadBEnd, b, vb, vb, 0.0, comp.id);
+    mechanics::SpringCapacitorModel m;
+    m.p.halfSpan = std::clamp(len * 0.30, 24.0, len * 0.42);
+    m.p.armLen = std::clamp(len * 0.11, g.plateHalf * 0.55, m.p.halfSpan * 0.8);
+    m.p.baseAmp = std::max(g.plateHalf * 0.5, ctx.p.wireThickness * 0.9);
 
-    // Fixed walls at both lead ends.
-    uint32_t wallCol = packColor(226, 226, 216, 235);
-    ctx.out.lines.push_back({g.plateATop, g.plateABottom, 3.0, wallCol, true});
-    ctx.out.lines.push_back({g.plateBTop, g.plateBBottom, 3.0, wallCol, true});
-
-    // Movable plate slides toward wall A as compression rises; the rigid rod
-    // connects it to wall B. Displacement ∝ Vc (charge <-> compression).
-    Vec2 movable = g.leadBEnd - g.unit * (g.gap * 0.6 * c);
-    double amp = g.plateHalf * 0.55;
-    ctx.out.lines.push_back({movable + g.perp * amp, movable - g.perp * amp, 2.5,
-                             packColor(208, 214, 224, 235), true});
-    ctx.out.lines.push_back({movable, g.leadBEnd, 3.5, packColor(160, 168, 180, 235), true});
-
-    // Spring zigzag between wall A and the movable plate.
-    int teeth = 7;
-    std::vector<Vec2> pts;
-    pts.reserve(teeth + 2);
-    Vec2 span = movable - g.leadAEnd;
-    pts.push_back(g.leadAEnd);
-    for (int i = 1; i <= teeth; ++i) {
-        double t = static_cast<double>(i) / (teeth + 1);
-        double side = (i % 2 == 0) ? 1.0 : -1.0;
-        pts.push_back(g.leadAEnd + span * t + g.perp * (amp * side));
+    double capTravel = 0.0;
+    if (ctx.p.chainTravel) {
+        auto it = ctx.p.chainTravel->find(comp.id);
+        if (it != ctx.p.chainTravel->end()) capTravel = it->second;
     }
-    pts.push_back(movable);
+    // One shaft angle = the loop travel / R drives gear, arm and spring together.
+    // Clamp just shy of the crank's 90° fold: at the limit the spring is FULLY
+    // compressed (max charge) — it no longer sticks early (the old ±60° clamp bit
+    // almost at once and looked stuck). In the linear region the cap gear turns at
+    // exactly the loop speed, like every other gear.
+    constexpr double kMaxSwing = 1.5; // ~86°
+    double shaftAngle = std::clamp(capTravel / pitchR, -kMaxSwing, kMaxSwing);
+    m.theta = shaftAngle;
 
-    uint32_t springCol = vc >= 0.0
-        ? render::blendColor(packColor(170, 178, 190, 230), packColor(255, 160, 80, 245), c)
-        : render::blendColor(packColor(170, 178, 190, 230), packColor(110, 170, 255, 245), c);
-    ctx.out.polylines.push_back({std::move(pts), 2.2, springCol, true});
+    auto toWorld = [&](Vec2 l) { return g.mid + g.unit * l.x + g.perp * l.y; };
+    Vec2 shaftLW = toWorld(m.shaftL());
+    Vec2 shaftRW = toWorld(m.shaftR());
+    Vec2 crankLW = toWorld(m.crankL());
+    Vec2 crankRW = toWorld(m.crankR());
+    Vec2 springMidW = (crankLW + crankRW) * 0.5;
+
+    double chargeMag = std::abs(m.charge());
+    uint32_t pos = packColor(127, 119, 221, 245); // stretch / charge +
+    uint32_t neg = packColor(224, 96, 122, 245);  // compress / charge −
+    uint32_t chargeCol = m.charge() >= 0.0 ? pos : neg;
+    uint32_t metal = packColor(139, 147, 176, 235);
+
+    // Leads roll by the same shaft motion (R·shaftAngle == clamped capTravel);
+    // gear teeth are phased onto the crank-arm directions (teeth welded to arms).
+    double chainPhase = pitchR * shaftAngle;
+    emitStaticChainOval(ctx, a, shaftLW, pitchR, va, va, -chainPhase);
+    emitStaticChainOval(ctx, b, shaftRW, pitchR, vb, vb, +chainPhase);
+
+    double armPhaseL = cg::angleOf(crankLW - shaftLW);
+    double armPhaseR = cg::angleOf(crankRW - shaftRW);
+    emitSprocket(ctx, shaftLW, pitchR, armPhaseL, armPhaseL, false);
+    emitSprocket(ctx, shaftRW, pitchR, armPhaseR, armPhaseR, false);
+
+    // Crank arms shaft -> tip.
+    ctx.out.lines.push_back({shaftLW, crankLW, 4.0, metal, true});
+    ctx.out.lines.push_back({shaftRW, crankRW, 4.0, metal, true});
+    double knob = std::max(2.5, m.p.armLen * 0.16);
+
+    // Spring between the arm tips; coil step = springLen/coils (bunch when
+    // compressed). Endpoints pinned pixel-exact to the crank tips (no gap).
+    std::vector<Vec2> pts;
+    for (const Vec2& l : m.springPath()) pts.push_back(toWorld(l));
+    pts.front() = crankLW;
+    pts.back() = crankRW;
+    uint32_t springCol =
+        render::blendColor(packColor(170, 178, 190, 230), chargeCol, 0.35 + 0.65 * chargeMag);
+    ctx.out.polylines.push_back({std::move(pts), 2.6, springCol, true});
+
+    ctx.out.circles.push_back({crankLW, knob, chargeCol, 0.0, true, false});
+    ctx.out.circles.push_back({crankRW, knob, chargeCol, 0.0, true, false});
+
+    const char* modeText = m.mode() == mechanics::SpringCapacitorModel::Mode::Stretched
+                               ? tr("stretched")
+                           : m.mode() == mechanics::SpringCapacitorModel::Mode::Compressed
+                               ? tr("compressed")
+                               : tr("neutral");
+    double s = 1.0 / ctx.safeScale();
+    Vec2 above = springMidW + g.perp * (m.p.armLen + 12.0 * s);
+    ctx.out.labels.push_back({above, modeText, packColor(200, 200, 200), false});
 
     char buf[48];
     formatCapacitance(comp.value, buf, sizeof(buf));
-    ctx.out.labels.push_back({g.mid + g.perp * (g.plateHalf + 9.0 / ctx.safeScale()), buf,
-                              packColor(200, 200, 200), false});
+    ctx.out.labels.push_back({above + g.perp * (12.0 * s), buf, packColor(170, 176, 190), false});
 }
 
 void emitFlywheel(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
@@ -1312,12 +1454,17 @@ void emitGears(BuildContext& ctx) {
         ctx.out.circles.push_back({node.position, rootR, edgeCol, 1.6, false, false});
 
         // Wheel BODY spins at the honest chain speed of the branches meeting
-        // here (no slip), continuously — the hub holes ride this. The chain
-        // wraps the node clockwise for forward travel, hence the minus sign.
-        // Fallback to the ∫I dt node phase only when travel is not plumbed.
+        // here (no slip), continuously — the hub holes ride this. The node is one
+        // rigid axle: every chain on it shares a single rotation sense (the
+        // rigid-axle coupling sign), so the wheel turns coherently with all of
+        // them, not just one. The chain wraps the node clockwise for forward
+        // travel, hence the minus sign. The travel MAGNITUDE comes from the
+        // fastest branch (a shared idler can only spin at one rate; pick the
+        // dominant one). Fallback to the ∫I dt node phase when travel is unplumbed.
         const double toothPitch = 2.0 * kPi / teeth;
+        const int axleSign = ctx.p.coupling ? ctx.p.coupling->nodeSignFor(node.id) : 1;
         double bestTravel = 0.0, bestAbs = -1.0;
-        int bestComp = -1; // dominant branch through this node
+        int bestComp = -1; // fastest branch through this node (sets magnitude)
         bool haveTravel = false;
         if (ctx.p.chainTravel) {
             for (const auto& comp : ctx.circuit.components) {
@@ -1333,16 +1480,21 @@ void emitGears(BuildContext& ctx) {
                 }
             }
         }
+        // chainTravel already carries the coupling sign (MainWindow); the
+        // stateless fallbacks apply it here from |speed| so direction stays
+        // coherent across the whole mechanism.
         double bodyPhase = haveTravel
             ? -bestTravel / pitchR
             : (ctx.p.flowIntegrals
-                   ? nodeIntegral(ctx.p.flowIntegrals, node.id) * kVisualChainSpeed / pitchR
-                   : ctx.p.time * mechanics::chainSpeedFromCurrent(meanCurrent) *
+                   ? -axleSign * std::abs(nodeIntegral(ctx.p.flowIntegrals, node.id)) *
+                         kVisualChainSpeed / pitchR
+                   : -axleSign * ctx.p.time *
+                         std::abs(mechanics::chainSpeedFromCurrent(meanCurrent)) *
                          kVisualChainSpeed / pitchR);
 
-        // Teeth: snapped onto the gaps between the rollers of the DOMINANT branch
-        // through this node (independent per-branch sims can't all co-phase; mesh
-        // the strongest cleanly), so the gear visibly meshes with the chain.
+        // Teeth: snapped onto the gaps between the rollers of the fastest branch
+        // through this node (a shared idler spins at one rate; mesh the strongest
+        // cleanly), so the gear visibly meshes with the chain.
         double toothPhase = bodyPhase;
         double meshMod = 0.0;
         if (wheelMeshPhase(ctx, node.position, pitchR, rollerR, teeth, bestComp, &meshMod)) {

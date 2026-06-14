@@ -4,6 +4,7 @@
 #include "physics/ChainSim.h"
 #include "physics/ParticleSim.h"
 #include "projection/FlowIntegrator.h"
+#include "projection/MechanicsCoupling.h"
 #include "solver/CircuitSolver.h"
 #include "render/RenderPrimitives.h"
 #include "visualization/VisualizationPresets.h"
@@ -49,6 +50,11 @@ struct ViewParams {
     // junction gears spin at this rate so the wheel body turns WITH the chain
     // (no slip) instead of crawling on the ∫I dt phase while the chain flies by.
     const std::unordered_map<int, double>* chainTravel = nullptr;
+    // Rigid-axle rotation signs: one sense per connected mechanism so every chain
+    // on a shared node turns the same way. When chainTravel/chainLinks are
+    // plumbed they already carry these signs; this pointer drives the stateless
+    // fallback animation (and tests) coherently too. See MechanicsCoupling.h.
+    const mechanics::AxleCoupling* coupling = nullptr;
 };
 
 // Solved values attributed to a model element inside one projection build.

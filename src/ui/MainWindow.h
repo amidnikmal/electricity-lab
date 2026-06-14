@@ -13,6 +13,7 @@
 #include "physics/ParticleSim.h"
 #include "physics/ThermalModel.h"
 #include "simulation/SignalRecorder.h"
+#include "projection/MechanicsCoupling.h"
 #include <memory>
 #include <unordered_map>
 
@@ -41,6 +42,14 @@ private:
     void configureCanvasForMechanicsView(CircuitCanvas& canvas);
     void configureCanvasForProjection(CircuitCanvas& canvas, int projection);
     void updateParticleSim(float realDt);
+    // Zero the accumulated mechanics animation phases (chain travel + spin
+    // integrals). Called on discharge/reset so the capacitor spring (which winds
+    // with chain travel) and the spinning wheels return to neutral, not stale.
+    void resetMechanicsPhases() {
+        m_chainTravel.clear();
+        m_flowIntegrals.component.clear();
+        m_flowIntegrals.node.clear();
+    }
     CircuitCanvas& canvasForPane(int paneId);
     void wireCanvas(CircuitCanvas& canvas);
     void syncCamerasFrom(const CircuitCanvas& source);
@@ -77,6 +86,9 @@ private:
     // that moves the sim rollers, so the drive sprocket/junction gears spin
     // WITH the chain instead of crawling on the ∫I dt phase. See ProjectionBuilder.
     std::unordered_map<int, double> m_chainTravel;
+    // Rigid-axle rotation signs (one per connected mechanism) so all chains on a
+    // shared node turn together. See projection/MechanicsCoupling.h.
+    current_lab::mechanics::AxleCoupling m_axleCoupling;
     std::vector<current_lab::physics::SimParticle> m_electronParticles;
     std::vector<current_lab::physics::SimParticle> m_waterParticles;
     std::vector<current_lab::physics::PaddleState> m_waterPaddles;
