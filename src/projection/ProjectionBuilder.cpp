@@ -1190,12 +1190,14 @@ void emitAnchor(BuildContext& ctx, Vec2 pos) {
 // Render-only: a closed bicycle-chain OVAL between two equal-radius sprockets
 // centred at A and B (pitch radius R) — two straight runs tangent to both tooth
 // circles plus a semicircle wrap arc around EACH sprocket. This is the same
-// racetrack the chain sim runs for every other component, drawn here statically
-// (the capacitor blocks DC, so its chain does not flow). It therefore looks
-// identical to the system chain AND threads onto both gears — the node gear at A
-// and the shaft sprocket at B — instead of collapsing into the node point.
+// racetrack the chain sim runs for every other component. It threads onto both
+// gears — the node gear at A and the shaft sprocket at B — instead of collapsing
+// into the node point. `phase` (arc length) advances the rollers so the chain
+// turns WITH the sprockets: for the capacitor it is driven by the shaft angle θ
+// (= charge), so winding the spring and moving the chain are the same motion,
+// fed by the neighbouring node gear during charging.
 void emitStaticChainOval(BuildContext& ctx, Vec2 A, Vec2 B, double R,
-                         double va, double vb) {
+                         double va, double vb, double phase = 0.0) {
     namespace cg = physics::chain_geometry;
     Vec2 ab = B - A;
     double len = ab.length();
@@ -1259,12 +1261,12 @@ void emitStaticChainOval(BuildContext& ctx, Vec2 A, Vec2 B, double R,
         ctx.out.lines.push_back({from - n * off, to - n * off, w, col, true});
     };
     for (int i = 0; i < count; ++i) {
-        Vec2 p = ovalAt(spacing * i);
-        Vec2 q = ovalAt(spacing * ((i + 1) % count));
+        Vec2 p = ovalAt(spacing * i + phase);
+        Vec2 q = ovalAt(spacing * ((i + 1) % count) + phase);
         emitPlates(p, q, i % 2 == 0);
     }
     for (int i = 0; i < count; ++i) {
-        Vec2 p = ovalAt(spacing * i);
+        Vec2 p = ovalAt(spacing * i + phase);
         ctx.out.circles.push_back({p, rollerR, rollerFill, 0.0, true, false});
         ctx.out.circles.push_back({p, rollerR, rollerEdge, 1.4, false, false});
         ctx.out.circles.push_back({p, rollerR * 0.35, pinCol, 0.0, true, false});
@@ -1317,10 +1319,16 @@ void emitSpring(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
                                             cg::linkRadius(ctx.p.wireThickness));
 
     // Each lead is a chain OVAL between the node gear (at a / b) and the shaft
-    // sprocket — threaded onto both, identical to the system chain, not a loop
-    // collapsing into the node point.
-    emitStaticChainOval(ctx, a, shaftLW, pitchR, va, va);
-    emitStaticChainOval(ctx, b, shaftRW, pitchR, vb, vb);
+    // sprocket — threaded onto both, identical to the system chain. The chain,
+    // the shaft sprocket, the crank arm and the spring are ONE rigid drive: they
+    // all advance with the shaft angle θ (= charge), so the chain visibly rolls
+    // as the spring winds. The roller phase = R·θ (the arc the sprocket turns);
+    // the two shafts counter-rotate, so their phases are opposite. During
+    // charging the neighbouring node gear turns, the chain rolls, the spring
+    // winds — the torque path the user asked for.
+    double chainPhase = pitchR * m.theta;
+    emitStaticChainOval(ctx, a, shaftLW, pitchR, va, va, -chainPhase);
+    emitStaticChainOval(ctx, b, shaftRW, pitchR, vb, vb, +chainPhase);
 
     emitSprocket(ctx, shaftLW, pitchR, m.theta, m.theta, false);
     emitSprocket(ctx, shaftRW, pitchR, -m.theta, -m.theta, false);

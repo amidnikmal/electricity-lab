@@ -3,6 +3,7 @@
 #include <cmath>
 
 #include "circuit/Circuit.h"
+#include "physics/ChainGeometry.h"
 #include "projection/MechanicsCapacitor.h"
 #include "projection/ProjectionBuilder.h"
 #include "solver/CircuitSolver.h"
@@ -119,6 +120,47 @@ TEST(SpringCapacitor, SpringEndpointsPinnedToCrankKnobs) {
     };
     EXPECT_TRUE(hasFilledCircleAt(spring->front())) << "spring start detached from its knob";
     EXPECT_TRUE(hasFilledCircleAt(spring->back())) << "spring end detached from its knob";
+}
+
+// The lead chain is one rigid drive with the shaft/spring: as the capacitor
+// charges (theta grows) the chain rollers must roll along (phase = R*theta), the
+// motion fed from the neighbouring gear. Different charge -> different roller
+// positions.
+TEST(SpringCapacitor, ChainRollsAsSpringWinds) {
+    Circuit c;
+    int gnd = c.addNode(Vec2(0, 200));
+    int n1 = c.addNode(Vec2(0, 0));
+    int n2 = c.addNode(Vec2(240, 0));
+    c.groundNodeId = gnd;
+    c.addComponent(ComponentType::Ground, gnd, gnd, 0.0);
+    c.addComponent(ComponentType::VoltageSource, n1, gnd, 5.0);
+    c.addComponent(ComponentType::Resistor, n1, n2, 100.0);
+    int capId = c.addComponent(ComponentType::Capacitor, n2, gnd, 1e-3);
+
+    CircuitSolver solver;
+    ViewParams p;
+    double rollerR = current_lab::physics::chain_geometry::linkRadius(p.wireThickness);
+
+    auto rollerCenters = [&](double capV) {
+        TransientState ts;
+        ts.capVoltage[capId] = capV;
+        CircuitSolution sol = solver.solveTransientSnapshot(c, ts);
+        ProjectionResult r = buildProjection(ProjectionKind::Mechanical, c, &sol, p);
+        std::vector<Vec2> out;
+        for (const auto& circ : r.prims.circles)
+            if (circ.filled && std::abs(circ.radius - rollerR) < 1e-9)
+                out.push_back(circ.center);
+        return out;
+    };
+
+    auto a = rollerCenters(0.0);
+    auto b = rollerCenters(5.0);
+    ASSERT_FALSE(a.empty());
+    ASSERT_EQ(a.size(), b.size());
+    bool moved = false;
+    for (size_t i = 0; i < a.size(); ++i)
+        if ((a[i] - b[i]).length() > 1e-6) { moved = true; break; }
+    EXPECT_TRUE(moved) << "chain rollers did not move as the capacitor charged";
 }
 
 // Render-without-side-effects: building the same circuit twice yields an

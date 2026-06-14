@@ -84,7 +84,11 @@ Split exactly as the prompt asked: pure kinematics vs. pure render.
   sprockets counter-rotated by `±θ` at the chain pitch radius, the chain leads
   wrapping each sprocket (`emitChainOntoSprocket`: tangent runs + far-side wrap
   arc + rollers seated on the teeth, so the chain grabs the gear instead of
-  stopping beside it), crank arms with charge-coloured tips, the deforming spring
+  stopping beside it). The lead chain, the shaft sprocket, the crank arm and the
+  spring are ONE rigid drive: all advance with the shaft angle `θ` (= charge,
+  roller phase `R·θ`, the two shafts counter-rotating), so during charging the
+  neighbouring node gear turns, the chain rolls and the spring winds — one torque
+  path. Crank arms with charge-coloured tips, the deforming spring
   (violet = stretch/charge+, coral = compress/charge−) **pinned pixel-exact to
   the crank knobs**, a mode label and the capacitance. No energy glow and no
   charge bar — state is read from the spring deformation and the mode label
