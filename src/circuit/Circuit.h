@@ -15,6 +15,7 @@ enum class ComponentType : uint8_t {
     Inductor,
     Diode,  // ideal piecewise-linear: conducts A->B when forward biased
     Switch, // value >= 0.5 closed, else open
+    AcVoltageSource, // синусоидальный источник: v(t)=A·sin(2π·freq·t + phase)
 };
 
 enum class EditorMode : uint8_t {
@@ -28,6 +29,7 @@ enum class EditorMode : uint8_t {
     PlaceInductor,
     PlaceDiode,
     PlaceSwitch,
+    PlaceAcVoltageSource,
 };
 
 struct Node {
@@ -45,7 +47,9 @@ struct Component {
     ComponentType type = ComponentType::Wire;
     int nodeA = 0;
     int nodeB = 0;
-    double value = 0.0;
+    double value = 0.0;        // R (Ом), C (Ф), L (Гн), V (В) — для AC: амплитуда (В)
+    double frequency = 1.0;    // Гц (только для AcVoltageSource)
+    double phase = 0.0;        // рад (только для AcVoltageSource)
 
     Component() = default;
     Component(int id_, ComponentType t, int a, int b, double val)
