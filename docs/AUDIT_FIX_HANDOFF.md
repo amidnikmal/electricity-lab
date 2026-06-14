@@ -83,6 +83,16 @@
 - `test(json)` (codex): 4 теста переписаны под корректное поведение (Unicode декодируется,
   невалидные escape отвергаются, числовой content → false, структура валидируется).
 
-### 4b — std::format вместо snprintf-в-буфер (в работе)
-### 4c — cpp-httplib (план)
+### 4b — std::format вместо snprintf-в-буфер (ЗАВЕРШЕНО ✅)
+Сборка чистая, 494 теста. ~30 вызовов snprintf-в-фиксированный-буфер переведены на `std::format`
+(GCC13/C++20, без новых зависимостей) в `ProjectionBuilder` (+helper'ы `formatCapacitance/Inductance`
+теперь возвращают `std::string`), `PrimitiveRenderer`, `InspectorPanel`, `LearningSession.h`,
+`AnkiExport`, `MainWindow`.
+- **Осознанные исключения:**
+  - `TaskGenerator.cpp` `format()` — формат-строка приходит как runtime-параметр; `std::format`
+    неприменим. Уже сделан безопасным (динамический буфер) в волне 1.
+  - `LearningPanel.cpp` — формат-строка переводимая (`tr()` во время выполнения, плейсхолдеры
+    в I18n в printf-стиле); `std::format` требует строку времени компиляции → оставлен `snprintf`.
+
+### 4c — cpp-httplib (в работе)
 ### 4d — Vec2 → glm::dvec2 (план, высокий риск, последним)
