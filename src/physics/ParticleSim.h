@@ -58,7 +58,7 @@ public:
     void configure(const std::vector<ChannelSpec>& channels, double particleRadius);
 
     // Updates per-channel target speeds (every frame; cheap).
-    void setTargets(const std::vector<ChannelSpec>& channels);
+    void setTargets(const std::vector<ChannelSpec>& channels, double particleRadius);
 
     // Advances the microdynamics; dt is real seconds (internally substepped).
     void step(double dt);

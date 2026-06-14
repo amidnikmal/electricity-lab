@@ -307,7 +307,7 @@ void MainWindow::updateParticleSim(float realDt) {
         if (!sim.configured())
             sim.configure(specs, particleRadius);
         else
-            sim.setTargets(specs); // re-configures itself on layout change
+            sim.setTargets(specs, particleRadius); // re-configures itself on layout change
         if (dt > 0.0)
             sim.step(dt);
         outParticles = sim.particles();

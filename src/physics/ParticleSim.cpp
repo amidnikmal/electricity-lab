@@ -860,12 +860,14 @@ void ParticleSim::configure(const std::vector<ChannelSpec>& channels, double par
     m_impl->accumulator = 0.0;
 }
 
-void ParticleSim::setTargets(const std::vector<ChannelSpec>& channels) {
+void ParticleSim::setTargets(const std::vector<ChannelSpec>& channels, double particleRadius) {
     if (!m_impl->world) return;
+    double newRadius = std::max(0.5, particleRadius);
     if (layoutSignature(channels) != m_impl->signature) {
-        configure(channels, m_impl->particleRadius);
+        configure(channels, newRadius);
         return;
     }
+    m_impl->particleRadius = newRadius;
     size_t i = 0;
     for (const auto& spec : channels) {
         // channels vector skips too-short specs; match by componentId.
