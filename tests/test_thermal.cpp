@@ -58,8 +58,8 @@ TEST(ThermalModel, PoweredResistorHeatsMonotonicallyWithoutOvershoot) {
         stepThermal(state, input.circuit, input.solution, kDt);
         double current = temperatureFor(state, input.componentId);
 
-        EXPECT_GT(current, previous);
-        EXPECT_LE(current, steady);
+        EXPECT_GE(current, previous); // нестрогий рост: на плато температура не меняется
+        EXPECT_LE(current, steady);   // без выброса выше установившегося значения
         previous = current;
     }
 }
