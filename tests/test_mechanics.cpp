@@ -63,9 +63,9 @@ TEST(MechanicsMapping, MechanicalPowerEqualsElectricalPower) {
 }
 
 TEST(MechanicsMapping, SpringCompressionTracksCapVoltage) {
-    EXPECT_GT(springCompressionFromVoltage(4.0), springCompressionFromVoltage(2.0));
-    EXPECT_LT(springCompressionFromVoltage(-2.0), 0.0);
-    EXPECT_DOUBLE_EQ(springCompressionFromVoltage(0.0), 0.0);
+    EXPECT_GT(springCompressionFromVoltage(1.0, 4.0), springCompressionFromVoltage(1.0, 2.0));
+    EXPECT_LT(springCompressionFromVoltage(1.0, -2.0), 0.0);
+    EXPECT_DOUBLE_EQ(springCompressionFromVoltage(1.0, 0.0), 0.0);
 }
 
 TEST(MechanicsMapping, FlywheelMomentumTracksInductorCurrent) {

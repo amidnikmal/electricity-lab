@@ -304,8 +304,8 @@ TEST(TransientCharge, ChangingCapacitancePreservesCharge) {
     TransientState state;
     Circuit circuit = rc.c;
 
-    // Полный заряд до стационара.
-    for (int i = 0; i < 5000; ++i)
+    // Полный заряд до стационара: τ=RC=1с, 10000 шагов×1мс = 10τ → V≈5.0В.
+    for (int i = 0; i < 10000; ++i)
         solver.stepTransient(circuit, state, 1e-3);
     double Q_before = stateCapQ(state, rc.capId);
     double V_before = stateCapV(state, rc.capId);

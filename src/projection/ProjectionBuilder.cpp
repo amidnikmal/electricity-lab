@@ -68,6 +68,19 @@ uint32_t fieldGlowColor(double strength, unsigned alpha) {
     return packColor(72, 166, 255, alpha);
 }
 
+struct BuildContext {
+    const Circuit& circuit;
+    const CircuitSolution* solution;
+    const ViewParams& p;
+    render::RenderPrimitives& out;
+
+    double vMin = 0.0, vMax = 0.0;
+    double maxI = 0.0, maxE = 0.0, maxP = 0.0;
+
+    double safeScale() const { return std::max(0.05, p.cameraScale); }
+    bool hasPotentialRange() const { return solution && std::abs(vMax - vMin) > 1e-12; }
+};
+
 // Доля теплового свечения [0..1]: по температуре, если ThermalState доступен;
 // иначе fallback на мгновенную мощность (TODO: пробросить ThermalState из MainWindow).
 double heatGlowFraction(const BuildContext& ctx, int componentId, double power) {
@@ -84,19 +97,6 @@ double heatGlowFraction(const BuildContext& ctx, int componentId, double power) 
         ? std::clamp(physics::dissipatedPowerOnly(ComponentType::Resistor, power) / ctx.maxP, 0.0, 1.0)
         : 0.0;
 }
-
-struct BuildContext {
-    const Circuit& circuit;
-    const CircuitSolution* solution;
-    const ViewParams& p;
-    render::RenderPrimitives& out;
-
-    double vMin = 0.0, vMax = 0.0;
-    double maxI = 0.0, maxE = 0.0, maxP = 0.0;
-
-    double safeScale() const { return std::max(0.05, p.cameraScale); }
-    bool hasPotentialRange() const { return solution && std::abs(vMax - vMin) > 1e-12; }
-};
 
 void computeRanges(BuildContext& ctx) {
     if (!ctx.solution) return;

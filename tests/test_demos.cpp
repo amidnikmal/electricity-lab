@@ -80,7 +80,8 @@ TEST(DemoCircuits, CombosCombineSeveralElementTypes) {
         solver.stepTransient(c, state, 1e-3);
     double held = 0.0;
     for (const auto& [id, vc] : state.capVoltage) held = std::max(held, vc);
-    EXPECT_GT(held, 4.5);
+    // Пик-детектор держит V_peak − V_f диода (≈0.7В): 5В − 0.7В ≈ 4.3В.
+    EXPECT_NEAR(held, 4.3, 0.15);
 }
 
 TEST(DemoCircuits, RlcCirculatingActuallyCirculatesAtSteadyState) {

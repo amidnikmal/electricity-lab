@@ -103,7 +103,7 @@ TEST(ParticleSim, TargetsCanBeUpdatedWithoutRebuild) {
     EXPECT_GT(meanAxialSpeed(sim), 10.0);
 
     spec.targetSpeed = -30.0;
-    sim.setTargets({spec});
+    sim.setTargets({spec}, 1.2);
     runFor(sim, 3.0);
     EXPECT_LT(meanAxialSpeed(sim), -10.0); // reversed without reconfigure
 }
