@@ -101,6 +101,37 @@ endpoints pinned to the crank knobs, and a render-has-no-hidden-state check (sam
 circuit built twice → identical spring polyline). The pre-existing
 `SpringCompressesAsCapacitorCharges` still holds.
 
+## Rigid-axle coupling (one spindle = one rotation)
+
+Reference: in the Spintronics board game a node is a single physical spindle —
+every sprocket and chain bolted to it turns together, one direction, no slip.
+The earlier projection violated this: each component span its own oval and took
+the chain direction from its *own* `nodeA -> nodeB` order. A leg wired backwards
+relative to the current (negative branch current) then span its gear the opposite
+way, so two chains on a shared node fought each other. `emitGears` only masked it
+("mesh the dominant branch, independent sims can't co-phase").
+
+`projection/MechanicsCoupling.h` (`computeAxleCoupling`) fixes the physics. In the
+oval representation both end sprockets of a component necessarily turn the same
+way for a given chain travel (an uncrossed belt over two pulleys), so a shared
+node stays single-valued **only if every component in a connected mechanism
+shares one rotation sign**. The sign is taken from the dominant drive (largest
+`|I|`, voltage sources preferred); each chain keeps `|I|` as its speed magnitude.
+Reversing the source reverses the whole machine.
+
+- `MainWindow` is the source of truth: `targetSpeed = couplingSign · |mappedI|`,
+  and `chainTravel` accumulates with that sign, so the simulated rollers
+  (`chainLinks`) and the wheels (`chainTravel`) are coherent by construction.
+- `ViewParams::coupling` carries the same signs into the stateless fallback so
+  the no-sim animation (and tests) stay coherent too.
+- At a true junction (3+ legs) the chains honestly carry different `|I|`; one
+  rigid idler cannot be slip-free, so its spin *rate* follows the dominant leg
+  while its *direction* is the shared axle sign. That is a physical limit of a
+  shared axle, not a bug.
+
+Locked down by `tests/test_mechanics_coupling.cpp`, including a control test that
+reproduces the old opposite-direction behaviour from the raw per-component signs.
+
 ## Applicability limits
 
 - The analogy is one-to-one for lumped DC/transient circuits. It does not extend to field-level effects (surface charge, magnetic field geometry) — those layers stay in the Physics projection.

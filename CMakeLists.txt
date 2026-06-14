@@ -134,6 +134,7 @@ set(TEST_SOURCES
     tests/test_worlds_separation.cpp
     tests/test_chain_sim.cpp
     tests/test_chain_gear.cpp
+    tests/test_mechanics_coupling.cpp
     tests/test_water_network.cpp
     tests/test_app_path_directions.cpp
     tests/test_resistor_drift.cpp

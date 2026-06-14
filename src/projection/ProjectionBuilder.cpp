@@ -1008,8 +1008,12 @@ void emitChain(BuildContext& ctx, Vec2 a, Vec2 b, double va, double vb,
         return;
     }
 
-    // Fallback (no sim): phase animation. Bicycle-chain look.
-    double speed = mechanics::chainSpeedFromCurrent(current);
+    // Fallback (no sim): phase animation. Bicycle-chain look. Direction follows
+    // the rigid-axle coupling so the whole mechanism animates as one body.
+    double speed = ctx.p.coupling
+        ? ctx.p.coupling->signFor(compId) *
+              std::abs(mechanics::chainSpeedFromCurrent(current))
+        : mechanics::chainSpeedFromCurrent(current);
     double spacing = drivePath.valid ? cg::linkPitch(rollerR) : std::max(half * 2.4, 10.0);
     double perimeter = drivePath.valid ? drivePath.perimeter : len;
     double phase = std::fmod(ctx.p.time * speed * kVisualChainSpeed, spacing * 2.0);
@@ -1141,13 +1145,21 @@ void emitCrank(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
 
     // The wheel BODY spins at the honest chain speed (no slip), continuously —
     // this is what the hub holes/knob rotate by, smoothly. Fallback to the ∫I dt
-    // phase only when the sim travel is not plumbed (unit tests).
+    // phase only when the sim travel is not plumbed (unit tests). When the
+    // rigid-axle coupling is supplied the fallback direction follows it, so the
+    // drive sprocket turns with the rest of the mechanism.
+    const int crankSign = ctx.p.coupling ? ctx.p.coupling->signFor(comp.id) : 0;
     double travel = 0.0;
     double chainTravel = honestChainTravel(ctx, comp.id, &travel)
         ? travel
         : (ctx.p.flowIntegrals
-               ? componentIntegral(ctx.p.flowIntegrals, comp.id) * kVisualChainSpeed
-               : ctx.p.time * mechanics::chainSpeedFromCurrent(current) * kVisualChainSpeed);
+               ? (crankSign ? crankSign * std::abs(componentIntegral(ctx.p.flowIntegrals, comp.id))
+                            : componentIntegral(ctx.p.flowIntegrals, comp.id)) *
+                     kVisualChainSpeed
+               : ctx.p.time *
+                     (crankSign ? crankSign * std::abs(mechanics::chainSpeedFromCurrent(current))
+                                : mechanics::chainSpeedFromCurrent(current)) *
+                     kVisualChainSpeed);
     double bodyPhase = cg::sourceDriveSprocketPhaseFromChainTravel(chainTravel, pitchR);
 
     // The TEETH snap onto the measured roller gaps so they mesh and push the
@@ -1446,12 +1458,17 @@ void emitGears(BuildContext& ctx) {
         ctx.out.circles.push_back({node.position, rootR, edgeCol, 1.6, false, false});
 
         // Wheel BODY spins at the honest chain speed of the branches meeting
-        // here (no slip), continuously — the hub holes ride this. The chain
-        // wraps the node clockwise for forward travel, hence the minus sign.
-        // Fallback to the ∫I dt node phase only when travel is not plumbed.
+        // here (no slip), continuously — the hub holes ride this. The node is one
+        // rigid axle: every chain on it shares a single rotation sense (the
+        // rigid-axle coupling sign), so the wheel turns coherently with all of
+        // them, not just one. The chain wraps the node clockwise for forward
+        // travel, hence the minus sign. The travel MAGNITUDE comes from the
+        // fastest branch (a shared idler can only spin at one rate; pick the
+        // dominant one). Fallback to the ∫I dt node phase when travel is unplumbed.
         const double toothPitch = 2.0 * kPi / teeth;
+        const int axleSign = ctx.p.coupling ? ctx.p.coupling->nodeSignFor(node.id) : 1;
         double bestTravel = 0.0, bestAbs = -1.0;
-        int bestComp = -1; // dominant branch through this node
+        int bestComp = -1; // fastest branch through this node (sets magnitude)
         bool haveTravel = false;
         if (ctx.p.chainTravel) {
             for (const auto& comp : ctx.circuit.components) {
@@ -1467,16 +1484,21 @@ void emitGears(BuildContext& ctx) {
                 }
             }
         }
+        // chainTravel already carries the coupling sign (MainWindow); the
+        // stateless fallbacks apply it here from |speed| so direction stays
+        // coherent across the whole mechanism.
         double bodyPhase = haveTravel
             ? -bestTravel / pitchR
             : (ctx.p.flowIntegrals
-                   ? nodeIntegral(ctx.p.flowIntegrals, node.id) * kVisualChainSpeed / pitchR
-                   : ctx.p.time * mechanics::chainSpeedFromCurrent(meanCurrent) *
+                   ? -axleSign * std::abs(nodeIntegral(ctx.p.flowIntegrals, node.id)) *
+                         kVisualChainSpeed / pitchR
+                   : -axleSign * ctx.p.time *
+                         std::abs(mechanics::chainSpeedFromCurrent(meanCurrent)) *
                          kVisualChainSpeed / pitchR);
 
-        // Teeth: snapped onto the gaps between the rollers of the DOMINANT branch
-        // through this node (independent per-branch sims can't all co-phase; mesh
-        // the strongest cleanly), so the gear visibly meshes with the chain.
+        // Teeth: snapped onto the gaps between the rollers of the fastest branch
+        // through this node (a shared idler spins at one rate; mesh the strongest
+        // cleanly), so the gear visibly meshes with the chain.
         double toothPhase = bodyPhase;
         double meshMod = 0.0;
         if (wheelMeshPhase(ctx, node.position, pitchR, rollerR, teeth, bestComp, &meshMod)) {
