@@ -3,6 +3,12 @@
 #include <vector>
 #include <cassert>
 
+struct LinearSolveResult {
+    std::vector<double> x;
+    bool singular = false;
+    int singularColumn = -1;
+};
+
 struct LinearSystem {
     std::vector<std::vector<double>> A;
     std::vector<double> b;
@@ -14,9 +20,10 @@ struct LinearSystem {
         b.assign(n, 0.0);
     }
 
-    std::vector<double> solve() {
+    LinearSolveResult solve() {
+        LinearSolveResult result;
         std::vector<std::vector<double>> M = A;
-        std::vector<double> x = b;
+        result.x = b;
 
         for (int col = 0; col < n; ++col) {
             int pivot = col;
@@ -24,22 +31,26 @@ struct LinearSystem {
                 if (std::abs(M[row][col]) > std::abs(M[pivot][col]))
                     pivot = row;
             }
-            if (std::abs(M[pivot][col]) < 1e-15) continue;
+            if (std::abs(M[pivot][col]) < 1e-15) {
+                result.singular = true;
+                result.singularColumn = col;
+                continue;
+            }
             std::swap(M[col], M[pivot]);
-            std::swap(x[col], x[pivot]);
+            std::swap(result.x[col], result.x[pivot]);
 
             double piv = M[col][col];
             for (int j = col; j < n; ++j) M[col][j] /= piv;
-            x[col] /= piv;
+            result.x[col] /= piv;
 
             for (int row = 0; row < n; ++row) {
                 if (row == col) continue;
                 double f = M[row][col];
                 if (std::abs(f) < 1e-15) continue;
                 for (int j = col; j < n; ++j) M[row][j] -= f * M[col][j];
-                x[row] -= f * x[col];
+                result.x[row] -= f * result.x[col];
             }
         }
-        return x;
+        return result;
     }
 };
