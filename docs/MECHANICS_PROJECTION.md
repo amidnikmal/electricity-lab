@@ -1,145 +1,98 @@
-# Mechanics Projection
+# Механическая проекция
 
-Date: 2026-06-10
+Дата: 2026-06-10
 
-A third projection of the same `CircuitModel`: the circuit rendered as a mechanical chain machine (inspired by the Mechanics construction-set idea, own styling, no asset copying). Electrical quantities become visible motion. Built by `ProjectionBuilder` (`ProjectionKind::Mechanical`) from exactly the same model + solver solution as the Schematic and Physics projections — one `ComponentId`, N projections.
+Третья проекция той же `CircuitModel`: цепь, отрисованная как механическая цепная машина (идея навеяна конструкторами вроде Spintronics, но со своим стилем и без копирования ассетов). Электрические величины становятся видимым движением. Строится `ProjectionBuilder` (`ProjectionKind::Mechanical`) из ровно той же модели + решения солвера, что и проекции Schematic и Physics — один `ComponentId`, N проекций.
 
-## Analogy table (implemented in `MechanicsMapping.h`)
+## Таблица аналогий (реализована в `MechanicsMapping.h`)
 
-| Electrical | Mechanical analog | Visual |
+| Электрика | Механический аналог | Визуал |
 | --- | --- | --- |
-| Current I | chain linear speed (sign = direction) | moving chain links |
-| Potential V | chain tension / "height" vs anchor | tension colour (same palette as Potential layer) |
-| Resistor R | friction brake | pads clamping the chain + heat glow |
-| Voltage source | drive sprocket | large gear with taut tangent chain, pump direction follows I |
-| Capacitor C | spring between two crank arms on two counter-rotating shafts | spring deforms; relative shaft angle θ = charge, restoring moment = Vc |
-| Inductor L | flywheel | spinning wheel, angular momentum proportional to Il |
-| Diode | ratchet | pawl triangle, single allowed direction (A -> B) |
-| Switch | coupler | chain gap (open) / clamp (closed) |
-| Ground | fixed anchor | hatched anchor block |
-| Junction node | idler pulley | pulley disc |
+| Ток I | линейная скорость цепи (знак = направление) | движущиеся звенья цепи |
+| Потенциал V | натяжение цепи / «высота» относительно якоря | цвет натяжения (та же палитра, что у слоя Potential) |
+| Резистор R | фрикционный тормоз | колодки, зажимающие цепь + тепловое свечение |
+| Источник напряжения | ведущая звёздочка | большая шестерня с натянутой касательной цепью, направление накачки следует за I |
+| Конденсатор C | пружина между двумя кривошипами на двух встречно-вращающихся валах | пружина деформируется; относительный угол валов θ = заряд, восстанавливающий момент = Vc |
+| Катушка L | маховик | вращающееся колесо, момент импульса пропорционален Il |
+| Диод | храповик | треугольник собачки, разрешено одно направление (A -> B) |
+| Ключ | муфта | разрыв цепи (разомкнут) / зажим (замкнут) |
+| Земля | неподвижный якорь | заштрихованный якорный блок |
+| Узел-соединение | паразитный (натяжной) ролик | диск ролика |
 
-## Power correspondence (exact by construction)
+## Соответствие мощности (точное по построению)
 
-`kTensionPerVolt * kLinkSpeedPerAmp = 1`, so mechanical power `tension * speed` equals electrical `P = V * I` identically (test `MechanicalPowerEqualsElectricalPower`). Brake heat uses dissipated power only, the same rule as the Physics heat layer.
+`kTensionPerVolt * kLinkSpeedPerAmp = 1`, поэтому механическая мощность `натяжение * скорость` тождественно равна электрической `P = V * I` (тест `MechanicalPowerEqualsElectricalPower`). Тепло тормоза использует только рассеиваемую мощность — то же правило, что и у теплового слоя Physics.
 
-Energy bookkeeping carries over unchanged:
+Учёт энергии переносится без изменений:
 
-- spring energy = 1/2 C Vc^2 (charge <-> compression),
-- flywheel energy = 1/2 L Il^2 (current <-> angular momentum),
+- энергия пружины = 1/2 C Vc^2 (заряд <-> сжатие),
+- энергия маховика = 1/2 L Il^2 (ток <-> момент импульса),
 
-both identical to the electrical formulas (test `AnalogEnergiesMatchElectricalEnergies`).
+обе тождественны электрическим формулам (тест `AnalogEnergiesMatchElectricalEnergies`).
 
-## What is exact / what is metaphor
+## Что точно / что метафора
 
-Exact (solver-honest):
-- chain direction and relative speed (sign and magnitude of I),
-- spring displacement proportional to Vc (visible charging in transient mode),
-- flywheel spin direction and angular-momentum magnitude proportional to Il,
-- brake heat proportional to dissipated power,
-- tension colours = the same node potentials as every other view.
+Точно (честно по солверу):
 
-Metaphor / visualization:
-- the on-screen animation rates (`kVisualChainSpeed`, `kVisualSpinRate`) are amplified for visibility, like drift particles;
-- geometry (pulley sizes, pad shapes, spring teeth) is symbolic;
-- "tension" maps potential, but a real chain cannot have negative tension — sign is carried by colour and direction, not by slack chain.
+- направление и относительная скорость цепи (знак и величина I),
+- смещение пружины пропорционально Vc (видимый заряд в переходном режиме),
+- направление вращения маховика и величина момента импульса пропорциональны Il,
+- тепло тормоза пропорционально рассеиваемой мощности,
+- цвета натяжения = те же потенциалы узлов, что и в любой другой проекции.
 
-## Voltage source drive sprocket
+Метафора / визуализация:
 
-The voltage source is modeled as a large drive sprocket on the component
-midpoint. The chain is not made to look taut by shrinking that sprocket. Instead
-`ChainGeometry::sourceDrivePath` builds a closed bicycle-chain path from common
-external tangents between the endpoint idler sprockets and the central source
-sprocket:
+- экранные темпы анимации (`kVisualChainSpeed`, `kVisualSpinRate`) усилены ради наглядности, как дрейф-частицы;
+- геометрия (размеры роликов, форма колодок, зубцы пружины) символична;
+- «натяжение» отображает потенциал, но реальная цепь не может иметь отрицательного натяжения — знак несётся цветом и направлением, а не провисанием цепи.
 
-- two straight taut runs approach the source gear under an angle;
-- only short pitch-circle arcs touch the source gear;
-- each contacting link lies tangent to the pitch circle at its contact point;
-- source sprocket phase is `-chainTravel / pitchRadius`, so the teeth move with
-  positive chain travel rather than against it.
+## Ведущая звёздочка источника напряжения
 
-Tests in `tests/test_chain_gear.cpp` lock this down: large visual size is
-preserved, tangent contact is enforced, the source contact arc stays short, and
-rotation direction is checked from rendered tooth motion.
+Источник напряжения моделируется как большая ведущая звёздочка в середине компонента. Цепь делается натянутой на вид не сжатием этой звёздочки. Вместо этого `ChainGeometry::sourceDrivePath` строит замкнутый велосипедно-цепной путь из общих внешних касательных между концевыми звёздочками-роликами и центральной звёздочкой источника:
 
-## Spring capacitor (crank-arm spring, one rigid body)
+- два прямых натянутых участка подходят к шестерне источника под углом;
+- шестерни источника касаются только короткие дуги начальной окружности;
+- каждое контактирующее звено лежит по касательной к начальной окружности в своей точке контакта;
+- фаза звёздочки источника равна `-chainTravel / pitchRadius`, поэтому зубцы движутся вместе с положительным ходом цепи, а не против него.
 
-The capacitor is a **spring slung between two crank arms** on the two shaft
-sprockets. Gear → arm → spring is **one rigid body**: a single shaft angle drives
-the gear teeth, the arm and the spring together, so turning the gear deforms the
-spring in lockstep (the spring is a rigid part of the drive, not a loose
-decoration). The shaft angle is the loop travel: `shaftAngle =
-clamp(chainTravel[cap]/R, ±~86°)`. In the linear region each cap gear turns at
-exactly the loop SPEED — the two shafts are SEPARATE axles so they counter-rotate
-(that is what lets the spring compress/stretch), but neither runs off-speed, so
-nothing on one axle is out of sync.
+Тесты в `tests/test_chain_gear.cpp` фиксируют это: большой визуальный размер сохраняется, касательный контакт обеспечивается, дуга контакта источника остаётся короткой, а направление вращения проверяется по движению отрисованных зубцов.
 
-- `emitSpring` (render only, from `mechanics::SpringCapacitorModel`): two shaft
-  sprockets with teeth phased onto the crank-arm directions (teeth welded to
-  arms); chain leads (`emitStaticChainOval`) rolling on `chainTravel[cap]`; the
-  zigzag spring between the arm tips (coil step `= springLen/coils`, bunches when
-  compressed) pinned pixel-exact to the charge-coloured knobs; mode + capacitance.
-- Full participant in the rigid-axle coupling (`carriesChain` includes it) and
-  MainWindow accumulates `chainTravel[cap]` at the SAME scale (`kMechChainBoost`)
-  as everything, so in a series branch its current = the neighbour current and the
-  whole thing turns as one. `resetMechanicsPhases()` zeroes the travel on discharge.
+## Конденсатор-пружина (пружина на кривошипах, одно жёсткое тело)
 
-The clamp sits just under the crank's 90° fold: at the limit the spring is FULLY
-compressed (max charge), it does not stick early (the earlier ±60° clamp bit
-almost at once and looked stuck). At a parallel junction the only real limit is
-that branches with different currents can't share one inextensible chain (needs a
-differential — inherent to chain drives); a charged capacitor at DC steady simply
-stops its own branch (i→0) while the rest of the loop runs.
+Конденсатор — это **пружина, подвешенная между двумя кривошипами** на двух звёздочках валов. Шестерня → кривошип → пружина — **одно жёсткое тело**: единый угол вала движет зубцы шестерни, кривошип и пружину вместе, так что поворот шестерни деформирует пружину синхронно (пружина — жёсткая часть привода, а не свободное украшение). Угол вала — это ход петли: `shaftAngle = clamp(chainTravel[cap]/R, ±~86°)`. В линейной области каждая шестерня конденсатора вращается ровно на скорости петли — два вала это ОТДЕЛЬНЫЕ оси, поэтому они вращаются встречно (именно это позволяет пружине сжиматься/растягиваться), но ни одна не идёт не на своей скорости, так что ничто на одной оси не выпадает из синхронизма.
 
-Locked by `tests/test_mechanics_capacitor.cpp`:
-- **`NoGearTurnsOutOfSyncWithTheLoop`** — every node/shaft sprocket turns at the
-  same SPEED (counter-rotation allowed for separate shafts; off-speed fails);
-- **`SpringCompressionAndGearTrackTravelTogether`** — +travel compresses & turns
-  the gear one way, −travel stretches & reverses it (RLC synchrony);
-- `SpringEndpointsPinnedToCrankKnobs`, `SpringCompressesAsCapacitorCharges`,
-  `ChainRollsWithLoopTravelNotVoltage`, render-has-no-hidden-state, and the pure
-  `SpringCapacitorModel` kinematics (sign invariant, even energy, coil spacing).
+- `emitSpring` (только рендер, из `mechanics::SpringCapacitorModel`): две звёздочки валов с зубцами, сфазированными по направлениям кривошипов (зубцы приварены к кривошипам); цепные подводы (`emitStaticChainOval`), катящиеся по `chainTravel[cap]`; зигзагообразная пружина между концами кривошипов (шаг витка `= springLen/coils`, скучивается при сжатии), пришпиленная пиксель-в-пиксель к окрашенным по заряду «шишкам»; режим + ёмкость.
+- Полноправный участник жёсткой связи по осям (`carriesChain` включает его), и MainWindow накапливает `chainTravel[cap]` в ТОМ ЖЕ масштабе (`kMechChainBoost`), что и всё остальное, так что в последовательной ветви его ток = току соседа, и всё крутится как одно целое. `resetMechanicsPhases()` обнуляет ход при разряде.
 
-## Rigid-axle coupling (one spindle = one rotation)
+Кламп стоит чуть ниже 90°-сгиба кривошипа: на пределе пружина ПОЛНОСТЬЮ сжата (максимальный заряд), она не залипает рано (прежний кламп ±60° срабатывал почти сразу и выглядел застрявшим). На параллельном соединении единственное реальное ограничение — что ветви с разными токами не могут делить одну нерастяжимую цепь (нужен дифференциал — это присуще цепным приводам); заряженный конденсатор на DC-стационаре просто останавливает свою ветвь (i→0), пока остальная петля работает.
 
-Reference: in the Spintronics board game a node is a single physical spindle —
-every sprocket and chain bolted to it turns together, one direction, no slip.
-The earlier projection violated this: each component span its own oval and took
-the chain direction from its *own* `nodeA -> nodeB` order. A leg wired backwards
-relative to the current (negative branch current) then span its gear the opposite
-way, so two chains on a shared node fought each other. `emitGears` only masked it
-("mesh the dominant branch, independent sims can't co-phase").
+Зафиксировано в `tests/test_mechanics_capacitor.cpp`:
 
-`projection/MechanicsCoupling.h` (`computeAxleCoupling`) fixes the physics. In the
-oval representation both end sprockets of a component necessarily turn the same
-way for a given chain travel (an uncrossed belt over two pulleys), so a shared
-node stays single-valued **only if every component in a connected mechanism
-shares one rotation sign**. The sign is taken from the dominant drive (largest
-`|I|`, voltage sources preferred); each chain keeps `|I|` as its speed magnitude.
-Reversing the source reverses the whole machine.
+- **`NoGearTurnsOutOfSyncWithTheLoop`** — каждая узловая/вальная звёздочка вращается на одной СКОРОСТИ (встречное вращение разрешено для отдельных валов; уход со скорости валит тест);
+- **`SpringCompressionAndGearTrackTravelTogether`** — +ход сжимает и поворачивает шестерню в одну сторону, −ход растягивает и реверсирует её (синхронность RLC);
+- `SpringEndpointsPinnedToCrankKnobs`, `SpringCompressesAsCapacitorCharges`, `ChainRollsWithLoopTravelNotVoltage`, отсутствие скрытого состояния в рендере, и чистая кинематика `SpringCapacitorModel` (инвариантность знака, чётность энергии, шаг витков).
 
-- `MainWindow` is the source of truth: `targetSpeed = couplingSign · |mappedI|`,
-  and `chainTravel` accumulates with that sign, so the simulated rollers
-  (`chainLinks`) and the wheels (`chainTravel`) are coherent by construction.
-- `ViewParams::coupling` carries the same signs into the stateless fallback so
-  the no-sim animation (and tests) stay coherent too.
-- At a true junction (3+ legs) the chains honestly carry different `|I|`; one
-  rigid idler cannot be slip-free, so its spin *rate* follows the dominant leg
-  while its *direction* is the shared axle sign. That is a physical limit of a
-  shared axle, not a bug.
+## Жёсткая связь по осям (один шпиндель = одно вращение)
 
-Locked down by `tests/test_mechanics_coupling.cpp`, including a control test that
-reproduces the old opposite-direction behaviour from the raw per-component signs.
+Ссылка: в настольной игре Spintronics узел — это единственный физический шпиндель; каждая звёздочка и цепь, прикрученные к нему, вращаются вместе, в одну сторону, без проскальзывания. Прежняя проекция это нарушала: каждый компонент крутил свой собственный овал и брал направление цепи из своего же порядка `nodeA -> nodeB`. Нога, разведённая встречно току (отрицательный ток ветви), крутила тогда шестерню в обратную сторону, и две цепи на общем узле боролись друг с другом. `emitGears` лишь маскировал это («сцепляем доминирующую ветвь, независимые симуляции не могут сфазироваться»).
 
-## Applicability limits
+`projection/MechanicsCoupling.h` (`computeAxleCoupling`) исправляет физику. В овальном представлении обе концевые звёздочки компонента неизбежно вращаются в одну сторону при заданном ходе цепи (неперекрещённый ремень на двух шкивах), поэтому общий узел остаётся однозначным **только если каждый компонент в связном механизме разделяет один знак вращения**. Знак берётся от доминирующего привода (наибольший `|I|`, источники напряжения в приоритете); каждая цепь сохраняет `|I|` как величину своей скорости. Реверс источника реверсирует всю машину.
 
-- The analogy is one-to-one for lumped DC/transient circuits. It does not extend to field-level effects (surface charge, magnetic field geometry) — those layers stay in the Physics projection.
-- The flywheel's *displayed* spoke angle is an animation phase, not the integral of I dt; only its rate and direction are mapped.
+- `MainWindow` — источник истины: `targetSpeed = couplingSign · |mappedI|`, и `chainTravel` накапливается с этим знаком, так что симулируемые ролики (`chainLinks`) и колёса (`chainTravel`) когерентны по построению.
+- `ViewParams::coupling` несёт те же знаки в безсимуляционный fallback, чтобы анимация без симуляции (и тесты) тоже оставались когерентными.
+- В настоящем соединении (3+ ноги) цепи честно несут разные `|I|`; один жёсткий ролик не может быть без проскальзывания, поэтому его *скорость* следует за доминирующей ногой, а его *направление* — общий знак оси. Это физический предел общей оси, а не баг.
+
+Зафиксировано в `tests/test_mechanics_coupling.cpp`, включая контрольный тест, воспроизводящий старое разнонаправленное поведение из сырых посоставных знаков.
+
+## Пределы применимости
+
+- Аналогия один-к-одному для сосредоточенных DC/переходных цепей. Она не распространяется на полевые эффекты (поверхностный заряд, геометрия магнитного поля) — эти слои остаются в проекции Physics.
+- *Отображаемый* угол спиц маховика — это фаза анимации, а не интеграл I dt; отображаются только его скорость и направление.
 
 ## UI
 
-Projection selector: `Single` layout + projection combo (Circuit | Physics | Mechanics), or `Dual` (Circuit + Physics), or `Triple` (Circuit + Physics + Mechanics). Selection and camera sync work across all visible panes through the shared `DualViewState` (one `ComponentId` highlighted everywhere; editing always mutates the single `CircuitModel`).
+Селектор проекций: компоновка `Single` + комбо проекции (Circuit | Physics | Mechanics), либо `Dual` (Circuit + Physics), либо `Triple` (Circuit + Physics + Mechanics). Выбор и синхронизация камеры работают по всем видимым панелям через общий `DualViewState` (один `ComponentId` подсвечен везде; правка всегда меняет единственную `CircuitModel`).
 
-## Tests (tests/test_mechanics.cpp)
+## Тесты (tests/test_mechanics.cpp)
 
-Mapping monotonicity and sign-correctness, reversal with current sign, exact power correspondence, energy identities, element parity with other projections, chain phase reversal, spring contraction on charging, triple-pane camera sync and layout split.
+Монотонность и корректность знака отображения, реверс по знаку тока, точное соответствие мощности, тождества энергии, паритет элементов с другими проекциями, реверс фазы цепи, сжатие пружины при заряде, синхронизация камеры по трём панелям и разбиение компоновки.

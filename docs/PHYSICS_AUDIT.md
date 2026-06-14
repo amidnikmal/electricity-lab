@@ -1,50 +1,50 @@
-# Physics Audit
+# Аудит физики
 
-## Layer Table
+## Таблица слоёв
 
-| Layer | Current implementation | Physical status | Risk | Action |
+| Слой | Текущая реализация | Физический статус | Риск | Действие |
 |---|---|---|---|---|
-| Potential | Node voltages interpolated along conductors in distributed 1D wire mode | reasonable in 1D distributed approximation | medium | keep, document reference dependence |
-| E-field | `E ~= -dV/dx` sample arrows from pure `FieldModel` | reasonable in 1D approximation | medium | keep extracted model, not a 3D solve |
-| Surface charge | `sigma ~ (V - Vavg)` with junction-strength boost | heuristic | high | explicitly label heuristic, keep replaceable API |
-| Magnetic field | `B ~ I/r` page-normal glyphs from `MagneticFieldModel` | qualitative quasi-static | high | keep as qualitative teaching layer |
-| Drift | deterministic particles from `DriftModel`, thermal motion qualitative, speed amplified | educational visualization | medium | keep explicit speed amplification label |
-| Heat | dissipated-power glow (instantaneous) + lumped RC temperature readout | reasonable, display-only | low/medium | keep sign-cleaned power model; temperature is a one-way display |
-| Power | `P = I * dV` per branch | exact sign convention within circuit model | low | keep |
-| Temperature | lumped RC per branch: `C_th dT/dt = P_diss - (T - T_amb)/R_th`, backward Euler | display-only thermal model, no feedback | low | keep one-way; never feed back into resistance |
+| Potential | Напряжения узлов интерполируются вдоль проводников в режиме распределённого 1D-провода | разумно в распределённом 1D-приближении | средний | оставить, задокументировать зависимость от точки отсчёта |
+| E-field | Стрелки выборки `E ~= -dV/dx` из чистой `FieldModel` | разумно в 1D-приближении | средний | оставить вынесенную модель, это не 3D-решение |
+| Surface charge | `sigma ~ (V - Vavg)` с усилением по силе узла | эвристика | высокий | явно пометить как эвристику, сохранить заменяемое API |
+| Magnetic field | Глифы `B ~ I/r`, нормальные к плоскости страницы, из `MagneticFieldModel` | качественно квазистатично | высокий | оставить как качественный обучающий слой |
+| Drift | Детерминированные частицы из `DriftModel`, тепловое движение качественно, скорость усилена | образовательная визуализация | средний | оставить явную пометку об усилении скорости |
+| Heat | Свечение по рассеиваемой мощности (мгновенное) + сосредоточенный RC-отсчёт температуры | разумно, только для отображения | низкий/средний | оставить модель мощности с очищенным знаком; температура — односторонний дисплей |
+| Power | `P = I * dV` на ветвь | точное соглашение о знаках в рамках модели цепи | низкий | оставить |
+| Temperature | Сосредоточенная RC на ветвь: `C_th dT/dt = P_diss - (T - T_amb)/R_th`, backward Euler | тепловая модель только для отображения, без обратной связи | низкий | оставить односторонней; никогда не подавать обратно в сопротивление |
 
-## Solver Audit
+## Аудит солвера
 
-- MNA branch signs remain:
-  - current positive from `nodeA -> nodeB`
-  - voltage drop `dV = Va - Vb`
-  - power positive for dissipation, negative for supplied power
-- Ground is now resolved by node ID, not vector index
-- Non-contiguous node IDs are supported
-- Zero-ohm resistors are treated numerically as near-wire conductance
+- Знаки ветвей MNA сохраняются:
+  - ток положителен от `nodeA -> nodeB`
+  - падение напряжения `dV = Va - Vb`
+  - мощность положительна при рассеянии, отрицательна при подаче мощности
+- Земля теперь определяется по ID узла, а не по индексу вектора
+- Поддерживаются несплошные (non-contiguous) ID узлов
+- Резисторы с нулевым сопротивлением численно трактуются как почти-провод (near-wire conductance)
 
-## Distributed Wire Audit
+## Аудит распределённого провода
 
-- Wire resistance is now parameterized by:
+- Сопротивление провода теперь параметризуется:
   - `segmentsPerWire`
   - `resistancePerUnit`
-- Original node/component identity is preserved across distribution mapping
-- Linear voltage drop along uniform wire remains the intended model
+- Исходная идентичность узлов/компонентов сохраняется при отображении распределения
+- Линейное падение напряжения вдоль однородного провода остаётся задуманной моделью
 
-## Thermal Model Audit
+## Аудит тепловой модели
 
-- Lumped (sosredotochennaya) RC thermal model, **display-only**: `physics/ThermalModel.h`.
-  - State `ThermalState`: `temperature[componentId]` in Kelvin, mirror of `TransientState` (has `reset()`).
-  - Step: `C_th dT/dt = P_diss - (T - T_amb)/R_th`, backward Euler on the SAME `dt` as the electrical transient.
-  - `P_diss = dissipatedPowerOnly(type, branch.power)` (nonzero only for Resistor/Wire) — reuses the existing power model.
-  - Integrated over the DISTRIBUTED solution, so each wire segment is its own thermal node and the along-wire gradient emerges by itself; the per-element readout reports the hottest segment.
-  - Constants in `PhysicalUnits.h`: `kAmbientTemperature = 293.15 K`, `kThermalCapacitance = 1.0 J/K`, `kThermalResistance = 50.0 K/W`.
-  - Steady-state fixed point `T = T_amb + P_diss * R_th` (covered by `tests/test_thermal.cpp`).
-- **No R(T) feedback**: temperature never re-enters the MNA. The solver and `LiveSim` core are untouched.
+- Сосредоточенная (сосредоточенная) RC-тепловая модель, **только для отображения**: `physics/ThermalModel.h`.
+  - Состояние `ThermalState`: `temperature[componentId]` в кельвинах, зеркало `TransientState` (имеет `reset()`).
+  - Шаг: `C_th dT/dt = P_diss - (T - T_amb)/R_th`, backward Euler на ТОМ ЖЕ `dt`, что и электрический переходный процесс.
+  - `P_diss = dissipatedPowerOnly(type, branch.power)` (ненулевой только для Resistor/Wire) — переиспользует существующую модель мощности.
+  - Интегрируется по РАСПРЕДЕЛЁННОМУ решению, поэтому каждый сегмент провода — свой тепловой узел, и градиент вдоль провода возникает сам собой; посоставной отсчёт показывает самый горячий сегмент.
+  - Константы в `PhysicalUnits.h`: `kAmbientTemperature = 293.15 K`, `kThermalCapacitance = 1.0 J/K`, `kThermalResistance = 50.0 K/W`.
+  - Стационарная неподвижная точка `T = T_amb + P_diss * R_th` (покрыта `tests/test_thermal.cpp`).
+- **Без обратной связи R(T)**: температура никогда не возвращается в MNA. Солвер и ядро `LiveSim` не затронуты.
 
-## Explicit Non-Goals
+## Явные не-цели
 
-- No full Maxwell solution
-- No 3D field geometry around arbitrary conductors
-- No transient charge relaxation
-- No temperature-dependent resistance — temperature is a one-way display fed by dissipated power; it is never fed back into resistance (no R(T))
+- Нет полного решения уравнений Максвелла
+- Нет 3D-геометрии поля вокруг произвольных проводников
+- Нет переходной релаксации заряда
+- Нет температурно-зависимого сопротивления — температура это односторонний дисплей, питаемый рассеиваемой мощностью; она никогда не подаётся обратно в сопротивление (нет R(T))
