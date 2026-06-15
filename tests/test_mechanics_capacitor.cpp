@@ -300,6 +300,58 @@ TEST(SpringCapacitor, NoGearTurnsOutOfSyncWithTheLoop) {
         << "a gear turns at a different speed than the loop (spread " << (mx - mn) << " rad)";
 }
 
+// Баг «конденсатор в механике гуляет»: при МОНОТОННОМ заряде (рост chainTravel)
+// пружина должна МОНОТОННО сжиматься. Со старым пределом 7.5 рад угол кривошипа
+// проходил 90/180/270°, и длина пружины (deflection ∝ sin θ) то падала, то росла.
+TEST(SpringCapacitor, SpringCompressesMonotonicallyWithCharge) {
+    namespace cg = current_lab::physics::chain_geometry;
+    Circuit c;
+    int gnd = c.addNode(Vec2(0, 200));
+    int n1 = c.addNode(Vec2(0, 0));
+    int n2 = c.addNode(Vec2(200, 0));
+    c.groundNodeId = gnd;
+    c.addComponent(ComponentType::Ground, gnd, gnd, 0.0);
+    c.addComponent(ComponentType::VoltageSource, n1, gnd, 5.0);
+    c.addComponent(ComponentType::Resistor, n1, n2, 100.0);
+    int cap = c.addComponent(ComponentType::Capacitor, n2, gnd, 1e-3);
+
+    CircuitSolver solver;
+    CircuitSolution sol = solver.solve(c);
+    ViewParams p;
+    const double rollerR = cg::linkRadius(p.wireThickness);
+    const double pitchR = cg::sprocketPitchRadius(cg::chainHalfWidth(p.wireThickness), rollerR);
+    Vec2 capMid = (c.findNode(n2)->position + c.findNode(gnd)->position) * 0.5;
+
+    auto springSpan = [&](double travel) {
+        std::unordered_map<int, double> ct{{cap, travel}};
+        p.chainTravel = &ct;
+        ProjectionResult r = buildProjection(ProjectionKind::Mechanical, c, &sol, p);
+        // Пружина — единственная полилиния ширины 2.6; берём ближайшую к конденсатору.
+        double best = -1.0, bestDist = 1e18;
+        for (const auto& poly : r.prims.polylines) {
+            if (std::abs(poly.width - 2.6) > 0.1 || poly.pts.size() < 2) continue;
+            Vec2 mid = (poly.pts.front() + poly.pts.back()) * 0.5;
+            double d = (mid - capMid).length();
+            if (d < bestDist) { bestDist = d; best = (poly.pts.back() - poly.pts.front()).length(); }
+        }
+        return best;
+    };
+
+    double travels[] = {0.0, 0.5, 1.0, 2.0, 4.0, 8.0};
+    double prev = 1e18;
+    double first = -1.0, last = -1.0;
+    for (double t : travels) {
+        double span = springSpan(t * pitchR);
+        ASSERT_GT(span, 0.0) << "пружина не найдена при travel=" << t;
+        if (first < 0) first = span;
+        last = span;
+        EXPECT_LE(span, prev + 1e-6)
+            << "длина пружины выросла при росте заряда (travel=" << t << ") — «гуляет»";
+        prev = span;
+    }
+    EXPECT_LT(last, first * 0.9) << "пружина почти не сжалась при полном заряде";
+}
+
 // Render-without-side-effects: building the same circuit twice yields an
 // identical capacitor spring polyline (no hidden render state). DC steady, so
 // no time-driven animation perturbs the result.

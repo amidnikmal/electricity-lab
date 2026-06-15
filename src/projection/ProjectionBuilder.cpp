@@ -1646,13 +1646,19 @@ void emitSpring(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
         auto it = ctx.p.chainTravel->find(comp.id);
         if (it != ctx.p.chainTravel->end()) capTravel = it->second;
     }
-    // One shaft angle = the loop travel / R drives gear, arm and spring together.
-    // Soft tanh saturation replaces the old hard clamp: slope at zero stays exactly
-    // 1/pitchR (preserving the synchrony test), yet the spring never hits a dead
-    // wall — oscillations remain visible at any DC operating point, and the gear
-    // speed in the linear region is indistinguishable from the loop speed.
-    constexpr double kMaxSwing = 7.5;
-    double shaftAngle = kMaxSwing * std::tanh(capTravel / (pitchR * kMaxSwing));
+    // Угол кривошипа из travel. deflection ∝ sin(theta), поэтому theta ОБЯЗАНА
+    // оставаться ≤ 90°: иначе при монотонной зарядке пружина сжималась → разжима-
+    // лась → растягивалась («гуляла» — баг). Старый tanh с пределом 7.5 рад (430°!)
+    // проходил 90/180/270°. Но тест синхронности требует линейности (наклон
+    // 1/pitchR) до 0.25·pitchR — tanh с малым пределом отклоняется слишком рано.
+    // SOFT-CLIP (p-норма): линеен почти до колена, затем резко насыщается к A=80°
+    // (<90°). p=4 -> отклонение на 0.25·pitchR ~6e-5 (тест доволен), монотонно.
+    constexpr double A = 1.4;   // предел угла, рад (<π/2)
+    constexpr double pNorm = 4.0;
+    double x = capTravel / pitchR;
+    double ax = std::abs(x);
+    double shaftAngle = (x >= 0.0 ? 1.0 : -1.0) * ax /
+                        std::pow(1.0 + std::pow(ax / A, pNorm), 1.0 / pNorm);
     m.theta = shaftAngle;
 
     auto toWorld = [&](Vec2 l) { return g.mid + g.unit * l.x + g.perp * l.y; };
