@@ -1,8 +1,27 @@
 # Current Lab — Agent Handoff
 
-Date: 2026-06-15 (СДЕЛАНО: Партия А + перевод ВСЕХ доков на русский + фикс µF +
-тесты CircuitValidator + перебазированный статус бэклога. 522 зелёных, всё в main.
-ЧИТАЙ ЭТУ СЕКЦИЮ + docs/RESEARCH_BACKLOG_STATUS_2026-06-15.md ПЕРВЫМИ.)
+Date: 2026-06-15 (СДЕЛАНО: фикс сборки main на Windows/MinGW — FBO в CaptureRenderer
++ M_PI. 566 зелёных. ЧИТАЙ ЭТУ СЕКЦИЮ + docs/RESEARCH_BACKLOG_STATUS_2026-06-15.md ПЕРВЫМИ.)
+
+## 2026-06-15 (продолжение) — ФИКС СБОРКИ main НА WINDOWS/MinGW
+
+После подтягивания main (HEAD `dfb0614`, лабораторный практикум + графическое
+тестирование, +46 коммитов) сборка падала на Windows — новый код не был
+портирован на MinGW (видимо, тестировался на Linux):
+
+- **`src/render/CaptureRenderer.cpp`** — вызывал FBO-функции GL 3.0
+  (`glGenFramebuffers`/`glBindFramebuffer`/`glBlitFramebuffer`/…), которых нет в
+  `GL/gl.h` (GL 1.1) на Windows: `gl_setup.h` тянет `glcorearb.h` только на Linux.
+  ФИКС: Windows-блок (`#ifdef _WIN32`) — указатели функций грузятся через
+  `glfwGetProcAddress` (lazy `loadFboFns()`, вызывается в начале `captureToPng`),
+  недостающие константы GL 3.0 доопределены вручную, имена проброшены `#define`.
+- **`src/solver/CircuitSolver.cpp` и `src/projection/ProjectionBuilder.cpp`** —
+  новый AC-код использует `M_PI`, не определённый в MinGW при `-std=c++20`.
+  ФИКС: `#define _USE_MATH_DEFINES` в самом начале обоих файлов (до любых инклюдов).
+
+Правки строго платформенные, на Linux безопасны. УРОК: новый рендер-код из main
+надо проверять под MinGW — `GL/gl.h` там GL 1.1, `M_PI` требует `_USE_MATH_DEFINES`.
+Тесты: 566/566 зелёных.
 
 ## 2026-06-15 (продолжение, автономный режим) — ДОКИ НА РУССКОМ + ЛЁГКИЕ ЗАДАЧИ
 

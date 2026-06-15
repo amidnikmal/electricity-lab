@@ -21,6 +21,68 @@
 #include <algorithm>
 #include <cmath>
 
+// На Windows gl_setup.h подключает только GL/gl.h (GL 1.1): FBO-функции (GL 3.0)
+// там не объявлены и не экспортируются из opengl32. Подгружаем их указателями
+// через glfwGetProcAddress, а недостающие константы доопределяем вручную.
+// На Linux gl_setup.h тянет glcorearb.h с GL_GLEXT_PROTOTYPES — там всё есть.
+#ifdef _WIN32
+#ifndef GL_FRAMEBUFFER
+#define GL_FRAMEBUFFER          0x8D40
+#endif
+#ifndef GL_READ_FRAMEBUFFER
+#define GL_READ_FRAMEBUFFER     0x8CA8
+#endif
+#ifndef GL_DRAW_FRAMEBUFFER
+#define GL_DRAW_FRAMEBUFFER     0x8CA9
+#endif
+#ifndef GL_COLOR_ATTACHMENT0
+#define GL_COLOR_ATTACHMENT0    0x8CE0
+#endif
+#ifndef GL_FRAMEBUFFER_COMPLETE
+#define GL_FRAMEBUFFER_COMPLETE 0x8CD5
+#endif
+#ifndef GL_RGBA8
+#define GL_RGBA8                0x8058
+#endif
+
+namespace {
+using PFN_GenFB    = void   (APIENTRY*)(GLsizei, GLuint*);
+using PFN_BindFB   = void   (APIENTRY*)(GLenum, GLuint);
+using PFN_DelFB    = void   (APIENTRY*)(GLsizei, const GLuint*);
+using PFN_FBTex2D  = void   (APIENTRY*)(GLenum, GLenum, GLenum, GLuint, GLint);
+using PFN_CheckFB  = GLenum (APIENTRY*)(GLenum);
+using PFN_BlitFB   = void   (APIENTRY*)(GLint, GLint, GLint, GLint,
+                                        GLint, GLint, GLint, GLint,
+                                        GLbitfield, GLenum);
+
+PFN_GenFB   p_glGenFramebuffers        = nullptr;
+PFN_BindFB  p_glBindFramebuffer        = nullptr;
+PFN_DelFB   p_glDeleteFramebuffers     = nullptr;
+PFN_FBTex2D p_glFramebufferTexture2D   = nullptr;
+PFN_CheckFB p_glCheckFramebufferStatus = nullptr;
+PFN_BlitFB  p_glBlitFramebuffer        = nullptr;
+
+bool loadFboFns() {
+    if (p_glGenFramebuffers) return true;
+    p_glGenFramebuffers        = reinterpret_cast<PFN_GenFB  >(glfwGetProcAddress("glGenFramebuffers"));
+    p_glBindFramebuffer        = reinterpret_cast<PFN_BindFB >(glfwGetProcAddress("glBindFramebuffer"));
+    p_glDeleteFramebuffers     = reinterpret_cast<PFN_DelFB  >(glfwGetProcAddress("glDeleteFramebuffers"));
+    p_glFramebufferTexture2D   = reinterpret_cast<PFN_FBTex2D>(glfwGetProcAddress("glFramebufferTexture2D"));
+    p_glCheckFramebufferStatus = reinterpret_cast<PFN_CheckFB>(glfwGetProcAddress("glCheckFramebufferStatus"));
+    p_glBlitFramebuffer        = reinterpret_cast<PFN_BlitFB >(glfwGetProcAddress("glBlitFramebuffer"));
+    return p_glGenFramebuffers && p_glBindFramebuffer && p_glDeleteFramebuffers &&
+           p_glFramebufferTexture2D && p_glCheckFramebufferStatus && p_glBlitFramebuffer;
+}
+} // namespace
+
+#define glGenFramebuffers        p_glGenFramebuffers
+#define glBindFramebuffer        p_glBindFramebuffer
+#define glDeleteFramebuffers     p_glDeleteFramebuffers
+#define glFramebufferTexture2D   p_glFramebufferTexture2D
+#define glCheckFramebufferStatus p_glCheckFramebufferStatus
+#define glBlitFramebuffer        p_glBlitFramebuffer
+#endif // _WIN32
+
 namespace current_lab::render {
 
 using demos::DemoCircuit;
@@ -136,6 +198,12 @@ CaptureResult captureToPng(int width, int height,
     CanvasCamera camera = computeCameraForCircuit(circuit, width, height);
 
     // ---- offscreen GL context assumed active ----
+#ifdef _WIN32
+    if (!loadFboFns()) {
+        result.error = "failed to load FBO entry points via glfwGetProcAddress";
+        return result;
+    }
+#endif
     int supersample = 2;
     int renderW = width * supersample;
     int renderH = height * supersample;

@@ -1,3 +1,4 @@
+#define _USE_MATH_DEFINES // MinGW: M_PI в <cmath> только с этим define (до любых math-инклюдов)
 #include "solver/CircuitSolver.h"
 #include "math/LinearSystem.h"
 #include <cmath>

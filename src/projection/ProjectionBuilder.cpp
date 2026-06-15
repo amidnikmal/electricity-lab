@@ -1,3 +1,4 @@
+#define _USE_MATH_DEFINES // MinGW: M_PI в <cmath> только с этим define (до любых math-инклюдов)
 #include "projection/ProjectionBuilder.h"
 #include "projection/ElementGeometry.h"
 #include "projection/HydraulicMapping.h"
