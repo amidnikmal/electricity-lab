@@ -187,7 +187,7 @@ const std::unordered_map<std::string_view, const char*>& dictionary() {
         {"F", "Ф"}, {"mF", "мФ"}, {"\xC2\xB5" "F", "мкФ"}, {"nF", "нФ"},
         {"H", "Гн"}, {"mH", "мГн"}, {"\xC2\xB5H", "мкГн"},
         {"\xCE\xA9", "Ом"}, {"k\xCE\xA9", "кОм"},
-        {"V", "В"}, {"mA", "мА"}, {"mW", "мВт"}, {"mJ", "мДж"},
+        {"V", "В"}, {"mA", "мА"}, {"mW", "мВт"}, {"mJ", "мДж"}, {"ratio", "отн."},
         {"\xCE\xA9 brake", "Ом — тормоз"}, {"k\xCE\xA9 brake", "кОм — тормоз"},
         {"V drive", "В — привод"}, {"V pump", "В — насос"},
         {"ratchet", "храповик"}, {"coupled", "сцеплено"}, {"decoupled", "расцеплено"},
@@ -231,6 +231,9 @@ const std::unordered_map<std::string_view, const char*>& dictionary() {
         {"Power dissipation", "Рассеиваемая мощность"},
         {"RC charging", "Зарядка RC"},
         {"RL current rise", "Нарастание тока RL"},
+        {"Current is the same in a loop", "Ток одинаков в контуре"},
+        {"Battery fixes voltage, not current", "Батарея фиксирует напряжение, а не ток"},
+        {"Brightness does not depend on position", "Яркость не зависит от положения"},
         // Inspector / editor leftovers
         {"Probe position", "Позиция зонда"},
         {"Ideal piecewise-linear diode", "Идеальный кусочно-линейный диод"},

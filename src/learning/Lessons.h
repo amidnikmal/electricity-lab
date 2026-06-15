@@ -87,6 +87,24 @@ inline Circuit lessonPresetCircuit(TaskFamily family) {
             c.addComponent(ComponentType::Wire, corner, gnd, 0.0);
             break;
         }
+        case TaskFamily::CurrentConservation: {
+            int n2 = c.addNode(Vec2(420, 140), "N2");
+            c.addComponent(ComponentType::Resistor, n1, n2, 1000.0);
+            c.addComponent(ComponentType::Resistor, n2, gnd, 2000.0);
+            break;
+        }
+        case TaskFamily::BatteryVoltageNotCurrent: {
+            int n2 = c.addNode(Vec2(480, 140), "N2");
+            c.addComponent(ComponentType::Resistor, n1, n2, 500.0);
+            demos::closeLoopRect(c, n2, Vec2(480, 140), gnd, Vec2(200, 320));
+            break;
+        }
+        case TaskFamily::BrightnessVsPosition: {
+            int n2 = c.addNode(Vec2(420, 140), "N2");
+            c.addComponent(ComponentType::Resistor, n1, n2, 500.0);
+            c.addComponent(ComponentType::Resistor, n2, gnd, 500.0);
+            break;
+        }
         case TaskFamily::Count:
             break;
     }

@@ -60,6 +60,68 @@ TEST(TaskGenerator, GroundTruthMatchesIndependentSolverRun) {
                 recomputed = target->type == ComponentType::Capacitor
                                  ? std::abs(br->voltageDrop)
                                  : std::abs(br->current) * 1000.0;
+            } else if (task.answerUnit == "ratio") {
+                auto solution = solver.solve(task.circuit);
+                if (task.family == TaskFamily::CurrentConservation ||
+                    task.family == TaskFamily::BrightnessVsPosition) {
+                    const Component* r1 = nullptr;
+                    const Component* r2 = nullptr;
+                    for (const auto& comp : task.circuit.components) {
+                        if (comp.type == ComponentType::Resistor) {
+                            if (!r1) r1 = &comp;
+                            else if (!r2) { r2 = &comp; break; }
+                        }
+                    }
+                    ASSERT_NE(r1, nullptr);
+                    ASSERT_NE(r2, nullptr);
+                    const BranchResult* br1 = branchFor(solution, r1->id);
+                    const BranchResult* br2 = branchFor(solution, r2->id);
+                    ASSERT_NE(br1, nullptr);
+                    ASSERT_NE(br2, nullptr);
+                    if (task.family == TaskFamily::CurrentConservation) {
+                        double I1 = std::abs(br1->current);
+                        double I2 = std::abs(br2->current);
+                        recomputed = (I2 > 1e-12) ? (I1 / I2) : 1.0;
+                    } else {
+                        double P1 = std::abs(br1->power);
+                        double P2 = std::abs(br2->power);
+                        recomputed = (P2 > 1e-12) ? (P1 / P2) : 1.0;
+                    }
+                } else if (task.family == TaskFamily::BatteryVoltageNotCurrent) {
+                    double Rorig = 0.0, Vsrc = 0.0;
+                    for (const auto& comp : task.circuit.components) {
+                        if (comp.type == ComponentType::Resistor) Rorig = comp.value;
+                        if (comp.type == ComponentType::VoltageSource) Vsrc = comp.value;
+                    }
+                    ASSERT_GT(Rorig, 0.0);
+                    ASSERT_GT(Vsrc, 0.0);
+                    auto pos = task.prompt.find("with a ");
+                    ASSERT_NE(pos, std::string::npos);
+                    pos += 7;
+                    double Rnew = std::stod(task.prompt.substr(pos));
+                    ASSERT_GT(Rnew, 0.0);
+                    Circuit c2;
+                    int gnd2 = c2.addNode(Vec2(0, 200), "GND");
+                    int n12 = c2.addNode(Vec2(0, 0), "N1");
+                    c2.groundNodeId = gnd2;
+                    c2.addComponent(ComponentType::Ground, gnd2, gnd2, 0.0);
+                    c2.addComponent(ComponentType::VoltageSource, n12, gnd2, Vsrc);
+                    c2.addComponent(ComponentType::Resistor, n12, gnd2, Rnew);
+                    CircuitSolver solver2;
+                    auto sol2 = solver2.solve(c2);
+                    const BranchResult* br = branchFor(solution, task.targetComponentId);
+                    ASSERT_NE(br, nullptr);
+                    double Iorig = std::abs(br->current);
+                    double Inew = 0.0;
+                    for (const auto& b : sol2.branches) {
+                        const Component* c = c2.findComponent(b.componentId);
+                        if (c && c->type == ComponentType::Resistor) {
+                            Inew = std::abs(b.current);
+                            break;
+                        }
+                    }
+                    recomputed = (Iorig > 1e-12) ? (Inew / Iorig) : 0.0;
+                }
             } else {
                 auto solution = solver.solve(task.circuit);
                 const BranchResult* br = branchFor(solution, task.targetComponentId);
@@ -271,4 +333,57 @@ TEST(TaskGenerator, ThreeSeriesResistorsPromptIsSolvable) {
     EXPECT_EQ(task.prompt.find("(third)"), std::string::npos);
     EXPECT_NE(task.prompt.find("R3"), std::string::npos);
     EXPECT_NE(task.prompt.find("R3 ="), std::string::npos);
+}
+
+// --- prediction questions against common misconceptions -----------------------
+
+TEST(TaskGenerator, CurrentConservationQuestionAddressesMisconception) {
+    TaskGenerator generator(1);
+    auto task = generator.generate(TaskFamily::CurrentConservation, 2);
+
+    EXPECT_FALSE(task.predictionPrompt.empty());
+    EXPECT_NE(task.solutionExplanation.find("NOT consumed"), std::string::npos);
+    EXPECT_NE(task.solutionExplanation.find("charge conservation"), std::string::npos);
+    EXPECT_NEAR(task.groundTruth, 1.0, 0.001);
+    EXPECT_EQ(task.answerUnit, "ratio");
+}
+
+TEST(TaskGenerator, BatteryVoltageNotCurrentQuestionAddressesMisconception) {
+    TaskGenerator generator(1);
+    auto task = generator.generate(TaskFamily::BatteryVoltageNotCurrent, 2);
+
+    EXPECT_FALSE(task.predictionPrompt.empty());
+    EXPECT_NE(task.solutionExplanation.find("voltage source"), std::string::npos);
+    EXPECT_NE(task.solutionExplanation.find("not a current source"), std::string::npos);
+    EXPECT_GT(task.groundTruth, 0.0);
+    EXPECT_LT(task.groundTruth, 1.0);
+    EXPECT_EQ(task.answerUnit, "ratio");
+}
+
+TEST(TaskGenerator, BrightnessVsPositionQuestionAddressesMisconception) {
+    TaskGenerator generator(1);
+    auto task = generator.generate(TaskFamily::BrightnessVsPosition, 2);
+
+    EXPECT_FALSE(task.predictionPrompt.empty());
+    EXPECT_NE(task.solutionExplanation.find("does NOT depend"), std::string::npos);
+    EXPECT_NE(task.solutionExplanation.find("identical"), std::string::npos);
+    EXPECT_NEAR(task.groundTruth, 1.0, 0.001);
+    EXPECT_EQ(task.answerUnit, "ratio");
+}
+
+TEST(TaskGenerator, PredictionQuestionsHaveCorrectAnswerAndExplanation) {
+    TaskGenerator generator(42);
+    for (auto family : {TaskFamily::CurrentConservation,
+                        TaskFamily::BatteryVoltageNotCurrent,
+                        TaskFamily::BrightnessVsPosition}) {
+        for (int d = 1; d <= 3; ++d) {
+            auto task = generator.generate(family, d);
+            ASSERT_FALSE(task.prompt.empty()) << taskFamilyName(family);
+            ASSERT_FALSE(task.predictionPrompt.empty()) << taskFamilyName(family);
+            ASSERT_FALSE(task.solutionExplanation.empty()) << taskFamilyName(family);
+            ASSERT_GT(task.solutionExplanation.size(), 50u) << taskFamilyName(family);
+            ASSERT_GE(task.targetComponentId, 0);
+            ASSERT_GT(task.tolerance, 0.0);
+        }
+    }
 }
