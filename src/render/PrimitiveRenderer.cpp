@@ -113,8 +113,13 @@ void drawGrid(ImDrawList* dl, const CanvasCamera& camera, ImVec2 origin, ImVec2 
 inline int particleSegs(float r) {
     return static_cast<int>(std::clamp(r * 0.8f, 6.0f, 14.0f));
 }
+// Адаптивный потолок: крупные экранные радиусы (сильный зум) получают больше
+// сегментов, чтобы не было видно углов, но потолок 128 не даёт взорваться до
+// ImGui-авто-512 и вернуть «zoom lag».
 inline int circleSegs(float r) {
-    return static_cast<int>(std::clamp(r * 0.5f, 10.0f, 40.0f));
+    int n = static_cast<int>(r * 0.5f);
+    int cap = std::min(128, std::max(40, static_cast<int>(r * 0.08f)));
+    return std::clamp(n, 10, cap);
 }
 
 void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
@@ -200,8 +205,8 @@ void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
     }
 
     for (const auto& grad : prims.gradients) {
-        if (offscreenSeg(m.toScreen(grad.a), m.toScreen(grad.b),
-                         m.px(grad.width * 0.5) + 2.0f))
+        float gradPad = m.px(grad.width * 0.5) + 2.0f * uiScale;
+        if (offscreenSeg(m.toScreen(grad.a), m.toScreen(grad.b), gradPad))
             continue;
         drawGradient(dl, m, grad);
     }
@@ -246,7 +251,10 @@ void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
         float w = line.screenSpaceWidth ? static_cast<float>(line.width) * uiScale : m.px(line.width);
         ImVec2 a = m.toScreen(line.a), b = m.toScreen(line.b);
         if (offscreenSeg(a, b, w + 1.0f)) continue;
-        dl->AddLine(a, b, line.color, w);
+        // AA через AddPolyline: AddLine не принимает флаги, а толстые (>1 px)
+        // линии без AA дают зубчатые края (B7-5).
+        ImVec2 lpts[2] = {a, b};
+        dl->AddPolyline(lpts, 2, line.color, ImDrawFlags_AntiAliasedLines, w);
     }
 
     for (const auto& poly : prims.polylines) {
@@ -262,7 +270,8 @@ void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
             miny = std::min(miny, s.y); maxy = std::max(maxy, s.y);
         }
         if (offscreen(minx - w, miny - w, maxx + w, maxy + w)) continue;
-        dl->AddPolyline(pts.data(), static_cast<int>(pts.size()), poly.color, ImDrawFlags_None, w);
+        dl->AddPolyline(pts.data(), static_cast<int>(pts.size()), poly.color,
+                        ImDrawFlags_AntiAliasedLines, w);
     }
 
     for (const auto& circle : prims.circles) {
@@ -286,7 +295,11 @@ void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
 
     for (const auto& label : prims.labels) {
         ImVec2 p = m.toScreen(label.pos);
-        if (offscreen(p.x, p.y, p.x + 120.0f, p.y + 16.0f)) continue; // ~text extent
+        // Отсечка по оценённому bounding box: ширина ~7 символов средней
+        // ширины, высота ~1 строка, обе величины масштабируются под HiDPI.
+        float textW = 140.0f * uiScale;
+        float textH = 22.0f * uiScale;
+        if (offscreen(p.x, p.y, p.x + textW, p.y + textH)) continue;
         dl->AddText(p, label.color, label.text.c_str());
     }
 
