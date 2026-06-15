@@ -40,9 +40,6 @@ bool App::init() {
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_COMPAT_PROFILE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_FALSE);
 
-    // HiDPI: m_width/m_height are logical sizes; create the window in physical
-    // pixels and scale fonts/style by the monitor content scale (175% Windows
-    // scaling was rendering the whole UI unreadably small).
     float scaleX = 1.0f, scaleY = 1.0f;
     if (GLFWmonitor* monitor = glfwGetPrimaryMonitor())
         glfwGetMonitorContentScale(monitor, &scaleX, &scaleY);
@@ -52,12 +49,42 @@ bool App::init() {
                                 current_lab::app::scaledWindowDimension(m_height, m_uiScale),
                                 "Current Lab — Milestone 1", nullptr, nullptr);
     if (!m_window) {
-        glfwTerminate(); // окно не создано — освобождаем уже проинициализированный GLFW
+        glfwTerminate();
         return false;
     }
 
     glfwMakeContextCurrent(m_window);
     glfwSwapInterval(1);
+
+    setupImGui();
+    return true;
+}
+
+bool App::initOffscreen(int width, int height) {
+    m_width = width;
+    m_height = height;
+
+    glfwSetErrorCallback(glfw_error_callback);
+    if (!glfwInit()) return false;
+
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_COMPAT_PROFILE);
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_FALSE);
+    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+
+    m_uiScale = 1.0f;
+
+    m_window = glfwCreateWindow(current_lab::app::scaledWindowDimension(m_width, m_uiScale),
+                                current_lab::app::scaledWindowDimension(m_height, m_uiScale),
+                                "Current Lab — Capture", nullptr, nullptr);
+    if (!m_window) {
+        glfwTerminate();
+        return false;
+    }
+
+    glfwMakeContextCurrent(m_window);
+    glfwSwapInterval(0);
 
     setupImGui();
     return true;
@@ -69,8 +96,6 @@ void App::setupImGui() {
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;
 
-    // Default ImGui font has no Cyrillic glyphs; load a system font that does
-    // (needed for the Russian UI language). Fall back to the built-in font.
     const char* fontCandidates[] = {
 #ifdef _WIN32
         "C:/Windows/Fonts/segoeui.ttf",
@@ -88,11 +113,10 @@ void App::setupImGui() {
         builder.AddRanges(io.Fonts->GetGlyphRangesDefault());
         builder.AddRanges(io.Fonts->GetGlyphRangesCyrillic());
         builder.AddRanges(io.Fonts->GetGlyphRangesGreek());
-        // Math symbols used by the formula renderer and textbook units.
         builder.AddText("\xC2\xB7\xE2\x89\x88\xE2\x86\x92\xE2\x89\xA4\xE2\x89\xA5"
                         "\xE2\x88\x9E\xE2\x88\x92\xC2\xB5\xCE\xA9\xCF\x84"
-                        "\xE2\x80\x94\xE2\x80\x93\xC2\xAB\xC2\xBB\xE2\x80\xA6"); // — – « » …
-        builder.AddText(current_lab::i18n::allUiText()); // every translated string
+                        "\xE2\x80\x94\xE2\x80\x93\xC2\xAB\xC2\xBB\xE2\x80\xA6");
+        builder.AddText(current_lab::i18n::allUiText());
         builder.BuildRanges(&glyphRanges);
     }
     bool fontLoaded = false;
@@ -113,10 +137,7 @@ void App::setupImGui() {
                      "non-ASCII UI text will render as '?'\n");
 
     ImGui::StyleColorsDark();
-    // ScaleAllSizes масштабирует только стиль ImGui; screen-space примитивы
-    // канваса (ImDrawList без DPI-awareness) нужно домножать на uiScale вручную —
-    // проброс сделан через MainWindow → CircuitCanvas → drawPrimitives(uiScale).
-    ImGui::GetStyle().ScaleAllSizes(m_uiScale); // paddings, spacing, scrollbars
+    ImGui::GetStyle().ScaleAllSizes(m_uiScale);
 
     ImGui_ImplGlfw_InitForOpenGL(m_window, true);
     ImGui_ImplOpenGL3_Init("#version 130");

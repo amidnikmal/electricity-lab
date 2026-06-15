@@ -8,6 +8,7 @@ public:
     ~App();
 
     bool init();
+    bool initOffscreen(int width, int height);
     void run();
 
     float uiScale() const { return m_uiScale; }
