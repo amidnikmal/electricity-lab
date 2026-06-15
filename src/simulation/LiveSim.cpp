@@ -176,8 +176,15 @@ void LiveSim::integrateStep(const Circuit& circuit, CircuitSolver& solver,
     solution = solver.stepTransient(circuit, m_state, m_dt, m_cfg.method);
 
     // Цепь без реактивных элементов стационарна по построению (state пуст).
+    // AC-источник никогда не приходит к стационару: цепь под переменным
+    // напряжением колеблется вечно. Её НЕЛЬЗЯ усыплять — иначе анимация
+    // замирает (демка AcRectifier «не работала» именно из-за этого: выход
+    // выпрямителя выходил на стабильную пульсацию и сим засыпал).
+    bool hasAcSource = false;
+    for (const auto& comp : circuit.components)
+        if (comp.type == ComponentType::AcVoltageSource) { hasAcSource = true; break; }
     bool reactive = !m_state.capVoltage.empty() || !m_state.indCurrent.empty();
-    if (!reactive || stateChangeRel(before) < 1.0) {
+    if (!hasAcSource && (!reactive || stateChangeRel(before) < 1.0)) {
         if (++m_quietSteps >= m_cfg.settleQuietSteps || !reactive) {
             m_settled = true;
             snapToAsymptote(circuit, solver, solution);

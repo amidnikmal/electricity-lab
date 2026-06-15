@@ -103,17 +103,15 @@ CaptureResult captureToPng(int width, int height,
     // ---- run simulation ----
     CircuitSolution solution;
     if (simTime >= 0.0) {
-        double simSoFar = 0.0;
-        while (simSoFar < simTime && !sim.settled()) {
-            const double dt = 1.0 / 60.0;
-            sim.advance(circuit, solver, dt, solution);
-            simSoFar += dt;
-            if (simSoFar > simTime + 10.0) break; // safety
-        }
-        if (simSoFar < simTime) {
-            // snap to exact time via one more step
+        // --time задаётся в СИМУЛИРОВАННЫХ секундах. Гоним по sim.time() с
+        // фиксированным sim-шагом (≈1/240 c). Старый цикл считал РЕАЛЬНЫЕ
+        // секунды, которые авто-слоумо масштабировал в почти неизменное
+        // sim.time() — поэтому разные --time давали идентичные (замёрзшие)
+        // кадры, особенно для AC-демок.
+        sim.setManualSpeed(0.25); // m_dt = 0.25/solveHz ≈ 1/240 c
+        int guard = 0;
+        while (sim.time() < simTime && guard++ < 5000000)
             sim.stepOnce(circuit, solver, solution);
-        }
     } else {
         // run to settle
         for (int i = 0; i < 5000 && !sim.settled(); ++i)

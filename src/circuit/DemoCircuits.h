@@ -188,7 +188,7 @@ inline Circuit buildDemo(DemoCircuit demo) {
             // blocks and C discharges slowly through R.
             c.components[1].type = ComponentType::AcVoltageSource;
             c.components[1].value = 5.0;       // amplitude, V
-            c.components[1].frequency = 50.0;  // Hz
+            c.components[1].frequency = 2.0;   // Hz — наглядно для учебной анимации
             c.components[1].phase = 0.0;
             int n2 = c.addNode(Vec2(480, 140), "N2");
             int corner = c.addNode(Vec2(480, 320));
