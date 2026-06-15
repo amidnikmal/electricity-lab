@@ -24,6 +24,13 @@ enum class DemoCircuit {
                       // ЦИРКУЛИРУЕТ по контуру и после устаканивания тока
     PeakDetector,     // диод + RC (пик-детектор)
     AcRectifier,      // полупериодный выпрямитель: AC-источник + диод + RC
+    // Сложные педагогические демо (≥5, 2026-06-15):
+    WheatstoneBridge,    // мост Уитстона (4R + гальванометр, баланс/разбаланс)
+    LoadedDivider,       // нагруженный резистивный делитель напряжения
+    RcLowPassAc,         // AC RC-фильтр нижних частот
+    RlcBandPassAc,       // AC последовательный RLC-полосовой фильтр
+    Superposition,       // принцип суперпозиции: два источника + три резистора
+    LadderR,             // лестничная R-цепь (R-2R, 3 каскада)
     Count,
 };
 
@@ -40,6 +47,12 @@ inline const char* demoName(DemoCircuit demo) {
         case DemoCircuit::RlcCirculating: return "Demo: RLC (circulating water)";
         case DemoCircuit::PeakDetector: return "Demo: diode peak detector";
         case DemoCircuit::AcRectifier: return "Demo: AC half-wave rectifier";
+        case DemoCircuit::WheatstoneBridge: return "Demo: Wheatstone bridge";
+        case DemoCircuit::LoadedDivider: return "Demo: loaded voltage divider";
+        case DemoCircuit::RcLowPassAc: return "Demo: RC low-pass filter (AC)";
+        case DemoCircuit::RlcBandPassAc: return "Demo: RLC band-pass filter (AC)";
+        case DemoCircuit::Superposition: return "Demo: superposition (two sources)";
+        case DemoCircuit::LadderR: return "Demo: R-2R ladder network";
         case DemoCircuit::Count: break;
     }
     return "?";
@@ -196,6 +209,120 @@ inline Circuit buildDemo(DemoCircuit demo) {
             c.addComponent(ComponentType::Capacitor, n2, corner, 10e-6); // 10 μF
             c.addComponent(ComponentType::Resistor, n2, corner, 1000.0);  // 1 kΩ load
             c.addComponent(ComponentType::Wire, corner, gnd, 0.0);
+            break;
+        }
+        case DemoCircuit::WheatstoneBridge: {
+            // Классический мост Уитстона: 4 резистора плечами + «гальванометр»
+            // R_g между средними точками. При R1·R4 ≠ R2·R3 мост разбалансирован
+            // → через R_g течёт ток. Здесь R4 = 2к (остальные 1к) → небаланс.
+            // Раскладка прямоугольная (рейки-провода), все резисторы вертикальны.
+            int tL = c.addNode(Vec2(120, 140));
+            int tR = c.addNode(Vec2(280, 140));
+            int mL = c.addNode(Vec2(120, 230), "L");
+            int mR = c.addNode(Vec2(280, 230), "R");
+            int bL = c.addNode(Vec2(120, 320));
+            int bR = c.addNode(Vec2(280, 320));
+            c.addComponent(ComponentType::Wire, n1, tL, 0.0);          // верхняя рейка
+            c.addComponent(ComponentType::Wire, n1, tR, 0.0);
+            c.addComponent(ComponentType::Resistor, tL, mL, 1000.0);   // R1
+            c.addComponent(ComponentType::Resistor, tR, mR, 1000.0);   // R2
+            c.addComponent(ComponentType::Resistor, mL, bL, 1000.0);   // R3
+            c.addComponent(ComponentType::Resistor, mR, bR, 2000.0);   // R4 (≠ → небаланс)
+            c.addComponent(ComponentType::Resistor, mL, mR, 100.0);    // R_g (гальванометр)
+            c.addComponent(ComponentType::Wire, bL, gnd, 0.0);         // нижняя рейка
+            c.addComponent(ComponentType::Wire, bR, gnd, 0.0);
+            break;
+        }
+        case DemoCircuit::LoadedDivider: {
+            // Делитель напряжения R1/R2 с нагрузкой RL параллельно R2.
+            // Без нагрузки Vout = 5·2k/(1k+2k) ≈ 3.33 В; с RL=1k∥2k=0.667k
+            // Vout = 5·0.667k/(1k+0.667k) = 2.0 В — просадка демонстрирует
+            // влияние нагрузки.
+            int n2 = c.addNode(Vec2(400, 140), "nT");   // top of R2, RL
+            int n3 = c.addNode(Vec2(400, 250), "nR2");  // bottom of R2
+            int n4 = c.addNode(Vec2(600, 140), "nRL");  // load far end
+            int btm1 = c.addNode(Vec2(400, 320));
+            c.addComponent(ComponentType::Resistor, n1, n2, 1000.0);   // R1
+            c.addComponent(ComponentType::Resistor, n2, n3, 2000.0);   // R2
+            c.addComponent(ComponentType::Resistor, n2, n4, 1000.0);   // RL (нагрузка)
+            c.addComponent(ComponentType::Wire, n3, btm1, 0.0);
+            c.addComponent(ComponentType::Wire, btm1, gnd, 0.0);
+            closeLoopRect(c, n4, Vec2(600, 140), gnd, Vec2(200, 320));
+            break;
+        }
+        case DemoCircuit::RcLowPassAc: {
+            // RC-фильтр нижних частот под синусоидальным источником.
+            // f_c = 1/(2π·R·C) = 1/(2π·1k·100µ) ≈ 1.59 Гц.
+            // При f_src=2 Гц выход ослаблен ~0.62× от входа — наглядно.
+            c.components[1].type = ComponentType::AcVoltageSource;
+            c.components[1].value = 5.0;
+            c.components[1].frequency = 2.0;
+            c.components[1].phase = 0.0;
+            int n2 = c.addNode(Vec2(480, 140), "N2");
+            int corner = c.addNode(Vec2(480, 320));
+            c.addComponent(ComponentType::Resistor, n1, n2, 1000.0);
+            c.addComponent(ComponentType::Capacitor, n2, corner, 100e-6); // 100 μF
+            c.addComponent(ComponentType::Wire, corner, gnd, 0.0);
+            break;
+        }
+        case DemoCircuit::RlcBandPassAc: {
+            // Последовательный RLC-полосовой фильтр под AC-источником.
+            // f_r = 1/(2π√(L·C)) = 1/(2π√(1·0.01)) ≈ 1.59 Гц (близко к f_src=2 Гц).
+            // Выход снимается с R: на резонансе V_R ≈ V_in; вне резонанса падает.
+            c.components[1].type = ComponentType::AcVoltageSource;
+            c.components[1].value = 5.0;
+            c.components[1].frequency = 2.0;
+            c.components[1].phase = 0.0;
+            int n2 = c.addNode(Vec2(400, 140), "N2");
+            int n3 = c.addNode(Vec2(550, 140), "N3");
+            int corner = c.addNode(Vec2(550, 320));
+            c.addComponent(ComponentType::Resistor, n1, n2, 10.0);
+            c.addComponent(ComponentType::Inductor, n2, n3, 1.0);
+            c.addComponent(ComponentType::Capacitor, n3, corner, 0.01); // 10 mF
+            c.addComponent(ComponentType::Wire, corner, gnd, 0.0);
+            break;
+        }
+        case DemoCircuit::Superposition: {
+            // Принцип суперпозиции: два независимых источника (5В и 3В) через
+            // резисторы сходятся в общий узел n_mid с нагрузкой R3 на землю.
+            // V(n_mid) = вклад_5В + вклад_3В = 2.0 + 0.6 = 2.6 В.
+            // Раскладка по осям: общий ряд y=140, источник Vs2 вертикален, рейка y=320.
+            int n_mid = c.addNode(Vec2(330, 140), "mid");
+            int n2 = c.addNode(Vec2(460, 140), "Vs2");
+            int midbot = c.addNode(Vec2(330, 320));
+            int vbot2 = c.addNode(Vec2(460, 320));
+            c.addComponent(ComponentType::Resistor, n1, n_mid, 1000.0);   // R1
+            c.addComponent(ComponentType::Resistor, n2, n_mid, 2000.0);   // R2
+            c.addComponent(ComponentType::Resistor, n_mid, midbot, 1000.0); // R3 (нагрузка)
+            c.addComponent(ComponentType::Wire, midbot, gnd, 0.0);
+            c.addComponent(ComponentType::VoltageSource, n2, vbot2, 3.0);  // Vs2
+            c.addComponent(ComponentType::Wire, vbot2, gnd, 0.0);
+            break;
+        }
+        case DemoCircuit::LadderR: {
+            // Лестничная R-2R цепь (3 каскада). Каждый каскад делит напряжение
+            // вдвое: V(n4) = 5В / 2³ = 0.625 В. Демонстрирует каскадное деление
+            // и то, как R-2R работает как простой ЦАП.
+            int n2 = c.addNode(Vec2(380, 140), "n2");
+            int n3 = c.addNode(Vec2(560, 140), "n3");
+            int n4 = c.addNode(Vec2(740, 140), "n4");
+            int n2b = c.addNode(Vec2(380, 260));
+            int n3b = c.addNode(Vec2(560, 260));
+            int n4b = c.addNode(Vec2(740, 260));
+            int btm = c.addNode(Vec2(200, 260));
+            // Горизонтальные R
+            c.addComponent(ComponentType::Resistor, n1, n2, 1000.0);
+            c.addComponent(ComponentType::Resistor, n2, n3, 1000.0);
+            c.addComponent(ComponentType::Resistor, n3, n4, 1000.0);
+            // Вертикальные 2R
+            c.addComponent(ComponentType::Resistor, n2, n2b, 2000.0);
+            c.addComponent(ComponentType::Resistor, n3, n3b, 2000.0);
+            c.addComponent(ComponentType::Resistor, n4, n4b, 2000.0);
+            // Нижняя шина: горизонтальная рейка y=260, затем вниз к земле
+            c.addComponent(ComponentType::Wire, n4b, n3b, 0.0);
+            c.addComponent(ComponentType::Wire, n3b, n2b, 0.0);
+            c.addComponent(ComponentType::Wire, n2b, btm, 0.0);
+            c.addComponent(ComponentType::Wire, btm, gnd, 0.0);
             break;
         }
         case DemoCircuit::Count:
