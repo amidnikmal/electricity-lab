@@ -17,6 +17,14 @@ struct CaptureConfig {
     int width = 1600;
     int height = 1000;
     double time = -1.0;  // -1 = run to settle
+
+    // ---- ЭМ-захват (FDTD, отдельный движок; см. --em) ----
+    bool   emCapture = false;
+    std::string emDemo;          // PlaneWave|DipoleRadiator|DoubleSlit|...
+    int    emGrid = 140;         // размер куба сетки
+    int    emSteps = 260;        // шагов интегрирования
+    std::string emPlane = "xy";  // плоскость среза
+    std::string emField = "ez";  // ez (знаковое) | emag (|E|)
 };
 
 inline demos::DemoCircuit parseDemoName(const std::string& name) {
@@ -110,6 +118,16 @@ inline CaptureConfig parseCaptureArgs(int argc, char* argv[]) {
             cfg.height = std::atoi(argv[++i]);
         } else if (std::strcmp(argv[i], "--time") == 0 && i + 1 < argc) {
             cfg.time = std::atof(argv[++i]);
+        } else if (std::strcmp(argv[i], "--em") == 0 && i + 1 < argc) {
+            cfg.emCapture = true; cfg.emDemo = argv[++i];
+        } else if (std::strcmp(argv[i], "--steps") == 0 && i + 1 < argc) {
+            cfg.emSteps = std::atoi(argv[++i]);
+        } else if (std::strcmp(argv[i], "--grid") == 0 && i + 1 < argc) {
+            cfg.emGrid = std::atoi(argv[++i]);
+        } else if (std::strcmp(argv[i], "--plane") == 0 && i + 1 < argc) {
+            cfg.emPlane = argv[++i];
+        } else if (std::strcmp(argv[i], "--field") == 0 && i + 1 < argc) {
+            cfg.emField = argv[++i];
         }
     }
     return cfg;
