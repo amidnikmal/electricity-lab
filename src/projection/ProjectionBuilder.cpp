@@ -1633,12 +1633,12 @@ void emitSpring(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
         if (it != ctx.p.chainTravel->end()) capTravel = it->second;
     }
     // One shaft angle = the loop travel / R drives gear, arm and spring together.
-    // Clamp just shy of the crank's 90° fold: at the limit the spring is FULLY
-    // compressed (max charge) — it no longer sticks early (the old ±60° clamp bit
-    // almost at once and looked stuck). In the linear region the cap gear turns at
-    // exactly the loop speed, like every other gear.
-    constexpr double kMaxSwing = 1.5; // ~86°
-    double shaftAngle = std::clamp(capTravel / pitchR, -kMaxSwing, kMaxSwing);
+    // Soft tanh saturation replaces the old hard clamp: slope at zero stays exactly
+    // 1/pitchR (preserving the synchrony test), yet the spring never hits a dead
+    // wall — oscillations remain visible at any DC operating point, and the gear
+    // speed in the linear region is indistinguishable from the loop speed.
+    constexpr double kMaxSwing = 7.5;
+    double shaftAngle = kMaxSwing * std::tanh(capTravel / (pitchR * kMaxSwing));
     m.theta = shaftAngle;
 
     auto toWorld = [&](Vec2 l) { return g.mid + g.unit * l.x + g.perp * l.y; };
@@ -1726,6 +1726,32 @@ void emitFlywheel(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
         Vec2 dir(std::cos(angle), std::sin(angle));
         ctx.out.lines.push_back({mid - dir * (radius * 0.9), mid + dir * (radius * 0.9),
                                  1.8, rimCol, true});
+    }
+
+    // Toothed rim: visual engagement with the wrapping chain
+    namespace cg = physics::chain_geometry;
+    const double rollerR = cg::linkRadius(ctx.p.wireThickness);
+    const double toothTipR = cg::sprocketTipRadius(radius, rollerR);
+    const double toothRootR = cg::sprocketRootRadius(radius, rollerR);
+    const int teeth = cg::sprocketTeeth(radius, cg::linkPitch(rollerR));
+    const double toothPitch = 2.0 * kPi / teeth;
+    const uint32_t bodyFill = packColor(
+        static_cast<unsigned>(120 + 55 * iFrac),
+        static_cast<unsigned>(110 + 30 * iFrac),
+        static_cast<unsigned>(170 + 45 * iFrac), 245);
+    ctx.out.circles.push_back({mid, toothRootR, bodyFill, 0.0, true, false});
+    for (int tooth = 0; tooth < teeth; ++tooth) {
+        double tmid = angle0 + tooth * toothPitch;
+        double rootHalf = toothPitch * 0.30;
+        double tipHalf = toothPitch * 0.16;
+        auto at = [&](double angle, double r) {
+            return mid + Vec2(std::cos(angle), std::sin(angle)) * r;
+        };
+        ctx.out.quads.push_back({at(tmid - rootHalf, toothRootR),
+                                 at(tmid - tipHalf, toothTipR),
+                                 at(tmid + tipHalf, toothTipR),
+                                 at(tmid + rootHalf, toothRootR),
+                                 bodyFill, true, 0.0});
     }
 
     if (iFrac > 0.02) {
