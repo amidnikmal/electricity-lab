@@ -251,10 +251,11 @@ void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
         float w = line.screenSpaceWidth ? static_cast<float>(line.width) * uiScale : m.px(line.width);
         ImVec2 a = m.toScreen(line.a), b = m.toScreen(line.b);
         if (offscreenSeg(a, b, w + 1.0f)) continue;
-        // AA через AddPolyline: AddLine не принимает флаги, а толстые (>1 px)
-        // линии без AA дают зубчатые края (B7-5).
+        // AA через AddPolyline: AddLine даёт зубчатые края на толстых (>1 px)
+        // линиях; AddPolyline сглаживает их через ImDrawListFlags_AntiAliasedLines
+        // draw-list'а (включён по умолчанию). flags здесь — только closed/open (B7-5).
         ImVec2 lpts[2] = {a, b};
-        dl->AddPolyline(lpts, 2, line.color, ImDrawFlags_AntiAliasedLines, w);
+        dl->AddPolyline(lpts, 2, line.color, ImDrawFlags_None, w);
     }
 
     for (const auto& poly : prims.polylines) {
@@ -271,7 +272,7 @@ void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
         }
         if (offscreen(minx - w, miny - w, maxx + w, maxy + w)) continue;
         dl->AddPolyline(pts.data(), static_cast<int>(pts.size()), poly.color,
-                        ImDrawFlags_AntiAliasedLines, w);
+                        ImDrawFlags_None, w);
     }
 
     for (const auto& circle : prims.circles) {
