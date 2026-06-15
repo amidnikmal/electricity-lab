@@ -1,8 +1,8 @@
-# Visualization Model
+# Модель визуализации
 
-## Pure Sample Types
+## Чистые типы сэмплов
 
-Current visualization models are expressed as pure sample generators:
+Текущие модели визуализации выражены как чистые генераторы сэмплов:
 
 ```text
 FieldArrowSample[]
@@ -11,55 +11,55 @@ SurfaceChargeSample[]
 MagneticFieldSample[]
 ```
 
-These types live in `src/physics/` and are consumed by `CircuitCanvas`.
+Эти типы живут в `src/physics/` и потребляются `CircuitCanvas`.
 
-## Layer Notes
+## Заметки по слоям
 
-### Potential
+### Потенциал
 
-- Source: solved node potentials
-- Rendering: conductor interior gradient
-- Status: approximation
+- Источник: решённые потенциалы узлов
+- Render: градиент внутри проводника
+- Статус: приближение
 
-### Electric Field
+### Электрическое поле
 
-- Source: `FieldModel`
-- Equation: `E ~= -dV/dx`
-- Status: approximation
+- Источник: `FieldModel`
+- Уравнение: `E ~= -dV/dx`
+- Статус: приближение
 
-### Drift
+### Дрейф
 
-- Source: `DriftModel`
-- Meaning:
-  - computed current is solver truth
-  - particle motion is pedagogical
-  - thermal motion is qualitative
-  - visual speed is amplified
+- Источник: `DriftModel`
+- Смысл:
+  - вычисленный ток — истина solver'а
+  - движение частиц — педагогическое
+  - тепловое движение — качественное
+  - визуальная скорость усилена
 
-### Surface Charge
+### Поверхностный заряд
 
-- Source: `SurfaceChargeModel`
-- Meaning:
-  - plausible sign distribution along conductor surface
-  - not a Maxwell or Poisson solve
+- Источник: `SurfaceChargeModel`
+- Смысл:
+  - правдоподобное распределение знака вдоль поверхности проводника
+  - не решение Максвелла или Пуассона
 
-### Magnetic Field
+### Магнитное поле
 
-- Source: `MagneticFieldModel`
-- Meaning:
-  - local quasi-static `B ~ I/r`
-  - page-normal glyphs follow right-hand rule
-  - not a full 3D Biot-Savart integration
+- Источник: `MagneticFieldModel`
+- Смысл:
+  - локальное статическое DC-поле `B ~ I/r`
+  - глифы, нормальные к плоскости экрана, следуют правилу правой руки
+  - не полное 3D-интегрирование по Био—Савару
 
-### Heat / Power
+### Тепло / Мощность
 
-- Source: solver branch power + `PowerModel`
-- Meaning:
-  - heat layer uses dissipated power only
-  - source supply remains visible in power labels, not as heat
+- Источник: мощность ветвей из solver'а + `PowerModel`
+- Смысл:
+  - слой тепла использует только рассеиваемую мощность
+  - подвод мощности источником остаётся виден в метках мощности, но не как тепло
 
-## UI Communication Rules
+## Правила коммуникации в UI
 
-- Each layer toggle has a tooltip with status and model summary
-- Inspector shows model status for the selected element
-- Electron-flow convention and visual speed are exposed instead of being implicit
+- Каждый переключатель слоя имеет tooltip со статусом и кратким описанием модели
+- Inspector показывает статус модели для выбранного элемента
+- Конвенция о направлении потока электронов и визуальная скорость показаны явно, а не подразумеваются неявно

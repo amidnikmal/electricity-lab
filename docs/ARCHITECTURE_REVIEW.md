@@ -1,19 +1,21 @@
 # Architecture Review
 
-## Summary
+> Исторический отчёт. Переведён на русский 2026-06-15; факты сохранены как есть.
 
-Second pass focused on reducing hidden coupling without rewriting the project.
+## Сводка
 
-Main improvements:
+Второй проход был нацелен на снижение скрытой связанности без переписывания проекта.
 
-- `Circuit` no longer assumes `id == vector index`
-- `CircuitSolver` now maps node IDs explicitly and supports non-contiguous IDs
-- distributed wire mapping uses original component IDs
-- pure visualization models were extracted into `src/physics/`
-- `MainWindow` owns presets and solver parameters instead of hiding them in canvas code
-- `InspectorPanel` now reports solved quantities and model status explicitly
+Основные улучшения:
 
-## Current Flow
+- `Circuit` больше не предполагает, что `id == индекс в векторе`
+- `CircuitSolver` теперь явно отображает идентификаторы узлов и поддерживает неразрывные ID
+- распределённое отображение проводов использует исходные ID компонентов
+- чистые модели визуализации вынесены в `src/physics/`
+- `MainWindow` владеет пресетами и параметрами солвера, а не прячет их в коде канваса
+- `InspectorPanel` теперь явно сообщает рассчитанные величины и статус модели
+
+## Текущий поток
 
 ```text
 Circuit
@@ -24,42 +26,42 @@ Circuit
   -> MainWindow / InspectorPanel
 ```
 
-## What Was Wrong
+## Что было не так
 
-- `CircuitCanvas`, `InspectorPanel` and `CircuitSolver` used node IDs as vector indices
-- `MainWindow::mapDistributedSolution()` relied on component ordering instead of stable IDs
-- field, drift, magnetic and surface-charge calculations lived inside rendering code
-- distributed wire parameters were hard-coded
-- inspector did not expose model assumptions or sign conventions
+- `CircuitCanvas`, `InspectorPanel` и `CircuitSolver` использовали ID узлов как индексы вектора
+- `MainWindow::mapDistributedSolution()` опирался на порядок компонентов, а не на стабильные ID
+- расчёты поля, дрейфа, магнитного поля и поверхностного заряда жили внутри кода рендеринга
+- параметры распределённого провода были захардкожены
+- инспектор не раскрывал допущения модели и знаковые конвенции
 
-## What Is Better Now
+## Что стало лучше
 
-- node/component IDs remain unique after deletion
-- distributed circuits preserve original node/component identity where needed
-- `FieldModel`, `DriftModel`, `SurfaceChargeModel`, `MagneticFieldModel` and
-  `PowerModel` provide testable pure functions
-- toolbar exposes presets, distributed-wire parameters and animation controls
-- inspector shows `Va`, `Vb`, `dV`, `I`, `P`, `Length`, distributed `R`, `E`
+- ID узлов/компонентов остаются уникальными после удаления
+- распределённые цепи сохраняют исходную идентичность узлов/компонентов там, где это нужно
+- `FieldModel`, `DriftModel`, `SurfaceChargeModel`, `MagneticFieldModel` и
+  `PowerModel` предоставляют тестируемые чистые функции
+- тулбар раскрывает пресеты, параметры распределённого провода и управление анимацией
+- инспектор показывает `Va`, `Vb`, `dV`, `I`, `P`, `Length`, распределённые `R`, `E`
 
-## Remaining Architectural Debt
+## Оставшийся архитектурный долг
 
-- `src/ui/CircuitCanvas.cpp` is still large and mixes:
-  - input handling
-  - camera
-  - draw primitive generation
-  - draw submission
-- no dedicated `CircuitValidator`
-- renderer primitives are still immediate-mode ImGui calls instead of an
-  intermediate render list
-- solver and distributed-wire transform are still coupled through `Circuit`
-  rather than a dedicated builder module
+- `src/ui/CircuitCanvas.cpp` всё ещё большой и смешивает:
+  - обработку ввода
+  - камеру
+  - генерацию примитивов отрисовки
+  - отправку примитивов на отрисовку
+- нет выделенного `CircuitValidator`
+- примитивы рендерера — всё ещё immediate-mode вызовы ImGui, а не промежуточный
+  render list
+- солвер и трансформация распределённого провода всё ещё связаны через `Circuit`,
+  а не через выделенный модуль-билдер
 
-## Recommended Next Extraction
+## Рекомендуемое следующее извлечение
 
-1. Move draw primitive emission into `src/render/`
-2. Introduce `CircuitValidator` for missing ground, invalid resistance and bad references
-3. Add `VisualizationState` / render-primitive structs for snapshot-style tests
-4. Split `CircuitCanvas` into:
+1. Перенести эмиссию примитивов отрисовки в `src/render/` (сделано)
+2. Ввести `CircuitValidator` для отсутствующей земли, некорректного сопротивления и битых ссылок (сделано)
+3. Добавить структуры `VisualizationState` / render-примитивов для тестов в стиле snapshot (сделано)
+4. Разбить `CircuitCanvas` на:
    - input/controller
    - renderer coordinator
    - overlay/legend renderer

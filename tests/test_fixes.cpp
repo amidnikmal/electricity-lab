@@ -95,6 +95,17 @@ TEST(I18n, FormatStringsKeepPrintfSignature) {
     current_lab::i18n::setLanguage(current_lab::i18n::Language::English);
 }
 
+TEST(I18n, MicroFaradUnitKeyTranslates) {
+    // Ключ µF (UTF-8 0xC2 0xB5, затем 'F') раньше был битым: литерал
+    // "\xC2\xB5F" парсился как один hex-escape \xB5F (вне диапазона), 'F'
+    // съедался → ключ не совпадал и перевод единицы не находился.
+    // Починено склейкой литералов "\xC2\xB5" "F".
+    current_lab::i18n::setLanguage(current_lab::i18n::Language::Russian);
+    EXPECT_STREQ(current_lab::i18n::tr("\xC2\xB5" "F"), "мкФ");
+    EXPECT_STREQ(current_lab::i18n::tr("\xC2\xB5" "H"), "мкГн");
+    current_lab::i18n::setLanguage(current_lab::i18n::Language::English);
+}
+
 // --- feature: lesson preset circuits ---------------------------------------------
 
 TEST(LessonPresets, EveryFamilyProducesASolvableCircuit) {

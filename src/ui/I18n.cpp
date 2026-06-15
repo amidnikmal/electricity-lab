@@ -183,7 +183,7 @@ const std::unordered_map<std::string_view, const char*>& dictionary() {
         {"Split top/bottom", "Разделить сверху/снизу"},
         {"Close view", "Закрыть вид"},
         // Textbook units (EN keys use proper symbols already)
-        {"F", "Ф"}, {"mF", "мФ"}, {"\xC2\xB5F", "мкФ"}, {"nF", "нФ"},
+        {"F", "Ф"}, {"mF", "мФ"}, {"\xC2\xB5" "F", "мкФ"}, {"nF", "нФ"},
         {"H", "Гн"}, {"mH", "мГн"}, {"\xC2\xB5H", "мкГн"},
         {"\xCE\xA9", "Ом"}, {"k\xCE\xA9", "кОм"},
         {"V", "В"}, {"mA", "мА"}, {"mW", "мВт"}, {"mJ", "мДж"},

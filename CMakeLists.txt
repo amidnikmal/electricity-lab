@@ -112,11 +112,13 @@ FetchContent_MakeAvailable(googletest)
 set(TEST_SOURCES
     tests/test_linear_system.cpp
     tests/test_circuit.cpp
+    tests/test_circuit_validator.cpp
     tests/test_solver.cpp
     tests/test_consistency.cpp
     tests/test_canvas.cpp
     tests/test_dual_view.cpp
     tests/test_projection.cpp
+    tests/test_colormap.cpp
     tests/test_transient.cpp
     tests/test_elements.cpp
     tests/test_mechanics.cpp

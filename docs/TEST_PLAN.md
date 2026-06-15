@@ -1,37 +1,39 @@
-# Test Plan
+# План тестирования
 
-## Verified In Existing Built Binary
+> Статус 2026-06-15: тест-план в основном реализован — добавленные в этот проход пункты покрыты (см. tests/test_solver.cpp, tests/test_circuit.cpp, tests/test_canvas.cpp). Незакрытыми остаются «Оставшиеся пробелы» (рендер-снапшоты, smoke-тесты `render/`, тесты `CircuitValidator`, UI-автоматизация). Переведён на русский.
 
-Observed available test binary:
+## Проверено на существующем собранном бинарнике
+
+Наблюдаемый доступный тестовый бинарник:
 
 - `./build/current-lab-tests`
-- result: 138 tests / 10 suites / pass
+- результат: 138 тестов / 10 наборов / pass
 
-That run reflects the pre-existing build artifact available in the workspace.
+Этот прогон отражает заранее собранный артефакт сборки, имеющийся в рабочем дереве.
 
-## Added In This Pass
+## Добавлено в этом проходе
 
-Planned source-level additions now cover:
+Запланированные дополнения на уровне исходников теперь покрывают:
 
-- circuit ID stability after deletion
-- non-contiguous node IDs
-- distributed source mapping preservation
-- resistor power check for the `5 V + 1 kOhm` case
-- wire resistance scaling helpers
-- current equality through distributed wire segments
-- pure field model direction and scaling
-- pure drift model sign and bounds
-- pure magnetic field scaling and reversal
-- pure surface-charge sign progression
+- стабильность ID цепи после удаления (есть: tests/test_circuit.cpp — `AddNodeAfterRemovalKeepsUniqueId`, `AddComponentAfterRemovalKeepsUniqueId`, `RemoveComponentMiddlePreservesOrder`)
+- неконтинуальные ID узлов (есть: tests/test_solver.cpp — `NonContiguousNodeIdsAreSolvedCorrectly`)
+- сохранение маппинга распределённого источника (есть: tests/test_circuit.cpp — `DistributedPreservesOriginalNodeIdsAcrossGaps`)
+- проверку мощности на резисторе для случая `5 V + 1 kOhm` (есть: tests/test_solver.cpp — `SeriesCircuitResistorPowerIs25mW`)
+- хелперы масштабирования сопротивления провода (есть: tests/test_solver.cpp — `WireResistanceScalesWithLength`, `SegmentCountDoesNotChangeTotalWireResistance`)
+- равенство тока через сегменты распределённого провода (есть: tests/test_solver.cpp — `DistributedWireSegmentsCarrySameSeriesCurrent`)
+- направление и масштабирование чистой модели поля (есть: tests/test_canvas.cpp — `FieldDirectionFollowsPotentialDrop`, `FieldMagnitudeScalesWithVoltageAndLength`)
+- знак и границы чистой модели дрейфа (есть: tests/test_canvas.cpp — `DriftSpeedIsExactlyZeroAtZeroCurrent`, `DriftSpeedScalesLinearlyWithCurrent`)
+- масштабирование и реверс чистого магнитного поля (есть: tests/test_canvas.cpp — `MagneticFieldIncreasesWithCurrentAndDecreasesWithRadius`, `MagneticFieldDirectionReversesWithCurrent`)
+- знаковая прогрессия чистого поверхностного заряда (есть: tests/test_canvas.cpp — `SurfaceChargeChangesSignAlongPotentialGradient`)
 
-## Remaining Gaps
+## Оставшиеся пробелы
 
-- No renderer snapshot tests yet
-- No compile-only smoke tests for future `render/` module extraction
-- No validator tests for invalid circuits because `CircuitValidator` is not yet implemented
-- No UI automation for presets/tooltips
+- Снапшот-тестов рендерера пока нет
+- Нет compile-only smoke-тестов под будущее выделение модуля `render/`
+- Нет тестов валидатора на некорректные цепи, потому что `CircuitValidator` ещё не реализован
+- Нет UI-автоматизации для пресетов/тултипов
 
-## Next Testing Step
+## Следующий шаг тестирования
 
-Introduce a render-primitive intermediate representation and snapshot it as JSON.
-That gives deterministic tests without depending on GPU pixel diffs.
+Ввести промежуточное представление рендер-примитивов и снапшотить его как JSON.
+Это даст детерминированные тесты, не зависящие от попиксельных diff-ов GPU.

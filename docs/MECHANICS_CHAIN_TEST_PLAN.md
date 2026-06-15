@@ -1,89 +1,97 @@
-# Mechanics Chain Endurance Test Plan
+# План тестирования выносливости механической цепи
 
-The mechanics view must not only draw chain links; the simulated chain has to
-keep moving under solver current. The failure to catch is a chain that looks
-present but never advances in any demo.
+> Статус 2026-06-15: тест-план в основном реализован — см. tests/test_chain_sim.cpp (`MarkedResistorLinkCompletesTenLapsWithoutStopping`, `PhaseProbeSeesMarkedLinkAdvance`, `BrakeZoneIsOvercomeButResists`, `ChainStaysOnTrack`, `ChainLinksNeverInfiniteOrNaN`). Точка 3 (реверс по знаку тока) на уровне `ChainSim` отдельным тестом не выделена — знак направления покрыт на уровне маппинга/проекции (tests/test_mechanics.cpp `ChainSpeedIsMonotonicAndSignCorrect`, tests/test_chain_gear.cpp `SourceDriveSprocketTurnsWithChainNotAgainstIt`). Переведён на русский.
 
-## Target Circuit
+Механический вид должен не только рисовать звенья цепи; симулируемая цепь обязана
+продолжать движение под током решателя. Отказ, который надо поймать, — цепь,
+которая выглядит присутствующей, но ни в одном демо не продвигается.
 
-Use a single-load closed loop:
+## Целевая цепь
 
-- one voltage source,
-- one resistor,
-- one return wire,
-- one ground node.
+Использовать одиночный замкнутый контур с одной нагрузкой:
 
-The resistor is the only load. The source exists only to produce nonzero
-current; a resistor alone cannot move a chain because the electrical model has
-no current source.
+- один источник напряжения,
+- один резистор,
+- один обратный провод,
+- один узел земли.
 
-## Main Contract
+Резистор — единственная нагрузка. Источник нужен лишь чтобы дать ненулевой ток;
+один резистор не может двигать цепь, потому что в электрической модели нет
+источника тока.
 
-Pick one marked chain link on the resistor loop and require it to complete at
-least ten full laps around its closed oval path without stalling.
+## Главный контракт
 
-The test should fail if:
+Выбрать одно помеченное звено на резисторном контуре и потребовать, чтобы оно
+прошло не менее десяти полных кругов по своему замкнутому овальному пути без
+остановки.
 
-- the chain has zero target speed despite nonzero current,
-- the drive is only rendered but not applied to `ChainSim`,
-- the resistor brake acts as a hard stop,
-- the link leaves the guide or produces non-finite coordinates,
-- motion happens in one burst and then stalls.
+Тест должен падать, если:
 
-## Measurement
+- у цепи нулевая целевая скорость при ненулевом токе,
+- привод только рисуется, но не применяется к `ChainSim`,
+- тормоз резистора работает как жёсткий стоп,
+- звено покидает направляющую или даёт нефинитные координаты,
+- движение случается одним рывком, а затем замирает.
 
-The test needs a phase tracker for one link:
+## Измерение
+
+Тесту нужен трекер фазы для одного звена:
 
 ```text
 phase = closest station on oval / oval perimeter
 unwrapped_laps += unwrap(phase_delta)
 ```
 
-For the current `ChainSim`, `ChainLink::indexInLoop` is only the body index,
-not the current station. The test should compute phase from the link position
-and the same oval geometry rules used by the simulator.
+Для текущего `ChainSim` поле `ChainLink::indexInLoop` — это лишь индекс тела, а не
+текущая станция. Тест должен вычислять фазу из позиции звена и тех же правил
+овальной геометрии, что использует симулятор.
 
-## Required Tests
+## Требуемые тесты
 
-### 1. Marked Link Completes Ten Laps
+### 1. Помеченное звено проходит десять кругов
 
-Build the single-load loop, derive `ChainSpec` from the solved branch current,
-configure `ChainSim`, mark one link, and step with fixed `dt = 1/60`.
+Построить контур с одной нагрузкой, вывести `ChainSpec` из решённого тока ветви,
+сконфигурировать `ChainSim`, пометить одно звено и шагать с фиксированным
+`dt = 1/60`.
+(есть: tests/test_chain_sim.cpp — `MarkedResistorLinkCompletesTenLapsWithoutStopping`, `PhaseProbeSeesMarkedLinkAdvance`)
 
-Expectation:
+Ожидание:
 
-- the marked link reaches `>= 10` signed laps within a finite simulation time,
-- every sampled position is finite,
-- most one-second windows show positive progress.
+- помеченное звено достигает `>= 10` знаковых кругов за конечное время симуляции,
+- каждая отобранная позиция финитна,
+- в большинстве односекундных окон есть положительный прогресс.
 
-### 2. Resistor Brake Does Not Stop The Chain
+### 2. Тормоз резистора не останавливает цепь
 
-Run the same test with `brake = true` on the resistor loop.
+Запустить тот же тест с `brake = true` на резисторном контуре.
+(есть: tests/test_chain_sim.cpp — `BrakeZoneIsOvercomeButResists`)
 
-Expectation:
+Ожидание:
 
-- the marked resistor link still reaches ten laps,
-- progress remains continuous enough to reject long stalls.
+- помеченное звено резистора всё равно проходит десять кругов,
+- прогресс остаётся достаточно непрерывным, чтобы отвергнуть долгие остановки.
 
-### 3. Direction Follows Current Sign
+### 3. Направление следует знаку тока
 
-Reverse the source polarity and run a shorter phase test.
+Развернуть полярность источника и запустить более короткий тест фазы.
+(нет отдельного теста на уровне `ChainSim`; знак направления покрыт косвенно — см. баннер статуса)
 
-Expectation:
+Ожидание:
 
-- the signed lap direction reverses.
+- знаковое направление кругов реверсируется.
 
-### 4. Chain Geometry Remains Bounded
+### 4. Геометрия цепи остаётся ограниченной
 
-During the ten-lap run, check all links:
+Во время прогона на десять кругов проверить все звенья:
+(есть: tests/test_chain_sim.cpp — `ChainStaysOnTrack`, `ChainLinksNeverInfiniteOrNaN`, `ChainDoesNotCollapse`)
 
-- coordinates stay finite,
-- no link drifts far outside the oval guide envelope.
+- координаты остаются финитными,
+- ни одно звено не уходит далеко за пределы оболочки овальной направляющей.
 
-## Handoff Order
+## Порядок передачи
 
-1. Commit this test plan.
-2. Add phase-tracking helpers and a small calibration test.
-3. Add the ten-lap endurance test.
-4. If it fails, fix `ChainSim` with the failing test kept enabled.
-5. Run the targeted mechanics tests and then the full test suite.
+1. Закоммитить этот тест-план.
+2. Добавить помощники трекинга фазы и небольшой калибровочный тест.
+3. Добавить тест выносливости на десять кругов.
+4. Если падает — починить `ChainSim`, оставив падающий тест включённым.
+5. Прогнать целевые механические тесты, затем полный набор.

@@ -1,78 +1,80 @@
-# Realtime Transient Model
+# Модель переходных процессов в реальном времени
 
-Date: 2026-06-10
+Дата: 2026-06-10
 
-## Scope
+## Область применения
 
-The transient mode shows the circuit's *process in time*: capacitor charging, inductor current rise, switch/diode transients. It complements (does not replace) the DC steady-state mode. Both modes share one `CircuitModel` and one MNA assembly (`CircuitSolver::solveWithCompanions`).
+Переходный режим показывает *процесс цепи во времени*: заряд конденсатора, нарастание тока в катушке, переходные процессы при срабатывании ключа/диода. Сегодня это не отдельный режим, а единый «живой» ход цепи (`LiveSim`): цепь всегда живёт во времени, а DC-стационар — это предел процесса, а не самостоятельный режим. Когда процесс затухает, MNA-солвер «засыпает» и решение подменяется точной DC-асимптотой (см. ниже). И стационар, и переходный ход используют одну `CircuitModel` и одну сборку MNA (`CircuitSolver::solveWithCompanions`).
 
-## Method
+## Метод
 
-Time-domain simulation by **companion models** inserted into the MNA matrix at each step.
+Расчёт во временной области через **companion-модели** (сопутствующие схемы замещения), вставляемые в матрицу MNA на каждом шаге.
 
-Every reactive element is replaced by a conductance `g` in parallel with a history current source `ieq`, with the universal branch model:
+Каждый реактивный элемент заменяется проводимостью `g`, параллельной источнику тока истории `ieq`, по универсальной модели ветви:
 
 ```text
-i_ab = g * (Va - Vb) - ieq      (current flowing from nodeA to nodeB)
+i_ab = g * (Va - Vb) - ieq      (ток, текущий из nodeA в nodeB)
 ```
 
-### Backward Euler (default; 1st order, A-stable)
+### Backward Euler (по умолчанию; 1-й порядок, A-устойчивый)
 
-| Element | g | ieq |
+| Элемент | g | ieq |
 | --- | --- | --- |
-| Capacitor C | C / dt | (C/dt) * Vc(t) |
-| Inductor L | dt / L | -Il(t) |
+| Конденсатор C | C / dt | (C/dt) * Vc(t) |
+| Катушка L | dt / L | -Il(t) |
 
-### Trapezoidal (optional; 2nd order, more accurate at the same dt)
+### Trapezoidal (опционально; 2-й порядок, точнее при том же dt)
 
-| Element | g | ieq |
+| Элемент | g | ieq |
 | --- | --- | --- |
-| Capacitor C | 2C / dt | (2C/dt) * Vc(t) + Ic(t) |
-| Inductor L | dt / 2L | -(Il(t) + (dt/2L) * Vl(t)) |
+| Конденсатор C | 2C / dt | (2C/dt) * Vc(t) + Ic(t) |
+| Катушка L | dt / 2L | -(Il(t) + (dt/2L) * Vl(t)) |
 
-A component's **first** step always uses backward Euler ("self-starting" scheme): the trapezoidal history current/voltage is undefined at t = 0, and an inconsistent start injects a persistent ringing artifact. The first BE solve makes the history consistent; trapezoidal takes over from step 2.
+**Первый** шаг элемента всегда выполняется по backward Euler («самостартующая» схема): трапецеидальная история по току/напряжению на t = 0 не определена, а несогласованный старт впрыскивает устойчивый артефакт-звон. Первое BE-решение делает историю согласованной; со 2-го шага управление берёт трапеция. В коде это выбор `hasHistory` в `CircuitSolver::stepTransient`.
 
-### Per-step algorithm
+### Алгоритм одного шага
 
-1. Build companions for all C/L from the stored state (`TransientState`: `capVoltage`, `indCurrent`, plus trapezoidal histories).
-2. Assemble MNA (resistors, wires, switches stamp conductances; voltage sources add MNA rows; companions stamp `g` and inject `ieq`).
-3. If the circuit has diodes, iterate the ideal-diode states (see ELEMENT_LIBRARY.md) around the linear solve.
-4. Solve; update `Vc`, `Il` (and histories) from the branch results; advance `state.time += dt`.
+1. Построить companion-схемы для всех C/L из сохранённого состояния (`TransientState`: `capCharge`/`capVoltage`, `indCurrent`, плюс трапецеидальные истории `capCurrent`/`indVoltage`).
+2. Собрать MNA (резисторы, провода, ключи штампуют проводимости; источники напряжения добавляют строки MNA; companion-схемы штампуют `g` и впрыскивают `ieq`).
+3. Если в цепи есть диоды, прокрутить состояния идеальных диодов (см. ELEMENT_LIBRARY.md) вокруг линейного решения.
+4. Решить; обновить `Vc`, `Il` (и истории) по результатам ветвей; продвинуть `state.time += dt`.
 
-## DC steady-state treatment
+## Обработка DC-стационара
 
-- Capacitor: open circuit (gmin leak of 1e-12 S to keep the matrix non-singular).
-- Inductor: short circuit (1e9 S, same constant as ideal wires).
+- Конденсатор: разрыв (gmin-утечка 1e-12 См, чтобы матрица не вырождалась).
+- Катушка: короткое замыкание (1e9 См, та же константа, что и у идеальных проводов).
 
-## Initial state snapshot (`solveTransientSnapshot`)
+## Срез начального состояния (`solveTransientSnapshot`)
 
-The honest t = 0+ picture without advancing time: capacitors are held at their stored Vc (stiff source, 1e9 S), inductors at their stored Il (current source with gmin). Used after Reset and whenever the circuit is edited in transient mode.
+Честная картина в момент t = 0+ без продвижения времени: конденсаторы удерживаются на своём сохранённом Vc (жёсткий источник, 1e9 См), катушки — на своём Il (источник тока с gmin). Используется после разряда (`discharge`) и всякий раз, когда цепь правят в живом режиме.
 
-## dt, stability, applicability
+## dt, устойчивость, применимость
 
-- dt = simSpeed / solveHz, где solveHz — целевая частота решений MNA (default 60 Гц реального времени), simSpeed — sim-секунд на реальную секунду (авто-подбор по tau цепи или ручной override). frame cap = maxStepsPerFrame = 8.
-- Backward Euler is A-stable: at any dt the RC/RL response stays bounded and monotonic (validated by test `TransientStability.BackwardEulerDoesNotBlowUpAtHugeDt` with dt = 5 tau). Large dt costs accuracy, never stability.
-- Trapezoidal halves nothing magical: at dt = tau/20 its error at t = tau is ~2 orders of magnitude below BE (test `TrapezoidalBeatsBackwardEulerAtSameDt`), but it can ring on stiff inputs; BE remains the default.
-- Convergence: error at t = tau decreases monotonically over dt = 0.1/0.01/0.001 tau (test `TransientConvergence.ErrorShrinksAsDtShrinks`).
-- "Sim speed" in the UI maps real seconds to simulated seconds (steps per frame are capped at 2000; the simulation lags rather than hitching).
+- dt = simSpeed / solveHz, где solveHz — целевая частота решений MNA (по умолчанию 60 Гц реального времени), simSpeed — sim-секунд на реальную секунду (авто-подбор по tau цепи / периоду звона колебательного контура или ручной override). Кап на подвисший кадр — `maxStepsPerFrame = 8`.
+- Backward Euler A-устойчив: при любом dt отклик RC/RL остаётся ограниченным и монотонным (проверяется тестом `TransientStability.BackwardEulerDoesNotBlowUpAtHugeDt` при dt = 5 tau). Большой dt стоит точности, но не устойчивости.
+- Трапеция не творит чудес: при dt = tau/20 её ошибка на t = tau примерно на 2 порядка ниже BE (тест `TrapezoidalBeatsBackwardEulerAtSameDt`), но на жёстких входах она может звенеть; по умолчанию остаётся BE.
+- Сходимость: ошибка на t = tau монотонно убывает при dt = 0.1/0.01/0.001 tau (тест `TransientConvergence.ErrorShrinksAsDtShrinks`).
+- «Скорость симуляции» в UI отображает реальные секунды на симулированные секунды; число шагов на кадр ограничено `maxStepsPerFrame`, поэтому при нехватке времени симуляция отстаёт, а не дёргается.
 
-## What is exact / what is approximate
+## Что точно / что приближённо
 
-Exact (within linear-solver precision):
-- Tellegen power balance at every solved time point: sum of all branch powers = 0 (test `PowerBalancesEveryStep`).
-- Companion algebra: branch currents/voltages are the discretized ODE solutions.
+Точно (в пределах точности линейного солвера):
 
-Approximate:
-- Time discretization error: O(dt) for BE, O(dt^2) for trapezoidal.
-- Accumulated stored energy matches 1/2 C V^2 and 1/2 L I^2 to ~3% at dt = tau/1000 (tests `StoredCapacitorEnergyMatchesHalfCV2`, `StoredInductorEnergyMatchesHalfLI2`).
+- Баланс мощности по Теллегену в каждой решённой точке времени: сумма мощностей всех ветвей = 0 (тест `PowerBalancesEveryStep`).
+- Алгебра companion-схем: токи/напряжения ветвей — это дискретизованные решения ОДУ.
 
-Not modeled: AC sources, nonlinear capacitors/inductors, mutual inductance, distributed reactances.
+Приближённо:
 
-## Validated cases (tests/test_transient.cpp)
+- Ошибка дискретизации по времени: O(dt) для BE, O(dt^2) для трапеции.
+- Накопленная запасённая энергия совпадает с 1/2 C V^2 и 1/2 L I^2 с точностью ~3% при dt = tau/1000 (тесты `StoredCapacitorEnergyMatchesHalfCV2`, `StoredInductorEnergyMatchesHalfLI2`).
 
-- RC charge: Vc(tau) = 0.632 V_src, Vc(10 tau) -> V_src.
-- RC discharge: Vc(tau) = 0.368 Vc(0) with the same tau.
-- RL rise: I(tau) = 0.632 V/R, I(infinity) -> V/R.
-- Energy bookkeeping and Tellegen balance, stability, convergence, snapshot honesty.
+Не моделируется: источники переменного тока, нелинейные конденсаторы/катушки, взаимная индуктивность, распределённые реактивности.
 
-Separation of concerns: drift-particle and chain animation speeds remain *visualization* (amplified); transient time is the real simulated time of the circuit state.
+## Проверенные случаи (tests/test_transient.cpp)
+
+- Заряд RC: Vc(tau) = 0.632 V_src, Vc(10 tau) -> V_src.
+- Разряд RC: Vc(tau) = 0.368 Vc(0) с тем же tau.
+- Нарастание RL: I(tau) = 0.632 V/R, I(бесконечность) -> V/R.
+- Учёт энергии и баланс Теллегена, устойчивость, сходимость, честность снапшота.
+
+Разделение ответственности: скорости анимации дрейф-частиц и цепей остаются *визуализацией* (усилены); время переходного процесса — это реальное симулированное время состояния цепи.

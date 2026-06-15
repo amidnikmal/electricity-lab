@@ -1,14 +1,16 @@
 # UI Redesign Pass
 
-Date: 2026-06-09
+> Исторический отчёт (2026-06-09). Переведён на русский 2026-06-15; факты сохранены как есть.
 
-## Goal
+Дата: 2026-06-09
 
-Move Current Lab from a debug/prototype interface toward a calm educational desktop app for DC circuit visualization. This pass keeps the solver and physical model intact and focuses on presentation, hierarchy, and layer defaults.
+## Цель
 
-## Layout
+Сдвинуть Current Lab от отладочного/прототипного интерфейса к спокойному учебному десктоп-приложению для визуализации цепей постоянного тока. Этот проход оставляет солвер и физическую модель нетронутыми и сосредоточен на подаче, иерархии и значениях слоёв по умолчанию.
 
-The main window now follows this structure:
+## Раскладка
+
+Главное окно теперь следует такой структуре:
 
 ```text
 Top bar: Current Lab | preset | Run Solver | Pause | Debug
@@ -16,30 +18,30 @@ Tool rail | Main Physics Canvas | Right Inspector
 Bottom analysis strip
 ```
 
-The canvas remains the primary surface. Editing tools live in the left rail. Visualization state, solved values, selected element details, and simulation controls live in the right inspector. The always-visible debug log is removed from Learner Mode and appears in Debug Mode only.
+Канвас остаётся основной поверхностью. Инструменты редактирования живут в левой панели. Состояние визуализации, рассчитанные значения, детали выбранного элемента и управление симуляцией живут в правом инспекторе. Всегда видимый отладочный лог убран из режима обучения (Learner Mode) и появляется только в режиме отладки (Debug Mode).
 
-## Learner Mode Defaults
+## Значения по умолчанию для режима обучения
 
-Learner Mode is any preset except Debug. It hides raw node markers, node labels, dense node voltage labels, raw overlay controls, magnetic overlays, and surface charge samples unless the selected preset explicitly calls for them.
+Режим обучения — это любой пресет, кроме Debug. Он скрывает сырые маркеры узлов, подписи узлов, плотные подписи напряжений узлов, сырое управление оверлеями, магнитные оверлеи и сэмплы поверхностного заряда, если только выбранный пресет явно их не требует.
 
-Selected nodes/components can still show compact readouts on the canvas when the preset allows it, while full numerical data is shown in the right inspector and bottom strip.
+Выбранные узлы/компоненты всё ещё могут показывать компактный вывод прямо на канвасе, когда пресет это позволяет, тогда как полные числовые данные показываются в правом инспекторе и нижней полосе.
 
-## Debug Mode
+## Режим отладки
 
-Debug preset enables developer-oriented layers and raw layer switches:
+Пресет Debug включает слои для разработчика и сырые переключатели слоёв:
 
-- node/readout markers
-- potential
-- E-field
-- current and drift
-- heat/power
-- magnetic overlay
-- surface charge overlay
-- debug log
-- verbose inspector
+- маркеры узлов/вывода
+- потенциал
+- E-поле
+- ток и дрейф
+- тепло/мощность
+- магнитный оверлей
+- оверлей поверхностного заряда
+- отладочный лог
+- подробный инспектор
 
-## Current Limitations
+## Текущие ограничения
 
-- The Probe tool is represented as selected-element readout in this pass, not a separate movable probe interaction.
-- The old inspector still exists as a verbose Debug Mode section.
-- Some rendering code still lives inside `CircuitCanvas`; only preset state was extracted in this pass.
+- Инструмент Probe представлен в этом проходе как вывод выбранного элемента, а не как отдельное перемещаемое взаимодействие-щуп.
+- Старый инспектор всё ещё существует как подробная секция режима отладки.
+- Часть кода рендеринга всё ещё живёт внутри `CircuitCanvas`; в этом проходе вынесено только состояние пресетов.

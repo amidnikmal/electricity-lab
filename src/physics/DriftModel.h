@@ -69,6 +69,18 @@ inline DriftVisualizationInfo driftVisualizationInfo(Vec2 a,
     return info;
 }
 
+// Скорость дрейфа для визуализации. Строго пропорциональна |I|:
+// v_d = I/(nAe); при I=0 — РОВНО ноль (контракт «нет тока — нет дрейфа»).
+// physicalDriftScale ∝ плотности тока j = I/A, где A ∝ wireThickness².
+// Визуальный множитель (kDriftVisualScale, visualSpeedMultiplier) отделён от
+// физической пропорциональности — он лишь масштабирует картинку, не добавляя
+// постоянного «пола». Нет аддитивного слагаемого ⇒ driftSpeed(0)==0.
+inline double driftSpeed(double absI, const DriftSamplingConfig& config) {
+    double physicalDriftScale = absI / (config.wireThickness * config.wireThickness);
+    return physicalDriftScale * kDriftVisualScale
+         * std::max(0.0, config.visualSpeedMultiplier);
+}
+
 inline std::vector<DriftParticleState> sampleDriftParticles(Vec2 a,
                                                             Vec2 b,
                                                             double current,
@@ -88,13 +100,7 @@ inline std::vector<DriftParticleState> sampleDriftParticles(Vec2 a,
     if (config.electronFlowVisualization)
         visualSign = -visualSign;
 
-    // Дрейф пропорционален току: v_d = I/(nAe); при I=0 движения нет.
-    // physicalDriftScale ∝ плотности тока j = I/A, где A ∝ wireThickness².
-    // Визуальный множитель — отдельно от физики.
-    double physicalDriftScale = absI / (config.wireThickness * config.wireThickness);
-    double driftSpeed = physicalDriftScale * kDriftVisualScale
-                      * std::max(0.0, config.visualSpeedMultiplier);
-    double phase = std::fmod(config.time * driftSpeed, 1.0);
+    double phase = std::fmod(config.time * driftSpeed(absI, config), 1.0);
 
     // Тепловой «шум» — детерминированные периодические функции (синтетический,
     // для воспроизводимости и производительности; не Brownian motion).

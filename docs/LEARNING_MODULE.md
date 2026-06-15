@@ -1,47 +1,47 @@
-# Learning Module
+# Модуль обучения
 
-Date: 2026-06-10
+Дата: 2026-06-10
 
-Interactive lessons tied to the simulator: explanation -> generated task -> prediction -> attempt -> measurement through the engine -> explanation/critic. No motivational text, no "level/IQ" statements anywhere.
+Интерактивные уроки, связанные с симулятором: объяснение -> сгенерированная задача -> прогноз -> попытка -> измерение через движок -> объяснение/критик. Никакого мотивационного текста, нигде нет формулировок про «уровень/IQ».
 
-## Epistemic table
+## Эпистемическая таблица
 
-Only replicated results are used as mechanics. Strength grading: STRONG = decades / multiple replications; MODERATE = replicated with caveats; SINGLE-STUDY = one large recent study, marked as such.
+В качестве механик используются только воспроизведённые результаты. Градация силы доказательства: STRONG = десятилетия исследований / множественные репликации; MODERATE = воспроизведено с оговорками; SINGLE-STUDY = одно крупное недавнее исследование, помечено как таковое.
 
-| Claim | Strength | Source | How the app uses it |
+| Утверждение | Сила | Источник | Как это использует приложение |
 | --- | --- | --- | --- |
-| Testing effect / retrieval practice: recalling beats re-reading | STRONG | Roediger & Karpicke 2006 | Tasks demand an answer before any explanation is visible (attempt-first gating in code) |
-| Distributed / spaced practice | STRONG | Cepeda et al. 2006; Dunlosky et al. 2013 | Export to Anki; spacing is scheduled by Anki's FSRS, not by mood and not by this app |
-| Interleaving of problem types | MODERATE-STRONG | Rohrer & Taylor 2007; Dunlosky et al. 2013 | "Mixed practice" generates tasks with family-switch guarantee (no two same-family tasks in a row) |
-| Worked examples / cognitive load | STRONG | Sweller (CLT) | Lesson arc shows one fully worked derivation before practice; tasks start at difficulty 1 |
-| Self-explanation / elaborative interrogation | MODERATE | Chi et al. 1989; Dunlosky et al. 2013 | Solution text follows the derivation arc (situation -> action -> words -> symbols -> formula), never a bare formula |
-| Generation effect: self-generated answers are retained better | STRONG | Slamecka & Graf 1978 | Predict-then-verify: a qualitative prediction is required *before* the numeric attempt is accepted (enforced in `LearningSession::canSubmitAttempt`) |
-| Desirable difficulties | MODERATE-STRONG | Bjork | Difficulty levels; no hints before an attempt |
-| Automation atrophy / automation bias | STRONG | Parasuraman & Riley 1997; FAA manual-flying requirements | Tool-free retrieval sessions: assistant and hints disabled by code, analogous to manual-flying practice |
-| Cognitive offloading reduces retention | MODERATE | Risko & Gilbert 2016; Sparrow et al. 2011 (partially replicated) | The app never sends a task to the assistant without the user's recorded attempt |
-| LLM access improves practice but harms unassisted performance unless tutor-scaffolded | SINGLE-STUDY (large field RCT, ~1000 students) | Bastani et al. 2024, "Generative AI Can Harm Learning" | Assistant is critic-not-solver; gating is code, not prompt; reliance metrics surfaced as facts |
+| Эффект тестирования / retrieval practice: воспроизведение из памяти эффективнее перечитывания | STRONG | Roediger & Karpicke 2006 | Задачи требуют ответа до того, как станет видно объяснение (attempt-first gating в коде) |
+| Распределённая / интервальная практика | STRONG | Cepeda et al. 2006; Dunlosky et al. 2013 | Экспорт в Anki; интервалы планирует FSRS внутри Anki, а не «настроение» и не это приложение |
+| Чередование (interleaving) типов задач | MODERATE-STRONG | Rohrer & Taylor 2007; Dunlosky et al. 2013 | «Смешанная практика» генерирует задачи с гарантией смены семейства (две задачи одного семейства не идут подряд) |
+| Разобранные примеры / когнитивная нагрузка | STRONG | Sweller (CLT) | Дуга урока показывает один полностью разобранный вывод перед практикой; задачи стартуют со сложности 1 |
+| Самообъяснение / elaborative interrogation | MODERATE | Chi et al. 1989; Dunlosky et al. 2013 | Текст решения следует дуге вывода (ситуация -> действие -> слова -> символы -> формула), а не голой формуле |
+| Эффект генерации: самостоятельно сгенерированные ответы запоминаются лучше | STRONG | Slamecka & Graf 1978 | Predict-then-verify: качественный прогноз обязателен *до* того, как принимается числовая попытка (закреплено в `LearningSession::canSubmitAttempt`) |
+| Желательные трудности (desirable difficulties) | MODERATE-STRONG | Bjork | Уровни сложности; никаких подсказок до попытки |
+| Атрофия навыка при автоматизации / automation bias | STRONG | Parasuraman & Riley 1997; требования FAA к ручному пилотированию | Сессии retrieval без инструментов: ассистент и подсказки отключены кодом, по аналогии с тренировкой ручного пилотирования |
+| Когнитивная разгрузка снижает запоминание | MODERATE | Risko & Gilbert 2016; Sparrow et al. 2011 (частично воспроизведено) | Приложение никогда не отправляет задачу ассистенту без записанной попытки пользователя |
+| Доступ к LLM улучшает практику, но вредит самостоятельным результатам, если нет tutor-scaffolding | SINGLE-STUDY (крупный полевой RCT, ~1000 студентов) | Bastani et al. 2024, «Generative AI Can Harm Learning» | Ассистент — критик, а не решатель; гейтинг сделан кодом, а не промптом; метрики зависимости показываются как факты |
 
-Explicitly NOT used (not science or failed replication): IQ development / far-transfer brain training (n-back), learning styles, growth mindset as a strong effect (small/unstable in preregistered replications — may be mentioned as weak, never as foundation), neuromyths (10% brain, left/right brain). Futurology about "the role of humans post-AI" is prognosis, not science, and is not part of the content.
+Явно НЕ используется (не наука либо неудавшаяся репликация): развитие IQ / far-transfer brain training (n-back), стили обучения, growth mindset как сильный эффект (малый/нестабильный в предрегистрированных репликациях — может упоминаться как слабый, но никогда как основа), нейромифы (10% мозга, левое/правое полушарие). Футурология про «роль человека после ИИ» — это прогноз, а не наука, и в содержание не входит.
 
-## AI-resilience safeguards (implemented as CODE, not prompt)
+## Защита от деградации из-за ИИ (реализована как КОД, а не промпт)
 
-All six live in `src/learning/LearningSession.h`; a prompt can be argued around, these cannot:
+Все шесть мер живут в `src/learning/LearningSession.h`; промпт можно обойти уговорами, эти меры — нет:
 
-1. **Attempt-first gating** — `canRevealSolution()` and the assistant gate require a recorded attempt; blocked tries are counted, not silently allowed.
-2. **AI critic, not solver** — the only payload that can reach the LLM is `assistantContext()`: task statement + the user's prediction + the user's attempt + match/mismatch with the measurement. The solution text has no code path to the assistant. The system prompt (critic mode, one counter-question, never the final answer) is defense in depth only.
-3. **Predict-then-verify** — `canSubmitAttempt()` is false until a qualitative prediction is recorded; generation by construction, delegation impossible.
-4. **Tool-free checks** — `SessionMode::ToolFreeRetrieval` blocks the assistant unconditionally (manual-flying analog); these sessions are meant to be scheduled by Anki/FSRS spacing.
-5. **Reliance metric** — `RelianceMetrics` counts help-before-attempt, blocked reveals, tool-free successes; shown in the panel as facts, no judgement, no motivational framing.
-6. **Non-delegable manual core** — the derivation arc (situation -> action -> words -> symbols -> formula) is content the user walks through; the assistant can only ask where the user is stuck, because the arc text is never in its context.
+1. **Attempt-first gating** — `canRevealSolution()` и гейт ассистента требуют записанной попытки; заблокированные обращения считаются, а не пропускаются молча.
+2. **ИИ-критик, а не решатель** — единственная полезная нагрузка, которая может попасть в LLM, — это `assistantContext()`: формулировка задачи + прогноз пользователя + попытка пользователя + совпадение/расхождение с измерением. У текста решения нет кодового пути к ассистенту. Системный промпт (режим критика, один встречный вопрос, никогда не финальный ответ) — лишь дополнительный рубеж обороны.
+3. **Predict-then-verify** — `canSubmitAttempt()` возвращает false, пока не записан качественный прогноз; генерация заложена в конструкцию, делегирование невозможно.
+4. **Проверки без инструментов** — `SessionMode::ToolFreeRetrieval` безусловно блокирует ассистента (аналог ручного пилотирования); такие сессии предполагается планировать по интервалам Anki/FSRS.
+5. **Метрика зависимости** — `RelianceMetrics` считает обращения за помощью до попытки, заблокированные показы решения, успехи без инструментов; показывается в панели как факты, без оценок и без мотивационной рамки.
+6. **Неделегируемое ручное ядро** — дуга вывода (ситуация -> действие -> слова -> символы -> формула) — это контент, который пользователь проходит сам; ассистент может лишь спросить, где пользователь застрял, потому что текст дуги никогда не попадает в его контекст.
 
-## Task generation
+## Генерация задач
 
-`TaskGenerator` builds randomized circuits (Ohm, series, parallel, power, RC, RL; 3 difficulty levels). The ground truth is ALWAYS computed by the solver — DC MNA, or 1000 transient steps for RC/RL — never hard-coded (test recomputes every family independently). Consecutive tasks always switch family, so the next task is not a reverse-hint of the previous one.
+`TaskGenerator` строит рандомизированные схемы (Ohm, последовательное, параллельное, мощность, RC, RL; 3 уровня сложности). Эталонный ответ ВСЕГДА вычисляется solver-ом — DC MNA либо 1000 переходных шагов для RC/RL — и никогда не хардкодится (тест независимо пересчитывает каждое семейство). Соседние задачи всегда меняют семейство, так что следующая задача не служит обратной подсказкой к предыдущей.
 
 ## Anki / FSRS
 
-Export via AnkiConnect (`POST localhost:8765`, action `addNotes`, model "Basic", tags `current-lab` + family). Scheduling is done by Anki's FSRS (default since Anki 23.10; difficulty / stability / retrievability model). The app supplies material and never computes intervals.
+Экспорт через AnkiConnect (`POST localhost:8765`, action `addNotes`, модель «Basic», теги `current-lab` + семейство). Планирование выполняет FSRS внутри Anki (по умолчанию начиная с Anki 23.10; модель difficulty / stability / retrievability). Приложение поставляет материал и никогда не вычисляет интервалы.
 
-## Assistant portability
+## Переносимость ассистента
 
-OpenAI-compatible `/v1/chat/completions` client (`src/assistant/LlmClient.*`) works with a local llama.cpp GGUF server (offline), a local vLLM box, or any compatible API (plain HTTP by design; use a local proxy for https). Honest limitation stated in the UI: a small local model is a weak tutor; quality scales with the model.
+OpenAI-совместимый клиент `/v1/chat/completions` (`src/assistant/LlmClient.*`) работает с локальным GGUF-сервером llama.cpp (офлайн), локальным vLLM-сервером или любым совместимым API (по замыслу — обычный HTTP; для https используйте локальный прокси). Честное ограничение, проговорённое в UI: маленькая локальная модель — слабый репетитор; качество растёт вместе с моделью.
