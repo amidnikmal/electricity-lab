@@ -6,6 +6,7 @@
 #include "physics/PowerModel.h"
 
 #include <unordered_map>
+#include <utility>
 
 namespace current_lab::physics {
 
@@ -35,6 +36,28 @@ inline double temperatureFor(const ThermalState& state, int componentId) {
 }
 
 inline double celsius(double kelvin) { return kelvin - 273.15; }
+
+// Агрегаторы диапазона температур сцены для тепловой карты рендера.
+inline std::pair<double, double> thermalRange(const ThermalState& state) {
+    if (state.temperature.empty())
+        return {kAmbientTemperature, kAmbientTemperature};
+    auto it = state.temperature.begin();
+    double minT = it->second, maxT = it->second;
+    for (++it; it != state.temperature.end(); ++it) {
+        double T = it->second;
+        if (T < minT) minT = T;
+        if (T > maxT) maxT = T;
+    }
+    return {minT, maxT};
+}
+
+inline double temperatureFraction(const ThermalState& state, int componentId) {
+    auto [minT, maxT] = thermalRange(state);
+    double T = temperatureFor(state, componentId);
+    if (maxT <= minT)
+        return 0.0;
+    return (T - minT) / (maxT - minT);
+}
 
 // Один шаг обратным Эйлером за dt. Для КАЖДОЙ ветви в `solution` ищет тип компонента
 // в `circuit`, вычисляет P_diss = dissipatedPowerOnly, интегрирует температуру.
