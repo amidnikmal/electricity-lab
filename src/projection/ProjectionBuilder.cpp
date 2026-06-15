@@ -989,12 +989,25 @@ void emitLICField(BuildContext& ctx) {
     double cellW = w / licResult.w;
     double cellH = h / licResult.h;
 
+    // Растушёвка альфы к краям LIC-прямоугольника: иначе текстура поля обрывается
+    // жёсткой прямой границей («странный клиппинг»). Гасим по внешнему бортику.
+    const int featherW = std::max(1, licResult.w / 8);
+    const int featherH = std::max(1, licResult.h / 8);
+    auto edgeFade = [&](int i, int j) -> float {
+        float fx = std::min(i + 0.5f, licResult.w - 0.5f - i) / featherW;
+        float fy = std::min(j + 0.5f, licResult.h - 0.5f - j) / featherH;
+        return std::clamp(std::min(fx, fy), 0.0f, 1.0f);
+    };
     for (int j = 0; j < licResult.h; ++j) {
         for (int i = 0; i < licResult.w; ++i) {
+            uint32_t c = licResult.pixels[j * licResult.w + i];
+            float fade = edgeFade(i, j);
+            if (fade <= 0.001f) continue; // совсем у края — не рисуем
+            unsigned a = static_cast<unsigned>(((c >> 24) & 0xFFu) * fade);
+            c = withAlpha(c, a);
             render::PrimFieldCell cell;
             cell.min = Vec2(mn.x + i * cellW, mn.y + j * cellH);
             cell.max = Vec2(mn.x + (i + 1) * cellW, mn.y + (j + 1) * cellH);
-            uint32_t c = licResult.pixels[j * licResult.w + i];
             cell.cMinXMinY = c;
             cell.cMaxXMinY = c;
             cell.cMaxXMaxY = c;
@@ -1060,9 +1073,9 @@ void emitFieldBackdrop(BuildContext& ctx) {
             double angle = (static_cast<double>(seed) + 0.5) / seedCount * kPi * 2.0;
             Vec2 p = source.position + Vec2(std::cos(angle), std::sin(angle)) * seedRadius;
             std::vector<Vec2> pts;
-            pts.reserve(96);
+            pts.reserve(160);
 
-            for (int step = 0; step < 84; ++step) {
+            for (int step = 0; step < 150; ++step) {
                 if (p.x < worldMin.x || p.x > worldMax.x || p.y < worldMin.y || p.y > worldMax.y)
                     break;
                 pts.push_back(p);
