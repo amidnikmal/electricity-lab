@@ -1210,6 +1210,24 @@ void MainWindow::renderRightInspector(const DistributedWireParameters& params) {
         circuitEvent();
     }
 
+    // Галерея демо-схем: прокручиваемый список кнопок.
+    ImGui::Spacing();
+    ImGui::SeparatorText(tr("Demo Gallery"));
+    ImGui::BeginChild("DemoGalleryScroll", ImVec2(0, 156), ImGuiChildFlags_Border);
+    using current_lab::demos::DemoCircuit;
+    for (int d = 0; d < static_cast<int>(DemoCircuit::Count); ++d) {
+        auto demo = static_cast<DemoCircuit>(d);
+        if (ImGui::Button(tr(current_lab::demos::demoName(demo)), ImVec2(-1, 0))) {
+            m_circuit = current_lab::demos::buildDemo(demo);
+            m_selNode = -1; m_selComp = -1;
+            m_dualView.clearSelection(); m_elementEdit.close();
+            m_liveSim.discharge(); m_thermal.reset(); resetMechanicsPhases();
+            m_fitDualViewsRequested = true;
+            onCircuitChanged();
+        }
+    }
+    ImGui::EndChild();
+
     if (m_debugMode && ImGui::CollapsingHeader("Verbose Inspector")) {
         m_inspector.render(m_circuit, solution, m_selNode, m_selComp, params,
                            m_wireThickness, m_animationSpeed, m_electronFlow);
