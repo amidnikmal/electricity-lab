@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <cmath>
+#include "math/LinearSystem.h"
 #include "physics/WirePhysics.h"
 #include "solver/CircuitSolver.h"
 
@@ -530,4 +531,106 @@ TEST(Solver, DistributedWireSegmentsCarrySameSeriesCurrent) {
             firstCurrent = sol.branches[i].current;
         EXPECT_NEAR(sol.branches[i].current, firstCurrent, 1e-7);
     }
+}
+
+// --- LinearSolveResult status tests ---
+
+TEST(Solver, NormalCircuitHasOkStatus) {
+    Circuit c = makeSeriesRCircuit();
+    CircuitSolver solver;
+    auto sol = solver.solve(c);
+    EXPECT_EQ(sol.solveStatus, "ok");
+}
+
+TEST(Solver, FloatingNodeCircuitHasSingularStatus) {
+    Circuit c = makeFloatingResistor();
+    CircuitSolver solver;
+    auto sol = solver.solve(c);
+    EXPECT_EQ(sol.solveStatus, "singular");
+}
+
+TEST(Solver, IllConditionedCircuitStatus) {
+    Circuit c;
+    c.addNode({0, 0});
+    c.addNode({100, 0});
+    c.groundNodeId = 0;
+    c.addComponent(ComponentType::VoltageSource, 1, 0, 5.0);
+    c.addComponent(ComponentType::Resistor, 1, 0, 1e-9);
+    c.addComponent(ComponentType::Resistor, 1, 0, 1e9);
+
+    CircuitSolver solver;
+    auto sol = solver.solve(c);
+    EXPECT_TRUE(sol.solveStatus == "ill-conditioned" || sol.solveStatus == "ok");
+}
+
+TEST(Solver, SolveStatusPresentInAllSolveMethods) {
+    Circuit c = makeSeriesRCircuit();
+    CircuitSolver solver;
+
+    auto solDc = solver.solve(c);
+    EXPECT_FALSE(solDc.solveStatus.empty());
+
+    TransientState state;
+    auto solStep = solver.stepTransient(c, state, 1e-6);
+    EXPECT_FALSE(solStep.solveStatus.empty());
+
+    auto solSnap = solver.solveTransientSnapshot(c, state);
+    EXPECT_FALSE(solSnap.solveStatus.empty());
+}
+
+TEST(LinearSystemDiagnostic, NormalSystemOk) {
+    LinearSystem s;
+    s.resize(3);
+    s.A = {{3, 2, -1}, {2, -2, 4}, {-1, 0.5, -1}};
+    s.b = {1, -2, 0};
+    auto r = s.solve();
+    EXPECT_TRUE(r.ok);
+    EXPECT_EQ(r.status, "ok");
+    EXPECT_EQ(r.rank, 3);
+    EXPECT_GT(r.rcond, 0.0);
+    EXPECT_LT(r.residual, 1e-10);
+}
+
+TEST(LinearSystemDiagnostic, SingularSystem) {
+    LinearSystem s;
+    s.resize(2);
+    s.A = {{1, 2}, {2, 4}};
+    s.b = {3, 6};
+    auto r = s.solve();
+    EXPECT_FALSE(r.ok);
+    EXPECT_EQ(r.status, "singular");
+    EXPECT_TRUE(r.singular);
+    EXPECT_EQ(r.rank, 1);
+}
+
+TEST(LinearSystemDiagnostic, ZeroRowIsSingular) {
+    LinearSystem s;
+    s.resize(3);
+    s.A = {{1, 1, 1}, {0, 0, 0}, {0, 1, -1}};
+    s.b = {6, 0, 1};
+    auto r = s.solve();
+    EXPECT_EQ(r.status, "singular");
+    EXPECT_TRUE(r.singular);
+}
+
+TEST(LinearSystemDiagnostic, IllConditionedMatrix) {
+    LinearSystem s;
+    s.resize(2);
+    s.A = {{1e9, 1}, {1, 0}};
+    s.b = {0, 5};
+    auto r = s.solve();
+    EXPECT_EQ(r.status, "ill-conditioned");
+    EXPECT_TRUE(r.ok);
+    EXPECT_EQ(r.rank, 2);
+    EXPECT_LT(r.rcond, 1e-14);
+}
+
+TEST(LinearSystemDiagnostic, InconsistentSystem) {
+    LinearSystem s;
+    s.resize(2);
+    s.A = {{1, 1}, {1, 1}};
+    s.b = {3, 5};
+    auto r = s.solve();
+    EXPECT_FALSE(r.ok);
+    EXPECT_GT(r.residual, 1e-6);
 }

@@ -95,6 +95,7 @@ CircuitSolution CircuitSolver::solveWithCompanions(
 
     auto solveResult = sys.solve();
     const auto& x = solveResult.x;
+    result.solveStatus = solveResult.status;
     std::unordered_map<int, double> potentials;
     potentials.reserve(circuit.nodes.size());
 

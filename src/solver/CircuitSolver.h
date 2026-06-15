@@ -19,6 +19,7 @@ struct BranchResult {
 struct CircuitSolution {
     std::vector<SolutionPoint> nodePotentials;
     std::vector<BranchResult> branches;
+    std::string solveStatus;
 };
 
 // Time-domain integration method for reactive elements (companion models).
