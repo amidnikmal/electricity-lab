@@ -9,12 +9,15 @@
 namespace current_lab::learning {
 
 enum class TaskFamily {
-    OhmsLaw,           // I from V and R
-    SeriesResistors,   // voltage across one resistor in a chain
-    ParallelResistors, // total current from the source
-    PowerDissipation,  // P of a resistor
-    RcTimeConstant,    // Vc at t = tau while charging
-    RlTimeConstant,    // Il at t = tau while rising
+    OhmsLaw,               // I from V and R
+    SeriesResistors,       // voltage across one resistor in a chain
+    ParallelResistors,     // total current from the source
+    PowerDissipation,      // P of a resistor
+    RcTimeConstant,        // Vc at t = tau while charging
+    RlTimeConstant,        // Il at t = tau while rising
+    CurrentConservation,   // prediction: current is NOT consumed in series
+    BatteryVoltageNotCurrent, // prediction: battery fixes voltage, not current
+    BrightnessVsPosition,  // prediction: brightness does not depend on position in series
     Count,
 };
 

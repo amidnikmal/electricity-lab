@@ -39,6 +39,9 @@ const char* taskFamilyName(TaskFamily family) {
         case TaskFamily::PowerDissipation: return "Power dissipation";
         case TaskFamily::RcTimeConstant: return "RC charging";
         case TaskFamily::RlTimeConstant: return "RL current rise";
+        case TaskFamily::CurrentConservation: return "Current is the same in a loop";
+        case TaskFamily::BatteryVoltageNotCurrent: return "Battery fixes voltage, not current";
+        case TaskFamily::BrightnessVsPosition: return "Brightness does not depend on position";
         case TaskFamily::Count: break;
     }
     return "?";
@@ -267,6 +270,106 @@ GeneratedTask TaskGenerator::generate(TaskFamily family, int difficulty) {
                 "Action: current starts at zero and climbs as the inductor yields.\n"
                 "Words: after one time constant it reaches about 63%% of the final V/R.\n"
                 "Symbols: I(t) = (V/R)*(1 - e^(-t*R/L)); I(tau) = (%.1f/%.0f) * 0.632.", V, R);
+            break;
+        }
+        case TaskFamily::CurrentConservation: {
+            int n2 = c.addNode(Vec2(200, 0), "N2");
+            double R1 = pickR();
+            double R2 = pickR();
+            int r1Id = c.addComponent(ComponentType::Resistor, n1, n2, R1);
+            int r2Id = c.addComponent(ComponentType::Resistor, n2, gnd, R2);
+            task.targetComponentId = r1Id;
+
+            auto solution = solver.solve(c);
+            const BranchResult* br1 = branchFor(solution, r1Id);
+            const BranchResult* br2 = branchFor(solution, r2Id);
+            double I1 = br1 ? std::abs(br1->current) : 0.0;
+            double I2 = br2 ? std::abs(br2->current) : 0.0;
+            task.groundTruth = (I2 > 1e-12) ? (I1 / I2) : 1.0;
+            task.answerUnit = "ratio";
+            task.tolerance = 0.02;
+            task.prompt = format(
+                "Two resistors in series: R1 = %.0f Ohm (closer to the + terminal), "
+                "R2 = %.0f Ohm (closer to the - terminal).\n"
+                "Compare the currents. Find the ratio I(R1) / I(R2).", R1, R2);
+            task.predictionPrompt =
+                "Before measuring: do you expect the current to be consumed as it passes "
+                "through the circuit, so that I(R1) > I(R2)?";
+            task.solutionExplanation =
+                "Current is NOT consumed as it flows through a circuit.\n"
+                "In a series loop, every coulomb passes through every component: "
+                "charge conservation + wire neutrality means one loop = one current.\n"
+                "The ratio is exactly 1.0 regardless of resistor values.";
+            break;
+        }
+        case TaskFamily::BatteryVoltageNotCurrent: {
+            static const double kSmallRs[] = {100.0, 200.0, 500.0};
+            static const double kBigRs[]   = {1000.0, 2000.0, 5000.0};
+            double Rorig = pick(kSmallRs, 3);
+            double Rnew  = pick(kBigRs, 3);
+            int rId = c.addComponent(ComponentType::Resistor, n1, gnd, Rorig);
+            task.targetComponentId = rId;
+
+            auto solution = solver.solve(c);
+            const BranchResult* br = branchFor(solution, rId);
+            double Iorig = br ? std::abs(br->current) : 0.0;
+            Circuit c2;
+            int gnd2 = c2.addNode(Vec2(0, 200), "GND");
+            int n12  = c2.addNode(Vec2(0, 0), "N1");
+            c2.groundNodeId = gnd2;
+            c2.addComponent(ComponentType::Ground, gnd2, gnd2, 0.0);
+            c2.addComponent(ComponentType::VoltageSource, n12, gnd2, V);
+            int r2Id = c2.addComponent(ComponentType::Resistor, n12, gnd2, Rnew);
+            CircuitSolver solver2;
+            auto sol2 = solver2.solve(c2);
+            const BranchResult* br2 = branchFor(sol2, r2Id);
+            double Inew = br2 ? std::abs(br2->current) : 0.0;
+            task.groundTruth = (Iorig > 1e-12) ? (Inew / Iorig) : 0.0;
+            task.answerUnit = "ratio";
+            task.tolerance = 0.02;
+            task.prompt = format(
+                "A %.1f V battery drives a single %.0f Ohm resistor.\n"
+                "If you replace that resistor with a %.0f Ohm resistor, "
+                "by what factor does the current change? (I_new / I_original)",
+                V, Rorig, Rnew);
+            task.predictionPrompt =
+                "Before computing: a battery is often thought of as a 'source of constant current'. "
+                "Will the current stay the same when the load changes?";
+            task.solutionExplanation =
+                "A battery is a voltage source, not a current source.\n"
+                "It fixes the voltage; the current follows Ohm's law: I = V / R.\n"
+                "Double the resistance → half the current. The battery does NOT "
+                "magically maintain the same current regardless of load.";
+            break;
+        }
+        case TaskFamily::BrightnessVsPosition: {
+            int n2 = c.addNode(Vec2(200, 0), "N2");
+            double R = pickR();
+            int r1Id = c.addComponent(ComponentType::Resistor, n1, n2, R);
+            int r2Id = c.addComponent(ComponentType::Resistor, n2, gnd, R);
+            task.targetComponentId = r1Id;
+
+            auto solution = solver.solve(c);
+            const BranchResult* br1 = branchFor(solution, r1Id);
+            const BranchResult* br2 = branchFor(solution, r2Id);
+            double P1 = br1 ? std::abs(br1->power) : 0.0;
+            double P2 = br2 ? std::abs(br2->power) : 0.0;
+            task.groundTruth = (P2 > 1e-12) ? (P1 / P2) : 1.0;
+            task.answerUnit = "ratio";
+            task.tolerance = 0.02;
+            task.prompt = format(
+                "Two identical lamps (each %.0f Ohm) are in series with a %.1f V battery.\n"
+                "Lamp A is closer to the (+) terminal; lamp B is closer to the (-) terminal.\n"
+                "Compare their brightness. Find the power ratio P(lamp A) / P(lamp B).",
+                R, V);
+            task.predictionPrompt =
+                "Before measuring: some students think the lamp closer to (+) is brighter "
+                "because it 'gets the current first'. Is that correct?";
+            task.solutionExplanation =
+                "Brightness (power) does NOT depend on a lamp's position in a series loop.\n"
+                "The same current flows through every series element. Since the lamps are "
+                "identical (same R), they dissipate identical power: P = I^2 * R.\n"
+                "Proximity to the battery terminal does not matter.";
             break;
         }
         case TaskFamily::Count:
