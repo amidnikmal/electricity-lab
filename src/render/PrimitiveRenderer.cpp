@@ -326,9 +326,11 @@ void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
         declutterVertical(boxes, 2.0f * k);
         for (const auto& b : boxes) {
             const auto& label = prims.labels[b.id];
-            dl->AddRectFilled(ImVec2(b.x - 3.0f * k, b.y - 1.0f * k),
-                              ImVec2(b.x + b.w + 3.0f * k, b.y + b.h + 1.0f * k),
-                              IM_COL32(10, 13, 18, 135), 3.0f * k);
+            // Фон прозрачный (без плашки). Тонкая тёмная тень — читаемость на ярких
+            // участках (жёлтые провода/узлы), без сплошной подложки.
+            float sh = std::max(1.0f, k);
+            dl->AddText(font, fontSize, ImVec2(b.x + sh, b.y + sh), IM_COL32(0, 0, 0, 150),
+                        label.text.c_str());
             dl->AddText(font, fontSize, ImVec2(b.x, b.y), label.color, label.text.c_str());
         }
     }
