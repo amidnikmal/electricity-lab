@@ -36,6 +36,12 @@ inline demos::DemoCircuit parseDemoName(const std::string& name) {
         {"RlcCirculating",   DC::RlcCirculating},
         {"PeakDetector",     DC::PeakDetector},
         {"AcRectifier",      DC::AcRectifier},
+        {"WheatstoneBridge", DC::WheatstoneBridge},
+        {"LoadedDivider",    DC::LoadedDivider},
+        {"RcLowPassAc",      DC::RcLowPassAc},
+        {"RlcBandPassAc",    DC::RlcBandPassAc},
+        {"Superposition",    DC::Superposition},
+        {"LadderR",          DC::LadderR},
     };
     for (const auto& e : table) {
         if (name == e.key) return e.value;

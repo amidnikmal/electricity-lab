@@ -1182,3 +1182,17 @@ Net: src/net/HttpClient.* (POSIX, plain HTTP, localhost-сервисы)
 ## Тесты
 
 240 тестов / 40 сьютов, все зелёные. Чистая логика, без ImGui-рендера (CircuitCanvas.cpp и PrimitiveRenderer.cpp в тестовый таргет не входят). Файлы: test_linear_system, test_circuit, test_solver, test_consistency, test_canvas, test_dual_view, test_projection, test_transient, test_elements, test_mechanics, test_learning, test_diode_switch.
+
+## Сессия 2026-06-15 — добавлено
+
+- **Лабораторный практикум на 10 работ:** `docs/lab-manual/electricity-lab-manual.pdf`
+  (21 стр.; схемы сняты ИЗ симулятора). Исходник: `docs/lab-manual/electricity-lab-manual.html` + `img/`.
+  Сборка PDF: HTML → headless Chrome (`--print-to-pdf`), картинки инлайнятся base64 (нет LaTeX/pandoc).
+- **Графическое тестирование** — offscreen-съёмка как инструмент проверки/диагностики:
+  `docs/GRAPHICAL_TESTING.md`. Механизм `current-lab --capture --demo D --view V --time T --out f.png`.
+- **Уроки сессии** (зависания сборки и решения, делегирование): `docs/SESSION_2026-06-15_LESSONS.md`.
+- Правки: механизм съёмки (FBO→PNG); AC-демка расфрожена (settle-guard для AcVoltageSource);
+  зубчатый обод маховика (индуктор «сцеплен»); tanh-смягчение пружины-конденсатора;
+  6 новых демок (мост Уитстона, нагруж. делитель, RC-ФНЧ, RLC-полосовой, суперпозиция, R-2R).
+- **Тесты: 566** (было 240), все зелёные. Сборка офлайн — `_deps` через `FETCHCONTENT_SOURCE_DIR_*`
+  (сеть к github заблокирована); рецепты в SESSION_2026-06-15_LESSONS.md.

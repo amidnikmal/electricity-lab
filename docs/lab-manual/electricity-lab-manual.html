@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Electricity Lab — лабораторный практикум</title>
+<style>
+  :root { --ink:#1a1d24; --muted:#5b6472; --accent:#2b6cb0; --line:#d4d9e0; --warn:#b0472f; }
+  * { box-sizing: border-box; }
+  body { font-family: 'DejaVu Sans', 'Segoe UI', sans-serif; color: var(--ink);
+         line-height: 1.5; margin: 0; font-size: 13px; }
+  .page { padding: 26mm 20mm; page-break-after: always; }
+  .page:last-child { page-break-after: auto; }
+  h1 { font-size: 30px; color: var(--accent); margin: 0 0 6px; }
+  h2 { font-size: 21px; color: var(--accent); border-bottom: 2px solid var(--line);
+       padding-bottom: 5px; margin: 0 0 12px; }
+  h3 { font-size: 14px; color: var(--ink); margin: 16px 0 4px; text-transform: uppercase;
+       letter-spacing: .5px; }
+  .lead { color: var(--muted); font-size: 15px; }
+  i, .v { font-style: italic; font-family: 'DejaVu Serif', Georgia, serif; }
+  .f { font-family: 'DejaVu Serif', Georgia, serif; font-size: 15px;
+       background: #f3f6fa; padding: 3px 8px; border-radius: 4px; display: inline-block;
+       margin: 2px 0; }
+  figure { margin: 12px 0; text-align: center; }
+  figure img { max-width: 100%; border: 1px solid var(--line); border-radius: 6px; background:#0d0f16; }
+  figcaption { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .two { display: flex; gap: 12px; }
+  .two figure { flex: 1; }
+  .predict { background: #fff8ec; border-left: 4px solid #e0a92a; padding: 10px 14px; margin: 12px 0; border-radius: 0 6px 6px 0; }
+  .observe { background: #eef6ff; border-left: 4px solid var(--accent); padding: 10px 14px; margin: 12px 0; border-radius: 0 6px 6px 0; }
+  .explain { background: #eefaf0; border-left: 4px solid #2f9e5a; padding: 10px 14px; margin: 12px 0; border-radius: 0 6px 6px 0; }
+  .misc { color: var(--warn); font-weight: 600; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 12.5px; }
+  th, td { border: 1px solid var(--line); padding: 5px 9px; text-align: left; }
+  th { background: #f3f6fa; }
+  .tag { display:inline-block; background:var(--accent); color:#fff; font-size:11px;
+         padding:2px 8px; border-radius:10px; vertical-align:middle; }
+  ol, ul { margin: 6px 0 6px 0; padding-left: 22px; }
+  .cover { display:flex; flex-direction:column; justify-content:center; height: 230mm; }
+  .cover .sub { color: var(--muted); font-size: 17px; margin-top: 8px; }
+  .toc li { margin: 4px 0; }
+  code { background:#f3f6fa; padding:1px 5px; border-radius:3px; font-size:12px; }
+</style>
+</head>
+<body>
+
+<!-- COVER -->
+<section class="page cover">
+  <h1 style="font-size:40px">Electricity&nbsp;Lab</h1>
+  <div class="sub">Лабораторный практикум по электрическим цепям</div>
+  <div class="sub">10 работ · схемы, формулы, метод «предскажи → наблюдай → объясни»</div>
+  <div style="margin-top:40px; color:var(--muted); font-size:13px">
+    Иллюстрации сняты прямо из симулятора (режим <code>--capture</code>).<br>
+    Версия 2026-06-15. Решатель: MNA (узловой анализ), транзиент — companion-модели.
+  </div>
+</section>
+
+<!-- INTRO -->
+<section class="page">
+  <h2>Как работать с практикумом</h2>
+  <p class="lead">Каждая работа открывает одну идею. Симулятор честно решает цепь (метод узловых
+  потенциалов), а вы проверяете свою интуицию <b>до</b> того, как увидите ответ.</p>
+
+  <h3>Метод «предскажи → наблюдай → объясни»</h3>
+  <ol>
+    <li><b>Предскажи.</b> Прежде чем запускать симуляцию — запиши свой прогноз (ток, напряжение,
+        что ярче/быстрее). Это обязательный шаг: без него мозг не учится.</li>
+    <li><b>Наблюдай.</b> Открой демо-схему в симуляторе, запусти, сними показания.</li>
+    <li><b>Объясни.</b> Совпало? Если нет — найди, какое допущение было неверным. Расхождение
+        ценнее совпадения.</li>
+  </ol>
+
+  <h3>Условные обозначения</h3>
+  <ul>
+    <li>Формула в рамке: <span class="f">V = I·R</span></li>
+    <li><span class="misc">Красным</span> — типичное заблуждение, по которому бьёт работа.</li>
+    <li>Жёлтый блок — предсказание; синий — наблюдение; зелёный — объяснение.</li>
+  </ul>
+
+  <h3>Три картины одной цепи</h3>
+  <p>Симулятор показывает одну и ту же физику в нескольких метафорах. В практикуме используются:
+  <b>электрическая</b> схема (стрелки тока, карта потенциала) и <b>механическая</b> аналогия
+  (цепь-цепочка: ток = скорость звеньев, сопротивление = тормоз, конденсатор = пружина,
+  катушка = маховик). Аналогии помогают «пощупать» абстракцию.</p>
+
+  <h3>Содержание</h3>
+  <ol class="toc">
+    <li>Закон Ома</li>
+    <li>Делитель напряжения</li>
+    <li>Нагруженный делитель: эффект нагрузки</li>
+    <li>Мост Уитстона</li>
+    <li>Зарядка конденсатора (RC, постоянная времени)</li>
+    <li>Нарастание тока в катушке (RL)</li>
+    <li>Колебательный контур RLC</li>
+    <li>Диод: односторонняя проводимость</li>
+    <li>Полуволновой выпрямитель (AC → DC)</li>
+    <li>RC-фильтр нижних частот</li>
+  </ol>
+</section>
+
+<!-- LAB 1 -->
+<section class="page">
+  <h1>Работа 1 <span class="tag">Закон Ома</span></h1>
+  <p class="lead">Связь тока, напряжения и сопротивления на одном резисторе.</p>
+  <h3>Цель</h3>
+  <p>Убедиться, что ток через резистор прямо пропорционален напряжению и обратно — сопротивлению.</p>
+  <figure><img src="img/lab01_ohm.png" alt="схема">
+    <figcaption>Источник 5 В и резистор 1 кΩ. Стрелки — направление тока, цвет провода — потенциал.</figcaption></figure>
+  <h3>Теория</h3>
+  <p><span class="f">I = V / R</span> &nbsp;·&nbsp; <span class="f">V = I·R</span> &nbsp;·&nbsp; <span class="f">P = V·I = I²·R</span></p>
+  <div class="predict"><b>Предскажи.</b> При <span class="v">V</span>=5&nbsp;В и <span class="v">R</span>=1&nbsp;кΩ — чему равен ток? А если удвоить <span class="v">R</span> до 2&nbsp;кΩ?</div>
+  <div class="observe"><b>Наблюдай.</b> Открой демо «source + resistor», сними <span class="v">I</span> с инспектора. Поменяй <span class="v">R</span> в редакторе элемента.</div>
+  <div class="explain"><b>Объясни.</b> <span class="v">I</span> = 5/1000 = 5&nbsp;мА; при 2&nbsp;кΩ — 2.5&nbsp;мА (вдвое меньше).
+  <span class="misc">Заблуждение:</span> «источник даёт фиксированный ток». Нет — источник держит <i>напряжение</i>, а ток определяет нагрузка.</div>
+</section>
+
+<!-- LAB 2 -->
+<section class="page">
+  <h1>Работа 2 <span class="tag">Делитель напряжения</span></h1>
+  <p class="lead">Два последовательных резистора делят напряжение пропорционально сопротивлениям.</p>
+  <h3>Цель</h3>
+  <p>Понять, что в последовательной цепи <b>ток общий</b>, а напряжение <b>делится</b>.</p>
+  <figure><img src="img/lab02_divider.png" alt="схема">
+    <figcaption>Делитель: два резистора последовательно, выход — со средней точки.</figcaption></figure>
+  <h3>Теория</h3>
+  <p><span class="f">V<sub>out</sub> = V · R₂/(R₁+R₂)</span> &nbsp;·&nbsp; ток один на всю ветвь: <span class="f">I = V/(R₁+R₂)</span></p>
+  <div class="predict"><b>Предскажи.</b> <span class="v">V</span>=5&nbsp;В, <span class="v">R₁</span>=<span class="v">R₂</span>=1&nbsp;кΩ — сколько на выходе? А если <span class="v">R₂</span>=4&nbsp;кΩ?</div>
+  <div class="observe"><b>Наблюдай.</b> Демо «resistor divider». Сними потенциал средней точки. Меняй <span class="v">R₂</span>.</div>
+  <div class="explain"><b>Объясни.</b> Поровну → 2.5&nbsp;В; при <span class="v">R₂</span>=4&nbsp;кΩ → 5·4/5 = 4&nbsp;В.
+  <span class="misc">Заблуждение:</span> «ток расходуется на первом резисторе». Нет — ток через оба одинаков; «расходуется» (падает) <i>напряжение</i>.</div>
+</section>
+
+<!-- LAB 3 -->
+<section class="page">
+  <h1>Работа 3 <span class="tag">Эффект нагрузки</span></h1>
+  <p class="lead">Почему идеальный делитель «проседает» под реальной нагрузкой.</p>
+  <h3>Цель</h3>
+  <p>Увидеть, что подключение нагрузки параллельно плечу делителя снижает выходное напряжение.</p>
+  <figure><img src="img/lab03_loaded.png" alt="схема">
+    <figcaption>Делитель R₁/R₂ с нагрузкой R<sub>L</sub> параллельно R₂.</figcaption></figure>
+  <h3>Теория</h3>
+  <p>Нагрузка параллельна R₂: <span class="f">R₂∥R<sub>L</sub> = R₂·R<sub>L</sub>/(R₂+R<sub>L</sub>)</span>, и эта величина <b>меньше</b> R₂ → выход падает.</p>
+  <div class="predict"><b>Предскажи.</b> Без нагрузки <span class="v">V<sub>out</sub></span>≈3.33&nbsp;В (R₁=1к, R₂=2к). Что станет с <span class="v">V<sub>out</sub></span>, когда повесим R<sub>L</sub>=1&nbsp;кΩ — вырастет, упадёт, не изменится?</div>
+  <div class="observe"><b>Наблюдай.</b> Демо «loaded voltage divider». Сравни выход с расчётом без нагрузки.</div>
+  <div class="explain"><b>Объясни.</b> R₂∥R<sub>L</sub> = 2000·1000/3000 ≈ 667&nbsp;Ω → <span class="v">V<sub>out</sub></span> = 5·667/(1000+667) ≈ 2.0&nbsp;В. Просадка.
+  <span class="misc">Заблуждение:</span> «делитель даёт фиксированный выход независимо от нагрузки».</div>
+</section>
+
+<!-- LAB 4 -->
+<section class="page">
+  <h1>Работа 4 <span class="tag">Мост Уитстона</span></h1>
+  <p class="lead">Точное измерение через баланс, а не абсолютное отсчёт.</p>
+  <h3>Цель</h3>
+  <p>Понять условие баланса моста и почему через «гальванометр» течёт ток при разбалансе.</p>
+  <figure><img src="img/lab04_wheatstone.png" alt="схема">
+    <figcaption>Четыре плеча R₁..R₄ и мостовой резистор R<sub>g</sub> между средними точками.</figcaption></figure>
+  <h3>Теория</h3>
+  <p>Баланс (ток через R<sub>g</sub> равен нулю): <span class="f">R₁·R₄ = R₂·R₃</span>. При нарушении — появляется ток через мост.</p>
+  <div class="predict"><b>Предскажи.</b> R₁=R₂=R₃=1&nbsp;кΩ, R₄=2&nbsp;кΩ. Сбалансирован ли мост? Потечёт ли ток через R<sub>g</sub>?</div>
+  <div class="observe"><b>Наблюдай.</b> Демо «Wheatstone bridge». Сними ток через R<sub>g</sub>. Сделай R₄=1&nbsp;кΩ — что изменится?</div>
+  <div class="explain"><b>Объясни.</b> 1·2 ≠ 1·1 → разбаланс → ток через R<sub>g</sub>. При R₄=1&nbsp;кΩ: 1·1 = 1·1 → баланс → ток нулевой.
+  <span class="misc">Заблуждение:</span> «мост всегда измеряет напряжение». Он измеряет <i>отношение</i> сопротивлений по нулю тока.</div>
+</section>
+
+<!-- LAB 5 -->
+<section class="page">
+  <h1>Работа 5 <span class="tag">RC · постоянная времени</span></h1>
+  <p class="lead">Конденсатор заряжается не мгновенно, а по экспоненте.</p>
+  <h3>Цель</h3>
+  <p>Измерить постоянную времени <span class="v">τ</span> и связать её с <span class="v">R</span> и <span class="v">C</span>.</p>
+  <div class="two">
+    <figure><img src="img/lab05_rc.png" alt="электрическая"><figcaption>Электрическая: источник → R → C.</figcaption></figure>
+    <figure><img src="img/lab05_rc_mech.png" alt="механическая"><figcaption>Механика: конденсатор = пружина (заряд = сжатие).</figcaption></figure>
+  </div>
+  <h3>Теория</h3>
+  <p><span class="f">V<sub>c</sub>(t) = V·(1 − e<sup>−t/τ</sup>)</span> &nbsp;·&nbsp; <span class="f">τ = R·C</span>. За <span class="v">τ</span> заряжается до ≈63 %, за 5<span class="v">τ</span> — почти полностью.</p>
+  <div class="predict"><b>Предскажи.</b> R=1&nbsp;кΩ, C=1&nbsp;мФ. Чему равна <span class="v">τ</span>? Сколько времени до ≈63 % от 5&nbsp;В?</div>
+  <div class="observe"><b>Наблюдай.</b> Демо «RC charging». Запусти, следи за <span class="v">V<sub>c</sub></span>(t) на осциллографе. В механическом виде смотри, как пружина плавно сжимается.</div>
+  <div class="explain"><b>Объясни.</b> <span class="v">τ</span> = 1000·0.001 = 1&nbsp;с; до 63 % (≈3.16&nbsp;В) — ровно за 1&nbsp;с.
+  <span class="misc">Заблуждение:</span> «конденсатор заряжается мгновенно» или «хранит напряжение, а не заряд». Хранит заряд <span class="v">Q = C·V</span>.</div>
+</section>
+
+<!-- LAB 6 -->
+<section class="page">
+  <h1>Работа 6 <span class="tag">RL · инерция тока</span></h1>
+  <p class="lead">Катушка сопротивляется <i>изменению</i> тока — ток нарастает плавно.</p>
+  <h3>Цель</h3>
+  <p>Понять, что индуктивность задаёт инерцию току, и измерить <span class="v">τ = L/R</span>.</p>
+  <div class="two">
+    <figure><img src="img/lab06_rl.png" alt="электрическая"><figcaption>Электрическая: источник → R → L (катушка — витки).</figcaption></figure>
+    <figure><img src="img/lab06_rl_mech.png" alt="механическая"><figcaption>Механика: катушка = маховик (ток = момент импульса). Зубчатый обод сцеплен с цепью.</figcaption></figure>
+  </div>
+  <h3>Теория</h3>
+  <p><span class="f">I(t) = (V/R)·(1 − e<sup>−t/τ</sup>)</span> &nbsp;·&nbsp; <span class="f">τ = L/R</span>. В стационаре катушка = провод (КЗ).</p>
+  <div class="predict"><b>Предскажи.</b> V=5&nbsp;В, R=10&nbsp;Ω, L=1&nbsp;Гн. Конечный ток? <span class="v">τ</span>? Мгновенно ли он установится?</div>
+  <div class="observe"><b>Наблюдай.</b> Демо «RL current rise». Следи за током. В механике маховик-катушка раскручивается постепенно — это и есть инерция тока.</div>
+  <div class="explain"><b>Объясни.</b> <span class="v">I<sub>∞</sub></span> = 5/10 = 0.5&nbsp;А; <span class="v">τ</span> = 1/10 = 0.1&nbsp;с. Ток нарастает, а не прыгает.
+  <span class="misc">Заблуждение:</span> «ток в катушке появляется сразу». Маховик не раскрутить мгновенно.</div>
+</section>
+
+<!-- LAB 7 -->
+<section class="page">
+  <h1>Работа 7 <span class="tag">Колебательный контур RLC</span></h1>
+  <p class="lead">Конденсатор и катушка вместе дают колебания — энергия перетекает туда-обратно.</p>
+  <h3>Цель</h3>
+  <p>Увидеть затухающие колебания и связать их частоту с <span class="v">L</span> и <span class="v">C</span>.</p>
+  <figure><img src="img/lab07_rlc.png" alt="схема">
+    <figcaption>Последовательный RLC во время переходного процесса (t ≈ 1 с).</figcaption></figure>
+  <h3>Теория</h3>
+  <p>Частота собственных колебаний: <span class="f">f₀ = 1/(2π·√(L·C))</span>. Резистор гасит колебания (затухание).</p>
+  <div class="predict"><b>Предскажи.</b> Что будет с током после включения: монотонно установится или «зазвенит»? От чего зависит частота звона?</div>
+  <div class="observe"><b>Наблюдай.</b> Демо «RLC series». Следи за током/напряжением на осциллографе — увидишь затухающую синусоиду. В механике пружина (C) и маховик (L) раскачивают цепь.</div>
+  <div class="explain"><b>Объясни.</b> Энергия колеблется между полем конденсатора (<span class="v">½CV²</span>) и движением маховика (<span class="v">½LI²</span>); R забирает её в тепло → амплитуда падает.
+  <span class="misc">Заблуждение:</span> «реактивные элементы просто замедляют». Вместе они <i>колеблют</i>.</div>
+</section>
+
+<!-- LAB 8 -->
+<section class="page">
+  <h1>Работа 8 <span class="tag">Диод</span></h1>
+  <p class="lead">Элемент, пропускающий ток только в одну сторону — с порогом.</p>
+  <h3>Цель</h3>
+  <p>Понять одностороннюю проводимость и прямое падение ≈0.7&nbsp;В.</p>
+  <figure><img src="img/lab08_diode.png" alt="схема">
+    <figcaption>Диод последовательно с резистором.</figcaption></figure>
+  <h3>Теория</h3>
+  <p>Прямое смещение (анод «+»): проводит, падение <span class="f">V<sub>f</sub> ≈ 0.7 В</span>. Обратное: не проводит (≈ обрыв).</p>
+  <div class="predict"><b>Предскажи.</b> Источник 5&nbsp;В через диод на резистор 1&nbsp;кΩ. Какое напряжение упадёт на резисторе — 5&nbsp;В или меньше? Если перевернуть диод — потечёт ли ток?</div>
+  <div class="observe"><b>Наблюдай.</b> Демо «diode + resistor». Сними падение на диоде и на резисторе. Переверни диод (поменяй узлы).</div>
+  <div class="explain"><b>Объясни.</b> На резисторе ≈5 − 0.7 = 4.3&nbsp;В (≈4.3&nbsp;мА). Перевёрнутый диод — тока почти нет.
+  <span class="misc">Заблуждение:</span> «диод — идеальный ключ без потерь». Есть порог ≈0.7&nbsp;В.</div>
+</section>
+
+<!-- LAB 9 -->
+<section class="page">
+  <h1>Работа 9 <span class="tag">Полуволновой выпрямитель</span></h1>
+  <p class="lead">Как из переменного напряжения получить пульсирующее постоянное.</p>
+  <h3>Цель</h3>
+  <p>Увидеть, что диод срезает отрицательную полуволну, оставляя ток в одну сторону.</p>
+  <div class="two">
+    <figure><img src="img/lab09_ac_pos.png" alt="плюс"><figcaption>Положительная полуволна: диод проводит, ток течёт.</figcaption></figure>
+    <figure><img src="img/lab09_ac_neg.png" alt="минус"><figcaption>Отрицательная полуволна: диод заперт, ток не течёт.</figcaption></figure>
+  </div>
+  <h3>Теория</h3>
+  <p>Источник <span class="f">v(t) = A·sin(2π·f·t)</span>. Диод пропускает только <span class="v">v</span>&nbsp;&gt;&nbsp;<span class="v">V<sub>f</sub></span> → на нагрузке — однополярные импульсы. Конденсатор сглаживает.</p>
+  <div class="predict"><b>Предскажи.</b> На входе синус ±5&nbsp;В, 2&nbsp;Гц. Каким будет напряжение на нагрузке — синус, модуль синуса, или только положительные «горбы»?</div>
+  <div class="observe"><b>Наблюдай.</b> Демо «AC half-wave rectifier». Сравни два момента времени (положительная и отрицательная фаза) — на отрицательной диод заперт.</div>
+  <div class="explain"><b>Объясни.</b> Выход — только положительные полупериоды (минус срезан). Среднее &gt; 0 → есть постоянная составляющая.
+  <span class="misc">Заблуждение:</span> «переменный ток нельзя превратить в постоянный без сложной электроники».</div>
+</section>
+
+<!-- LAB 10 -->
+<section class="page">
+  <h1>Работа 10 <span class="tag">RC-фильтр НЧ</span></h1>
+  <p class="lead">Та же RC-цепь, но под переменным сигналом — становится частотным фильтром.</p>
+  <h3>Цель</h3>
+  <p>Понять частоту среза и почему высокие частоты ослабляются сильнее.</p>
+  <figure><img src="img/lab10_lowpass.png" alt="схема">
+    <figcaption>RC-фильтр нижних частот под синусоидальным источником.</figcaption></figure>
+  <h3>Теория</h3>
+  <p>Частота среза: <span class="f">f<sub>c</sub> = 1/(2π·R·C)</span>. Ниже <span class="v">f<sub>c</sub></span> сигнал проходит, выше — слабеет (на <span class="v">f<sub>c</sub></span> выход ≈0.71 от входа).</p>
+  <div class="predict"><b>Предскажи.</b> R=1&nbsp;кΩ, C=100&nbsp;мкФ. Чему равна <span class="v">f<sub>c</sub></span>? При входе 2&nbsp;Гц выход будет почти равен входу или заметно ослаблен?</div>
+  <div class="observe"><b>Наблюдай.</b> Демо «RC low-pass filter (AC)». Сравни амплитуду на C (выход) с амплитудой источника.</div>
+  <div class="explain"><b>Объясни.</b> <span class="v">f<sub>c</sub></span> = 1/(2π·1000·100·10⁻⁶) ≈ 1.59&nbsp;Гц. Вход 2&nbsp;Гц чуть выше среза → выход заметно ослаблен (~0.62×).
+  <span class="misc">Заблуждение:</span> «конденсатор просто запасает заряд». На переменном токе он — частотно-зависимое сопротивление.</div>
+</section>
+
+<!-- APPENDIX -->
+<section class="page">
+  <h2>Приложение · как воспроизвести иллюстрации</h2>
+  <p>Все схемы этого практикума сняты прямо из симулятора, без скриншотов ОС, режимом
+  оффскрин-съёмки. Пример:</p>
+  <p><code>current-lab --capture --demo RcCapacitor --view electrical --out rc.png</code></p>
+  <p><code>current-lab --capture --demo RlcSeries --view mechanical --time 1.0 --out rlc.png</code></p>
+  <table>
+    <tr><th>Флаг</th><th>Значение</th></tr>
+    <tr><td><code>--demo</code></td><td>имя демо-схемы (enum-имя или подпись «Demo: …»)</td></tr>
+    <tr><td><code>--view</code></td><td>electrical · mechanical · hydraulic</td></tr>
+    <tr><td><code>--time</code></td><td>момент СИМУЛИРОВАННОГО времени, с (по умолчанию — до стационара)</td></tr>
+    <tr><td><code>--out</code></td><td>путь к PNG</td></tr>
+  </table>
+  <p style="color:var(--muted); margin-top:30px">Electricity Lab · MNA-решатель · 2026-06-15.
+  Метод «предскажи → наблюдай → объясни» основан на predict-observe-explain (POE).</p>
+</section>
+
+</body>
+</html>
