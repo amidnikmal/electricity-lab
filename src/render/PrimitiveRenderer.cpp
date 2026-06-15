@@ -149,6 +149,15 @@ void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
                                     cell.cMaxXMaxY, cell.cMinXMaxY);
     }
 
+    // LIC directional field overlay: same bilinear-cell rendering as potential.
+    for (const auto& cell : prims.licFieldCells) {
+        ImVec2 pmin = m.toScreen(cell.min);
+        ImVec2 pmax = m.toScreen(cell.max);
+        if (offscreen(pmin.x, pmin.y, pmax.x, pmax.y)) continue;
+        dl->AddRectFilledMultiColor(pmin, pmax, cell.cMinXMinY, cell.cMaxXMinY,
+                                    cell.cMaxXMaxY, cell.cMinXMaxY);
+    }
+
     for (const auto& glow : prims.glows) {
         float r_px = m.px(glow.radius);
         ImVec2 c = m.toScreen(glow.center);

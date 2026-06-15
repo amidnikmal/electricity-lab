@@ -11,6 +11,7 @@ enum class VisualizationLayer {
     MagneticField,
     Heat,
     Power,
+    LICField,
 };
 
 struct VisualizationStatus {
@@ -54,6 +55,12 @@ inline VisualizationStatus layerStatus(VisualizationLayer layer) {
             return {"Power", "exact-sign",
                     "Power uses P = I * dV from solver branch results.",
                     "Positive values mean dissipation, negative values mean supplied power."};
+        case VisualizationLayer::LICField:
+            return {"LIC Field", "approximation",
+                    "Line Integral Convolution — directional field texture from white noise "
+                    "convolved along E-field streamlines.",
+                    "CPU approximation at moderate resolution; GPU/FBO would allow higher density. "
+                    "Directional pattern guides the eye along field lines."};
     }
     return {"Unknown", "unknown", "", ""};
 }

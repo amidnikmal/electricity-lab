@@ -4,6 +4,7 @@
 #include "projection/MechanicsMapping.h"
 #include "projection/MechanicsCapacitor.h"
 #include "render/ColorMaps.h"
+#include "render/LICFieldRenderer.h"
 #include "ui/I18n.h"
 #include "physics/ChainGeometry.h"
 #include "physics/ChannelSpecs.h"
@@ -910,6 +911,96 @@ void emitPotentialField(BuildContext& ctx) {
             cell.cMinXMaxY = vcol(i, j + 1);
             ctx.out.fieldCells.push_back(cell);
         }
+}
+
+void emitLICField(BuildContext& ctx) {
+    if (!ctx.p.layers.lic || !ctx.hasPotentialRange()) return;
+
+    struct Src { Vec2 p; double v; };
+    std::vector<Src> src;
+    for (const auto& comp : ctx.circuit.components) {
+        if (comp.type == ComponentType::Ground) continue;
+        const Node* na = ctx.circuit.findNode(comp.nodeA);
+        const Node* nb = ctx.circuit.findNode(comp.nodeB);
+        if (!na || !nb) continue;
+        double va = potentialFor(ctx.solution, comp.nodeA);
+        double vb = potentialFor(ctx.solution, comp.nodeB);
+        double len = (nb->position - na->position).length();
+        int n = std::clamp(static_cast<int>(len / std::max(ctx.p.wireThickness * 3.0, 1.0)), 1, 12);
+        for (int i = 0; i <= n; ++i) {
+            double t = static_cast<double>(i) / n;
+            src.push_back({na->position + (nb->position - na->position) * t, va + (vb - va) * t});
+        }
+    }
+    if (src.empty())
+        for (const auto& node : ctx.circuit.nodes)
+            src.push_back({node.position, potentialFor(ctx.solution, node.id)});
+    if (src.empty()) return;
+
+    Vec2 mn = src[0].p, mx = src[0].p;
+    for (const auto& s : src) {
+        mn.x = std::min(mn.x, s.p.x); mn.y = std::min(mn.y, s.p.y);
+        mx.x = std::max(mx.x, s.p.x); mx.y = std::max(mx.y, s.p.y);
+    }
+    double falloff = std::max(ctx.p.wireThickness * 20.0, (mx - mn).length() * 0.15);
+    mn = mn - Vec2(falloff, falloff);
+    mx = mx + Vec2(falloff, falloff);
+    mn.x = std::max(mn.x, ctx.p.viewMin.x); mn.y = std::max(mn.y, ctx.p.viewMin.y);
+    mx.x = std::min(mx.x, ctx.p.viewMax.x); mx.y = std::min(mx.y, ctx.p.viewMax.y);
+    double w = mx.x - mn.x, h = mx.y - mn.y;
+    if (w <= 1.0 || h <= 1.0) return;
+
+    // Collect sources for the qualitative field sampler (charge-sink model,
+    // same as the streamlines in emitFieldBackdrop).
+    std::vector<FieldSource> fieldSources;
+    double range = ctx.vMax - ctx.vMin;
+    for (const auto& s : src) {
+        double charge = range > 1e-12 ? (s.v - (ctx.vMin + ctx.vMax) * 0.5) / range * 1.5 : 0.0;
+        fieldSources.push_back({s.p, charge});
+    }
+
+    // LIC config: moderate CPU resolution — ~1700 cells, ~3 ms on modern hardware.
+    // TODO: GPU/FBO LIC for higher density; magnetic field LIC needs a separate
+    // sampler (Biot–Savart-based, not charge-sink).
+    render::lic::LICConfig licConfig;
+    licConfig.gridW = 65;
+    licConfig.gridH = 49;
+    licConfig.streamlineSteps = 16;
+    licConfig.stepSize = std::clamp(ctx.p.wireThickness * 0.8, 3.0, 10.0);
+    licConfig.seed = 42;
+    licConfig.colormap = render::Colormap::Viridis;
+    licConfig.alpha = 48;
+
+    auto fieldSampler = [&](Vec2 p) -> Vec2 {
+        Vec2 e;
+        for (const auto& source : fieldSources) {
+            Vec2 r = p - source.position;
+            double r2 = r.x * r.x + r.y * r.y + 450.0;
+            double inv = 1.0 / (r2 * std::sqrt(r2));
+            e = e + r * (source.strength * inv);
+        }
+        return e;
+    };
+
+    auto licResult = render::lic::computeLIC(fieldSampler, mn, mx, licConfig);
+    if (licResult.pixels.empty()) return;
+
+    double cellW = w / licResult.w;
+    double cellH = h / licResult.h;
+
+    for (int j = 0; j < licResult.h; ++j) {
+        for (int i = 0; i < licResult.w; ++i) {
+            render::PrimFieldCell cell;
+            cell.min = Vec2(mn.x + i * cellW, mn.y + j * cellH);
+            cell.max = Vec2(mn.x + (i + 1) * cellW, mn.y + (j + 1) * cellH);
+            uint32_t c = licResult.pixels[j * licResult.w + i];
+            cell.cMinXMinY = c;
+            cell.cMaxXMinY = c;
+            cell.cMaxXMaxY = c;
+            cell.cMinXMaxY = c;
+            ctx.out.licFieldCells.push_back(cell);
+        }
+    }
 }
 
 void emitFieldBackdrop(BuildContext& ctx) {
@@ -2265,6 +2356,9 @@ void buildHydraulic(BuildContext& ctx) {
 void buildCircuitShapes(BuildContext& ctx, bool physicsLayers) {
     if (physicsLayers && ctx.solution && (ctx.p.layers.electricField || ctx.p.layers.potential))
         emitFieldBackdrop(ctx);
+
+    if (physicsLayers && ctx.solution && ctx.p.layers.lic)
+        emitLICField(ctx);
 
     for (const auto& comp : ctx.circuit.components) {
         const Node* nodeA = ctx.circuit.findNode(comp.nodeA);

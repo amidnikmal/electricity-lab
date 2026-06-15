@@ -145,6 +145,7 @@ set(TEST_SOURCES
     tests/test_signal_recorder.cpp
     tests/test_thermal.cpp
     tests/test_hydraulic_sim.cpp   # ВАРИАНТ Б гидравлики (карантин, см. src/physics/HydraulicSim.h)
+    tests/test_lic.cpp
     src/circuit/Circuit.cpp
     src/solver/CircuitSolver.cpp
     src/simulation/LiveSim.cpp
