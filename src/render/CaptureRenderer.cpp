@@ -256,7 +256,10 @@ CaptureResult captureToPng(int width, int height,
         dl->AddRectFilled(origin, ImVec2(origin.x + size.x, origin.y + size.y),
                           IM_COL32(17, 22, 28, 255));
 
-        drawPrimitives(dl, projResult.prims, camera, origin, size, 1.0f);
+        // labelScale > 1: дефолтный шрифт ImGui тонет на крупной 2×-схеме;
+        // делаем надписи крупными (после даунскейла остаются читаемыми).
+        drawPrimitives(dl, projResult.prims, camera, origin, size, 1.0f,
+                       static_cast<float>(supersample) * 1.6f);
     }
     ImGui::End();
     ImGui::PopStyleVar(2);

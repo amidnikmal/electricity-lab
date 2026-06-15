@@ -1,5 +1,6 @@
 #include "render/PrimitiveRenderer.h"
 #include "render/ColorMaps.h"
+#include "render/LabelLayout.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -124,7 +125,7 @@ inline int circleSegs(float r) {
 
 void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
                     const CanvasCamera& camera, ImVec2 origin, ImVec2 size,
-                    float uiScale) {
+                    float uiScale, float labelScale) {
     Mapper m{camera, origin};
     const ImVec2 clipMin(origin.x, origin.y);
     const ImVec2 clipMax(origin.x + size.x, origin.y + size.y);
@@ -303,14 +304,30 @@ void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
         drawArrowHead(dl, m, arrow.pos, arrow.dir, arrow.size, arrow.color);
     }
 
-    for (const auto& label : prims.labels) {
-        ImVec2 p = m.toScreen(label.pos);
-        // Отсечка по оценённому bounding box: ширина ~7 символов средней
-        // ширины, высота ~1 строка, обе величины масштабируются под HiDPI.
-        float textW = 140.0f * uiScale;
-        float textH = 22.0f * uiScale;
-        if (offscreen(p.x, p.y, p.x + textW, p.y + textH)) continue;
-        dl->AddText(p, label.color, label.text.c_str());
+    // Надписи: считаем экранные боксы, разводим без перекрытий, рисуем с тёмной
+    // подложкой и увеличенным шрифтом (читаемость на снимках и в HiDPI).
+    {
+        ImFont* font = ImGui::GetFont();
+        const float fontSize = ImGui::GetFontSize() * std::max(0.1f, labelScale);
+        const float k = std::max(1.0f, labelScale);
+        std::vector<LabelBox> boxes;
+        boxes.reserve(prims.labels.size());
+        for (size_t i = 0; i < prims.labels.size(); ++i) {
+            const auto& label = prims.labels[i];
+            ImVec2 p = m.toScreen(label.pos);
+            float w = estimateLabelWidth(label.text, fontSize);
+            float h = labelLineHeight(fontSize);
+            if (offscreen(p.x, p.y, p.x + w, p.y + h)) continue;
+            boxes.push_back({p.x, p.y, w, h, static_cast<int>(i)});
+        }
+        declutterVertical(boxes, 2.0f * k);
+        for (const auto& b : boxes) {
+            const auto& label = prims.labels[b.id];
+            dl->AddRectFilled(ImVec2(b.x - 3.0f * k, b.y - 1.0f * k),
+                              ImVec2(b.x + b.w + 3.0f * k, b.y + b.h + 1.0f * k),
+                              IM_COL32(10, 13, 18, 180), 3.0f * k);
+            dl->AddText(font, fontSize, ImVec2(b.x, b.y), label.color, label.text.c_str());
+        }
     }
 
     drawLegend(dl, origin, size, prims.legend);
