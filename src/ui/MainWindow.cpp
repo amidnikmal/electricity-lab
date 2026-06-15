@@ -580,8 +580,11 @@ void MainWindow::render() {
 
     renderTopBar();
 
-    float bottomHeight = m_debugMode && m_showDebugLog ? 232.0f : m_bottomHeight;
-    float availY = std::max(220.0f, ImGui::GetContentRegionAvail().y - bottomHeight - 8.0f);
+    // Все размеры панелей — целые пиксели и с учётом uiScale: дробные/немасштабиро-
+    // ванные размеры дают переполнение на пару пикселей и лишние скроллбары (Windows).
+    float bottomHeight = m_debugMode && m_showDebugLog ? 232.0f * m_uiScale : m_bottomHeight;
+    float availY = std::floor(std::max(220.0f * m_uiScale,
+                                       ImGui::GetContentRegionAvail().y - bottomHeight - 8.0f * m_uiScale));
 
     // Rail width follows the widest (possibly translated) tool label.
     float railWidth = m_leftWidth;
@@ -592,7 +595,8 @@ void MainWindow::render() {
             tr("Probe"), tr("Pan"),
         };
         for (const char* label : railLabels)
-            railWidth = std::max(railWidth, ImGui::CalcTextSize(label).x + 28.0f);
+            railWidth = std::max(railWidth, ImGui::CalcTextSize(label).x + 28.0f * m_uiScale);
+        railWidth = std::ceil(railWidth); // целая ширина под самый длинный (переведённый) ярлык
     }
     ImGui::BeginChild("ToolRail", ImVec2(railWidth, availY), ImGuiChildFlags_Border);
     renderToolRail();
@@ -606,17 +610,17 @@ void MainWindow::render() {
                                                          m_showRightInspector,
                                                          m_paneTree.paneCount() > 1, gap);
     auto panesT0 = std::chrono::steady_clock::now();
-    renderDualCanvasArea(layout.canvasWidth, availY);
+    renderDualCanvasArea(std::floor(layout.canvasWidth), availY);
     perfBlend(m_perfPanesMs, panesT0);
 
     if (layout.showInspector) {
         ImGui::SameLine();
-        ImGui::BeginChild("RightInspector", ImVec2(layout.inspectorWidth, availY), ImGuiChildFlags_Border);
+        ImGui::BeginChild("RightInspector", ImVec2(std::floor(layout.inspectorWidth), availY), ImGuiChildFlags_Border);
         renderRightInspector(params);
         ImGui::EndChild();
     } else if (m_showRightInspector) {
         ImGui::SameLine();
-        ImGui::BeginChild("RightInspectorCollapsed", ImVec2(40, availY), ImGuiChildFlags_Border);
+        ImGui::BeginChild("RightInspectorCollapsed", ImVec2(std::floor(40.0f * m_uiScale), availY), ImGuiChildFlags_Border);
         ImGui::TextDisabled("Inspector");
         ImGui::TextDisabled("auto");
         ImGui::TextDisabled("hidden");
@@ -828,7 +832,13 @@ void MainWindow::renderTopBar() {
         tr("Power / Heat"), tr("Charges"), tr("Debug"),
     };
 
-    ImGui::BeginChild("TopBar", ImVec2(0, 44), ImGuiChildFlags_Border);
+    // Высота бара — от метрик шрифта (одна строка контролов), а не жёсткие 44px:
+    // при DPI 1.75 шрифт+padding уже не влезали в 44 → вертикальный скролл. NoScrollbar —
+    // горизонтальный бар скроллиться не должен в принципе.
+    float topBarH = std::ceil(ImGui::GetFrameHeight() + ImGui::GetStyle().WindowPadding.y * 2.0f);
+    ImGui::BeginChild("TopBar", ImVec2(0, topBarH),
+                      ImGuiChildFlags_Border,
+                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted("Current Lab");
     ImGui::SameLine();
@@ -1419,7 +1429,7 @@ void MainWindow::renderBottomAnalysis(const DistributedWireParameters& params) {
     double length = (a && b) ? (b->position - a->position).length() : 0.0;
     double e = length > 1e-9 ? std::abs(dV) / length : 0.0;
 
-    float height = m_debugMode && m_showDebugLog ? 232.0f : m_bottomHeight;
+    float height = std::floor(m_debugMode && m_showDebugLog ? 232.0f * m_uiScale : m_bottomHeight);
     ImGui::BeginChild("BottomAnalysis", ImVec2(0, height), ImGuiChildFlags_Border);
     if (ImGui::BeginTable("AnalysisStrip", 5, ImGuiTableFlags_SizingStretchSame)) {
         ImGui::TableNextColumn();

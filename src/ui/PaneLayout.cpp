@@ -1,6 +1,7 @@
 #include "ui/PaneLayout.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace current_lab::ui {
 
@@ -39,27 +40,34 @@ void layoutNode(const PaneNode* node, const PaneRect& rect, float gap,
                 std::vector<PaneLeafInfo>& leaves,
                 std::vector<PaneSplitterInfo>& splitters) {
     if (!node) return;
+
+    // Целочисленная привязка: дробные размеры (uiScale=1.75, нечётные доли) дают
+    // переполнение BeginChild на доли пикселя и лишние скроллбары на Windows.
+    // Округляем прямоугольник вниз; «второй» панели отдаём остаток (floor у первой
+    // + floor у gap), так что first.w + gap + second.w == rect.w ровно, без дробей.
+    PaneRect r{std::floor(rect.x), std::floor(rect.y), std::floor(rect.w), std::floor(rect.h)};
     if (node->isLeaf) {
-        leaves.push_back({node->paneId, node->projection, rect});
+        leaves.push_back({node->paneId, node->projection, r});
         return;
     }
 
+    float g = std::floor(gap);
     float ratio = std::clamp(node->ratio, kPaneMinRatio, 1.0f - kPaneMinRatio);
     if (node->sideBySide) {
-        float usable = std::max(1.0f, rect.w - gap);
-        float firstW = usable * ratio;
-        PaneRect first{rect.x, rect.y, firstW, rect.h};
-        PaneRect divider{rect.x + firstW, rect.y, gap, rect.h};
-        PaneRect second{rect.x + firstW + gap, rect.y, usable - firstW, rect.h};
+        float usable = std::max(1.0f, r.w - g);
+        float firstW = std::max(1.0f, std::floor(usable * ratio));
+        PaneRect first{r.x, r.y, firstW, r.h};
+        PaneRect divider{r.x + firstW, r.y, g, r.h};
+        PaneRect second{r.x + firstW + g, r.y, usable - firstW, r.h};
         splitters.push_back({const_cast<PaneNode*>(node), divider, true, usable});
         layoutNode(node->a.get(), first, gap, leaves, splitters);
         layoutNode(node->b.get(), second, gap, leaves, splitters);
     } else {
-        float usable = std::max(1.0f, rect.h - gap);
-        float firstH = usable * ratio;
-        PaneRect first{rect.x, rect.y, rect.w, firstH};
-        PaneRect divider{rect.x, rect.y + firstH, rect.w, gap};
-        PaneRect second{rect.x, rect.y + firstH + gap, rect.w, usable - firstH};
+        float usable = std::max(1.0f, r.h - g);
+        float firstH = std::max(1.0f, std::floor(usable * ratio));
+        PaneRect first{r.x, r.y, r.w, firstH};
+        PaneRect divider{r.x, r.y + firstH, r.w, g};
+        PaneRect second{r.x, r.y + firstH + g, r.w, usable - firstH};
         splitters.push_back({const_cast<PaneNode*>(node), divider, false, usable});
         layoutNode(node->a.get(), first, gap, leaves, splitters);
         layoutNode(node->b.get(), second, gap, leaves, splitters);

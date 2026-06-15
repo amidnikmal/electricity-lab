@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <cmath>
 #include "ui/PaneLayout.h"
 
 using namespace current_lab::ui;
@@ -129,4 +130,34 @@ TEST(PaneLayoutTree, RatioIsClampedInLayout) {
     splitters[0].node->ratio = 0.01f; // dragged to the extreme
     tree.layout({0, 0, 1000, 600}, 6.0f, leaves, splitters);
     EXPECT_GE(leaves[0].rect.w, 1000.0f * kPaneMinRatio * 0.9f);
+}
+
+// Жёсткая гарантия против лишних скроллбаров: размеры панелей — ЦЕЛЫЕ пиксели и
+// не выходят за контейнер даже при дробном входе (как при uiScale=1.75).
+namespace {
+void expectIntegralAndInside(const PaneLayoutTree& tree, PaneRect area, float gap) {
+    std::vector<PaneLeafInfo> leaves;
+    std::vector<PaneSplitterInfo> splitters;
+    tree.layout(area, gap, leaves, splitters);
+    ASSERT_FALSE(leaves.empty());
+    float ax1 = std::floor(area.x) + std::floor(area.w);
+    float ay1 = std::floor(area.y) + std::floor(area.h);
+    for (const auto& lf : leaves) {
+        const PaneRect& r = lf.rect;
+        EXPECT_EQ(r.x, std::floor(r.x)); EXPECT_EQ(r.y, std::floor(r.y));
+        EXPECT_EQ(r.w, std::floor(r.w)); EXPECT_EQ(r.h, std::floor(r.h));
+        EXPECT_GE(r.w, 1.0f); EXPECT_GE(r.h, 1.0f);
+        EXPECT_LE(r.x + r.w, ax1) << "панель шире контейнера -> скролл";
+        EXPECT_LE(r.y + r.h, ay1) << "панель выше контейнера -> скролл";
+    }
+}
+} // namespace
+
+TEST(PaneLayoutTree, IntegralSizesFitContainerEvenWithFractionalInput) {
+    PaneLayoutTree triple; triple.resetTriple();
+    int mid = triple.paneIds()[1];
+    triple.split(mid, /*sideBySide=*/false); // вложенный стек
+    expectIntegralAndInside(triple, {0, 0, 1280, 800}, 6.0f);          // целый вход
+    expectIntegralAndInside(triple, {0.5f, 0.5f, 1281.6f, 801.4f}, 6.4f); // дробный (uiScale)
+    expectIntegralAndInside(triple, {0, 0, 1599.3f, 901.7f}, 7.0f);
 }
