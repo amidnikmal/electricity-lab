@@ -77,6 +77,8 @@ struct BuildContext {
 
     double vMin = 0.0, vMax = 0.0;
     double maxI = 0.0, maxE = 0.0, maxP = 0.0;
+    double refI = 0.0;  // опорный ток (средний без максимума) — детекция КЗ
+    double minT = physics::kAmbientTemperature, maxT = physics::kAmbientTemperature;
 
     double safeScale() const { return std::max(0.05, p.cameraScale); }
     bool hasPotentialRange() const { return solution && std::abs(vMax - vMin) > 1e-12; }
@@ -89,8 +91,9 @@ double heatGlowFraction(const BuildContext& ctx, int componentId, double power) 
         double T = physics::temperatureFor(*ctx.p.thermalState, componentId);
         double dT = T - physics::kAmbientTemperature;
         if (dT <= 0.0) return 0.0;
-        constexpr double kMaxDeltaT = 100.0; // ~100 K выше ambient → полное свечение
-        return std::clamp(dT / kMaxDeltaT, 0.0, 1.0);
+        double range = ctx.maxT - physics::kAmbientTemperature;
+        if (range <= 1e-12) return 0.0;
+        return std::clamp(dT / range, 0.0, 1.0);
     }
     // TODO: пробросить ThermalState в ViewParams из MainWindow.
     // Пока fallback — мгновенная мощность, без тепловой инерции.
@@ -139,6 +142,37 @@ void computeRanges(BuildContext& ctx) {
         }
         ctx.maxE = std::max(ctx.maxE, eMagnitude);
     }
+
+    // Температурный диапазон сцены для нормировки тепловой карты
+    if (ctx.p.thermalState) {
+        bool first = true;
+        for (const auto& br : solution.branches) {
+            double T = physics::temperatureFor(*ctx.p.thermalState, br.componentId);
+            if (first) { ctx.minT = ctx.maxT = T; first = false; }
+            else if (T < ctx.minT) ctx.minT = T;
+            else if (T > ctx.maxT) ctx.maxT = T;
+        }
+    }
+    // Опорный ток без максимального — детекция аномально большого тока (КЗ)
+    double sumI = 0.0; int nz = 0; double maxAbsI = 0.0;
+    for (const auto& br : solution.branches) {
+        double a = std::abs(br.current);
+        if (a > 1e-12) { sumI += a; nz++; if (a > maxAbsI) maxAbsI = a; }
+    }
+    if (nz > 1) ctx.refI = (sumI - maxAbsI) / (nz - 1);
+}
+
+// Детекция аномально большого тока относительно сцены (признак КЗ)
+bool isOverloaded(const BuildContext& ctx, double absI) {
+    return ctx.refI > 0.0 && absI > ctx.refI * 5.0 && absI > 0.01;
+}
+
+// Тепловая раскраска тела: синий (ambient) → красный (горячо)
+uint32_t heatBodyColor(double frac) {
+    return packColor(
+        static_cast<unsigned>(50 + 205 * frac),
+        static_cast<unsigned>(100 - 80 * frac),
+        static_cast<unsigned>(230 - 175 * frac));
 }
 
 // --- shared shape emitters -------------------------------------------------
@@ -186,8 +220,19 @@ void emitConductor(BuildContext& ctx, Vec2 a, Vec2 b, double va, double vb,
     }
 }
 
-void emitWire(BuildContext& ctx, Vec2 a, Vec2 b, double va, double vb) {
+void emitWire(BuildContext& ctx, Vec2 a, Vec2 b, double va, double vb,
+               int compId = -1, double branchPower = 0.0) {
     emitConductor(ctx, a, b, va, vb, ctx.p.wireThickness * 0.5);
+    double frac = heatGlowFraction(ctx, compId, branchPower);
+    if (ctx.p.layers.heat && frac > 0.01) {
+        Vec2 ab = b - a; double len = ab.length();
+        if (len < 0.5) return;
+        Vec2 unit = ab / len; Vec2 perp(-unit.y, unit.x);
+        double hw = ctx.p.wireThickness * 0.5;
+        ctx.out.quads.push_back({a + perp * hw, a - perp * hw,
+                                  b - perp * hw, b + perp * hw,
+                                  heatBodyColor(frac), true, 0.0});
+    }
 }
 
 void emitResistor(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
@@ -221,6 +266,17 @@ void emitResistor(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
     for (const auto& section : sections) {
         emitConductor(ctx, section.start, section.end, section.voltageStart, section.voltageEnd,
                       section.halfWidth, section.material == physics::VisualMaterial::ResistiveBody);
+    }
+
+    // Тепловая раскраска тела резистора: синий (ambient) → красный (горячо)
+    if (ctx.p.layers.heat && frac > 0.01 && body->length() > 0.5) {
+        Vec2 bdir = body->end - body->start;
+        Vec2 bunit = bdir / bdir.length();
+        Vec2 bperp(-bunit.y, bunit.x);
+        double hw = body->halfWidth;
+        ctx.out.quads.push_back({body->start + bperp * hw, body->start - bperp * hw,
+                                  body->end - bperp * hw, body->end + bperp * hw,
+                                  withAlpha(heatBodyColor(frac), 200), true, 0.0});
     }
 
     // Body end ticks.
@@ -2227,7 +2283,7 @@ void buildCircuitShapes(BuildContext& ctx, bool physicsLayers) {
         }
 
         switch (comp.type) {
-            case ComponentType::Wire:          emitWire(ctx, a, b, va, vb); break;
+            case ComponentType::Wire:          emitWire(ctx, a, b, va, vb, comp.id, branchPower); break;
             case ComponentType::Resistor:      emitResistor(ctx, comp, a, b, va, vb, branchPower); break;
             case ComponentType::VoltageSource: emitVoltageSource(ctx, comp, a, b, va, vb); break;
             case ComponentType::AcVoltageSource: emitAcVoltageSource(ctx, comp, a, b, va, vb); break;
@@ -2313,6 +2369,12 @@ void buildCircuitShapes(BuildContext& ctx, bool physicsLayers) {
                 emitInductorPhysics(ctx, comp, a, b, branchCurrent);
                 if (ctx.p.layers.magnetic && std::abs(branchCurrent) > 1e-12)
                     emitSolenoidField(ctx, comp, a, b, branchCurrent);
+            }
+            // Визуальный сигнал перегрузки/КЗ: красная пульсирующая обводка
+            if (isOverloaded(ctx, std::abs(branchCurrent))) {
+                double pulse = 0.5 + 0.5 * std::sin(ctx.p.time * 8.0);
+                ctx.out.glows.push_back({mid, ctx.p.wireThickness * 3.0, 0.85,
+                    packColor(255, 20, 10, static_cast<unsigned>(80 + 110 * pulse))});
             }
         } else if (ctx.p.layers.current && std::abs(branchCurrent) > 1e-12) {
             emitCurrentArrows(ctx, a, b, branchCurrent);
