@@ -2,6 +2,7 @@
 #include "ui/I18n.h"
 #include "ui/UiHelpers.h"
 #include "circuit/DemoCircuits.h"
+#include "circuit/CircuitValidator.h"
 #include "projection/MechanicsMapping.h"
 #include "projection/MechanicsCoupling.h"
 #include "visualization/VisualizationStatus.h"
@@ -867,6 +868,17 @@ void MainWindow::renderTopBar() {
                            tr("settling"), m_liveSim.simSpeed());
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("%s", tr("Transient in slow motion: sim seconds per real second."));
+    }
+
+    // A1: предупреждение о невалидной цепи (нет земли / плавающие компоненты /
+    // конфликт источников). Валидатор дешёвый — считаем каждый кадр.
+    CircuitValidation validation = validateCircuit(m_circuit);
+    if (!validation.hasGround || validation.hasFloatingComponents ||
+        validation.conflictingSources) {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(1.0f, 0.40f, 0.36f, 1.0f), "%s", tr("Invalid circuit"));
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", validation.message.c_str());
     }
 
     ImGui::SameLine();

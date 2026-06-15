@@ -33,6 +33,7 @@ const std::unordered_map<std::string_view, const char*>& dictionary() {
         {"Vc = 0, Il = 0, t = 0", "Vc = 0, Il = 0, t = 0"},
         {"steady", "стационар"},
         {"settling", "процесс"},
+        {"Invalid circuit", "Цепь невалидна"},
         // Spring-capacitor (Mechanics view)
         {"neutral", "нейтраль"},
         {"stretched", "растянута"},
