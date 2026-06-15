@@ -378,7 +378,12 @@ TEST(TransientAc, ReturnsAmplitudeAtQuarterPeriod) {
 
     CircuitSolver solver;
     TransientState state;
-    double dt = 5e-3; // один шаг = T/4
+    double dt = 1e-4; // мелкий шаг
+    int steps = static_cast<int>(0.005 / dt); // 50 шагов до t = 5 мс = T/4
+    for (int i = 0; i < steps; ++i)
+        solver.stepTransient(c, state, dt);
+    // После 50 шагов state.time = 0.005 = T/4.
+    // Ещё один шаг: источник вычисляется при t = T/4, sin(π/2) = 1 → A.
     auto sol = solver.stepTransient(c, state, dt);
     double vOut = 0.0;
     for (const auto& np : sol.nodePotentials)
