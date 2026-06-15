@@ -308,8 +308,11 @@ void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
     // подложкой и увеличенным шрифтом (читаемость на снимках и в HiDPI).
     {
         ImFont* font = ImGui::GetFont();
-        const float fontSize = ImGui::GetFontSize() * std::max(0.1f, labelScale);
         const float k = std::max(1.0f, labelScale);
+        // Размер надписи масштабируется ВМЕСТЕ с элементами (по зуму camera.scale)
+        // и зажимается в читаемый диапазон, чтобы при отдалении не накрывать схему.
+        // labelScale учитывает DPI (приложение) / supersample (снимок).
+        const float fontSize = std::clamp(camera.scale * 9.0f, 7.0f, 15.0f) * labelScale;
         std::vector<LabelBox> boxes;
         boxes.reserve(prims.labels.size());
         for (size_t i = 0; i < prims.labels.size(); ++i) {
@@ -325,7 +328,7 @@ void drawPrimitives(ImDrawList* dl, const RenderPrimitives& prims,
             const auto& label = prims.labels[b.id];
             dl->AddRectFilled(ImVec2(b.x - 3.0f * k, b.y - 1.0f * k),
                               ImVec2(b.x + b.w + 3.0f * k, b.y + b.h + 1.0f * k),
-                              IM_COL32(10, 13, 18, 180), 3.0f * k);
+                              IM_COL32(10, 13, 18, 135), 3.0f * k);
             dl->AddText(font, fontSize, ImVec2(b.x, b.y), label.color, label.text.c_str());
         }
     }
