@@ -109,43 +109,13 @@ set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
 # --- Test executable (no GL/GUI deps) ---
+# Тест-файлы подбираются автоматически (GLOB), чтобы параллельные агенты могли
+# добавлять tests/test_*.cpp без правки CMakeLists. CONFIGURE_DEPENDS заставляет
+# CMake переконфигурироваться при появлении нового файла. test_hydraulic_sim.cpp —
+# ВАРИАНТ Б гидравлики (карантин, см. src/physics/HydraulicSim.h) — тоже подхватится.
+file(GLOB TEST_FILES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/tests/test_*.cpp)
 set(TEST_SOURCES
-    tests/test_linear_system.cpp
-    tests/test_circuit.cpp
-    tests/test_circuit_validator.cpp
-    tests/test_solver.cpp
-    tests/test_consistency.cpp
-    tests/test_canvas.cpp
-    tests/test_dual_view.cpp
-    tests/test_projection.cpp
-    tests/test_colormap.cpp
-    tests/test_transient.cpp
-    tests/test_elements.cpp
-    tests/test_mechanics.cpp
-    tests/test_mechanics_capacitor.cpp
-    tests/test_learning.cpp
-    tests/test_diode_switch.cpp
-    tests/test_fixes.cpp
-    tests/test_pane_layout.cpp
-    tests/test_hydraulic.cpp
-    tests/test_mathtext.cpp
-    tests/test_ui_scale.cpp
-    tests/test_http.cpp
-    tests/test_llm_robustness.cpp
-    tests/test_demos.cpp
-    tests/test_particle_sim.cpp
-    tests/test_worlds_separation.cpp
-    tests/test_chain_sim.cpp
-    tests/test_chain_gear.cpp
-    tests/test_mechanics_coupling.cpp
-    tests/test_water_network.cpp
-    tests/test_app_path_directions.cpp
-    tests/test_resistor_drift.cpp
-    tests/test_live_sim.cpp
-    tests/test_signal_recorder.cpp
-    tests/test_thermal.cpp
-    tests/test_hydraulic_sim.cpp   # ВАРИАНТ Б гидравлики (карантин, см. src/physics/HydraulicSim.h)
-    tests/test_lic.cpp
+    ${TEST_FILES}
     src/circuit/Circuit.cpp
     src/solver/CircuitSolver.cpp
     src/simulation/LiveSim.cpp
