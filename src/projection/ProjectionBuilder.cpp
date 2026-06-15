@@ -2187,24 +2187,41 @@ void emitTank(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
     double bow = disp * tankHalfAxis * 0.82;
     auto membraneAxial = [&](double f) { return bow * (1.0 - f * f); }; // f in [-1,1]
 
-    // Both chambers stay full (incompressible). Tint by side of the membrane:
-    // A-side = "charged" (brightens with |Vc|), B-side = plain water.
+    // Вода в баке — ЧАСТЬ потока, а не декор: те же гранулы, что в трубах, текут с
+    // током и упираются прямо в мембрану. По каждому поперечному «лейну» заполняем
+    // обе камеры гранулами с шагом pitch и общим осевым сдвигом (дрейф со скоростью
+    // ~как у каналов), так что столб воды движется С током (мембрана поглощает),
+    // а крайняя гранула касается мембраны. На стационаре (ток=0) — стоят (честно).
+    double current = 0.0;
+    if (ctx.solution)
+        for (const auto& br : ctx.solution->branches)
+            if (br.componentId == comp.id) { current = br.current; break; }
+    double drive = std::clamp(current * 4000.0, -120.0, 120.0); // как makeChannelSpecs (вода)
+
     double r = std::max(1.0, physics::particleWorldRadius(ctx.p.wireThickness) * 0.85);
     double pitch = r * 2.15;
     double chargeI = std::clamp(std::abs(disp), 0.0, 1.0);
-    uint32_t plain = packColor(96, 170, 255, 175);
+    uint32_t plain = packColor(96, 170, 255, 185);
     uint32_t charged = packColor(140, static_cast<unsigned>(205 + 40 * chargeI), 255, 215);
-    int nAx = std::max(2, static_cast<int>(std::floor((2.0 * tankHalfAxis - r) / pitch)));
+
+    // Полнопролётная решётка (число гранул НЕ зависит от заряда — вода несжимаема),
+    // но с осевым ДРЕЙФОМ (сдвиг со скоростью тока, кольцевой) — столб воды течёт.
+    // Тинт по стороне мембраны: A-камера «заряженная», B — обычная.
+    double lo = -tankHalfAxis + r, hi = tankHalfAxis - r;
+    double span = std::max(pitch, hi - lo);
+    double off = std::fmod(ctx.p.time * drive, pitch);
+    if (off < 0) off += pitch;
+    int nAx = std::max(2, static_cast<int>(std::floor(span / pitch)) + 1);
     int nPp = std::max(2, static_cast<int>(std::floor((2.0 * ph - r) / pitch)));
-    for (int i = 0; i < nAx; ++i) {
-        double ax = -tankHalfAxis + r +
-                    (2.0 * tankHalfAxis - 2.0 * r) * (nAx > 1 ? double(i) / (nAx - 1) : 0.5);
-        for (int j = 0; j < nPp; ++j) {
-            double pp = -ph + r + (2.0 * ph - 2.0 * r) * (nPp > 1 ? double(j) / (nPp - 1) : 0.5);
-            double f = pp / std::max(ph, 1e-9);
-            bool aSide = ax < membraneAxial(f); // left of the bowed membrane
-            Vec2 pos = g.mid + unit * ax + perp * pp;
-            ctx.out.particles.push_back({pos, r, aSide ? charged : plain, false});
+    for (int j = 0; j < nPp; ++j) {
+        double pp = -ph + r + (2.0 * ph - 2.0 * r) * (nPp > 1 ? double(j) / (nPp - 1) : 0.5);
+        double f = pp / std::max(ph, 1e-9);
+        double m = membraneAxial(f); // ось мембраны на этом лейне
+        for (int i = 0; i < nAx; ++i) {
+            double ax = lo + std::fmod(i * pitch + off, span); // кольцевой дрейф
+            bool aSide = ax < m;
+            ctx.out.particles.push_back({g.mid + unit * ax + perp * pp, r,
+                                         aSide ? charged : plain, false});
         }
     }
 
