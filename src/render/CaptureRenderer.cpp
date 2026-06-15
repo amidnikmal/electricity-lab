@@ -194,9 +194,6 @@ CaptureResult captureToPng(int width, int height,
     projResult.prims.legend.vMin = 0.0;
     projResult.prims.legend.vMax = 5.0;
 
-    // ---- camera ----
-    CanvasCamera camera = computeCameraForCircuit(circuit, width, height);
-
     // ---- offscreen GL context assumed active ----
 #ifdef _WIN32
     if (!loadFboFns()) {
@@ -227,6 +224,12 @@ CaptureResult captureToPng(int width, int height,
             return result;
         }
     }
+
+    // ---- camera ----
+    // Камеру вписываем в ФАКТИЧЕСКИЙ размер холста (renderW/renderH), а не в
+    // целевой width/height: иначе при supersample=2 схема выходит вдвое мельче
+    // по каждой оси и занимает лишь четверть кадра.
+    CanvasCamera camera = computeCameraForCircuit(circuit, renderW, renderH);
 
     // ---- render one frame ----
     glfwPollEvents();

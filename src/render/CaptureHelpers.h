@@ -48,9 +48,15 @@ inline CanvasCamera computeCameraForCircuit(const Circuit& circuit,
     double scaleY = static_cast<double>(canvasH) / worldH;
     double scale = std::min(scaleX, scaleY);
 
+    // Центрируем остаток по «нелимитирующей» оси: scale = min(scaleX, scaleY)
+    // вписывает схему по узкой стороне, а по другой остаётся пустота — её
+    // делим поровну, иначе схема прижата к верх-лево.
+    double centerX = (canvasW - worldW * scale) * 0.5;
+    double centerY = (canvasH - worldH * scale) * 0.5;
+
     cam.scale = static_cast<float>(scale);
-    cam.offset.x = static_cast<float>(-(minX - padX) * scale);
-    cam.offset.y = static_cast<float>(-(minY - padY) * scale);
+    cam.offset.x = static_cast<float>(-(minX - padX) * scale + centerX);
+    cam.offset.y = static_cast<float>(-(minY - padY) * scale + centerY);
 
     return cam;
 }
