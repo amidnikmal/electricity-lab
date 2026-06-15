@@ -26,6 +26,7 @@ struct LayerVisibility
     bool power = false;
     bool magnetic = false;
     bool surfaceCharge = false;
+    bool lic = false;
     bool canvasReadouts = false;
     bool debugMarkers = false;
     bool debugLog = false;
@@ -77,6 +78,7 @@ inline PresetInfo presetInfo(VisualizationPreset preset)
         info.modelNote = "E-field approximated as -dV/dx along conductive paths.";
         info.layers.potential = true;
         info.layers.electricField = true;
+        info.layers.lic = true;
         return info;
     case VisualizationPreset::CurrentDrift:
         info.modelNote = "Conventional current is physical sign; drift animation is educational.";
@@ -96,6 +98,7 @@ inline PresetInfo presetInfo(VisualizationPreset preset)
         info.layers.potential = true;
         info.layers.electricField = true;
         info.layers.surfaceCharge = true;
+        info.layers.lic = true;
         return info;
     case VisualizationPreset::Debug:
         info.modelNote = "Developer view with raw overlays and logs.";
@@ -107,6 +110,7 @@ inline PresetInfo presetInfo(VisualizationPreset preset)
         info.layers.power = true;
         info.layers.magnetic = true;
         info.layers.surfaceCharge = true;
+        info.layers.lic = true;
         info.layers.canvasReadouts = true;
         info.layers.debugMarkers = true;
         info.layers.debugLog = true;

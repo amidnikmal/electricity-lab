@@ -102,6 +102,7 @@ struct PotentialLegend {
 
 struct RenderPrimitives {
     std::vector<PrimFieldCell> fieldCells; // backmost: scalar-field heatmap
+    std::vector<PrimFieldCell> licFieldCells; // LIC textured directional field overlay
     std::vector<PrimLine> lines;
     std::vector<PrimPolyline> polylines;
     std::vector<PrimArrow> arrows;
@@ -115,15 +116,16 @@ struct RenderPrimitives {
 
     void clear() {
         fieldCells.clear();
+        licFieldCells.clear();
         lines.clear(); polylines.clear(); arrows.clear(); gradients.clear();
         glows.clear(); particles.clear(); labels.clear(); circles.clear(); quads.clear();
         legend = PotentialLegend{};
     }
 
     size_t totalCount() const {
-        return fieldCells.size() + lines.size() + polylines.size() + arrows.size() +
-               gradients.size() + glows.size() + particles.size() + labels.size() +
-               circles.size() + quads.size();
+        return fieldCells.size() + licFieldCells.size() + lines.size() + polylines.size() +
+               arrows.size() + gradients.size() + glows.size() + particles.size() +
+               labels.size() + circles.size() + quads.size();
     }
 };
 
