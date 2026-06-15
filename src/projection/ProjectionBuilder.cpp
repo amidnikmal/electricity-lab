@@ -1728,6 +1728,32 @@ void emitFlywheel(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
                                  1.8, rimCol, true});
     }
 
+    // Toothed rim: visual engagement with the wrapping chain
+    namespace cg = physics::chain_geometry;
+    const double rollerR = cg::linkRadius(ctx.p.wireThickness);
+    const double toothTipR = cg::sprocketTipRadius(radius, rollerR);
+    const double toothRootR = cg::sprocketRootRadius(radius, rollerR);
+    const int teeth = cg::sprocketTeeth(radius, cg::linkPitch(rollerR));
+    const double toothPitch = 2.0 * kPi / teeth;
+    const uint32_t bodyFill = packColor(
+        static_cast<unsigned>(120 + 55 * iFrac),
+        static_cast<unsigned>(110 + 30 * iFrac),
+        static_cast<unsigned>(170 + 45 * iFrac), 245);
+    ctx.out.circles.push_back({mid, toothRootR, bodyFill, 0.0, true, false});
+    for (int tooth = 0; tooth < teeth; ++tooth) {
+        double tmid = angle0 + tooth * toothPitch;
+        double rootHalf = toothPitch * 0.30;
+        double tipHalf = toothPitch * 0.16;
+        auto at = [&](double angle, double r) {
+            return mid + Vec2(std::cos(angle), std::sin(angle)) * r;
+        };
+        ctx.out.quads.push_back({at(tmid - rootHalf, toothRootR),
+                                 at(tmid - tipHalf, toothTipR),
+                                 at(tmid + tipHalf, toothTipR),
+                                 at(tmid + rootHalf, toothRootR),
+                                 bodyFill, true, 0.0});
+    }
+
     if (iFrac > 0.02) {
         ctx.out.glows.push_back({mid, radius * 1.4, iFrac,
                                  packColor(168, 130, 255, static_cast<unsigned>(8 + 30 * iFrac))});
