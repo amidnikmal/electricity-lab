@@ -1633,12 +1633,12 @@ void emitSpring(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
         if (it != ctx.p.chainTravel->end()) capTravel = it->second;
     }
     // One shaft angle = the loop travel / R drives gear, arm and spring together.
-    // Clamp just shy of the crank's 90° fold: at the limit the spring is FULLY
-    // compressed (max charge) — it no longer sticks early (the old ±60° clamp bit
-    // almost at once and looked stuck). In the linear region the cap gear turns at
-    // exactly the loop speed, like every other gear.
-    constexpr double kMaxSwing = 1.5; // ~86°
-    double shaftAngle = std::clamp(capTravel / pitchR, -kMaxSwing, kMaxSwing);
+    // Soft tanh saturation replaces the old hard clamp: slope at zero stays exactly
+    // 1/pitchR (preserving the synchrony test), yet the spring never hits a dead
+    // wall — oscillations remain visible at any DC operating point, and the gear
+    // speed in the linear region is indistinguishable from the loop speed.
+    constexpr double kMaxSwing = 7.5;
+    double shaftAngle = kMaxSwing * std::tanh(capTravel / (pitchR * kMaxSwing));
     m.theta = shaftAngle;
 
     auto toWorld = [&](Vec2 l) { return g.mid + g.unit * l.x + g.perp * l.y; };
