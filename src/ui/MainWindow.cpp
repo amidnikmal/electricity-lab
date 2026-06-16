@@ -640,6 +640,11 @@ void MainWindow::render() {
         if (!m_emPanel) m_emPanel = std::make_unique<current_lab::ui::EmPanel>();
         m_emPanel->draw(&m_showEmPanel);
     }
+    // Живой режим магнетизма (Фарадей; далее мотор/генератор).
+    if (m_showMagnetism) {
+        if (!m_magnetismPanel) m_magnetismPanel = std::make_unique<current_lab::ui::MagnetismPanel>();
+        m_magnetismPanel->draw(&m_showMagnetism);
+    }
 }
 
 void MainWindow::configureCanvasForCircuitView(CircuitCanvas& canvas) {
@@ -862,6 +867,12 @@ void MainWindow::renderTopBar() {
         m_showEmPanel = !m_showEmPanel;
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("%s", tr("Live Maxwell field (FDTD): wave + analogy"));
+    // Тумблер режима магнетизма (Фарадей: магнит → лампочка).
+    ImGui::SameLine();
+    if (ImGui::Button(tr("Magnetism")))
+        m_showMagnetism = !m_showMagnetism;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("%s", tr("Faraday induction: move magnet -> lamp glows"));
 
     // Единый живой режим: цепь всегда идёт во времени, «стационар» — предел
     // процесса, а не отдельный режим. Пауза останавливает всё (цепь + миры).
