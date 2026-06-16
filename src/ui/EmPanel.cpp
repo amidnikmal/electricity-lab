@@ -127,7 +127,7 @@ void EmPanel::configureAnalogy(EmDemo scene) {
             case EmDemo::DoubleSlit: {
                 for (int i = 1; i < N - 1; ++i) m_ripple->addDrivenSource(i, 6, 0.06, 1.0);
                 const int jb = static_cast<int>(N * 0.42);   // стенка поперёк потока
-                const int c = N / 2, sep = 13, half = 2;
+                const int c = N / 2, sep = 13, half = 3;
                 for (int i = 0; i < N; ++i) {
                     bool slitA = std::abs(i - (c - sep)) <= half;
                     bool slitB = std::abs(i - (c + sep)) <= half;
@@ -204,7 +204,7 @@ void EmPanel::drawWaterPane(float side) {
     EmDemo s = m_analogyScene;
     if (s == EmDemo::DoubleSlit) {
         const int jb = static_cast<int>(N * 0.42);
-        const int c = N / 2, sep = 13, half = 2;
+        const int c = N / 2, sep = 13, half = 3;
         float x = sx(jb);
         dl->AddRectFilled(ImVec2(x - 2, p.y), ImVec2(x + 2, p.y + side), wall);
         // прорезаем две щели прозрачностью (рисуем стену сегментами)
