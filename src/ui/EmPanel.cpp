@@ -291,6 +291,8 @@ void EmPanel::draw(bool* open) {
     ImGui::SameLine();
     if (ImGui::Button("Сброс")) { m_scene.reset(); configureAnalogy(m_scene.scene()); }
     ImGui::SameLine();
+    bool stepOnce = ImGui::Button("Шаг");   // один кадр при паузе — застыть на гребне/узле
+    ImGui::SameLine();
     bool emag = (m_field == EmFieldView::EMag);
     if (ImGui::Checkbox("|E|", &emag)) m_field = emag ? EmFieldView::EMag : EmFieldView::EzSigned;
     ImGui::SameLine();
@@ -303,10 +305,12 @@ void EmPanel::draw(bool* open) {
     if (m_scene.scene() != m_analogyScene) configureAnalogy(m_scene.scene());
 
     // Один слайдер — обе панели идут синхронно (правило детопонятности №1-2).
-    if (m_playing) {
-        m_scene.advance(m_substeps);
-        if (m_ripple) m_ripple->advance(m_substeps);
-        if (m_string) m_string->advance(m_substeps);
+    int steps = m_playing ? m_substeps : 0;
+    if (stepOnce && !m_playing) steps = (m_substeps > 0 ? m_substeps : 2); // «Шаг» при паузе
+    if (steps > 0) {
+        m_scene.advance(steps);
+        if (m_ripple) m_ripple->advance(steps);
+        if (m_string) m_string->advance(steps);
     }
     current_lab::render::EmImage fieldImg = m_scene.image(m_plane, m_field);
     uploadRGBA(m_tex, m_texW, m_texH, fieldImg.w, fieldImg.h, fieldImg.bytes());
