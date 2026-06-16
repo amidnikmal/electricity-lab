@@ -16,6 +16,32 @@ MagnetismPanel::MagnetismPanel() {
     // Параметры катушки/магнита: лампа уверенно вспыхивает при движении (e0=2e-3 в ядре).
     m_induction.setCoil(120, 0.6);
     m_induction.setMagnet(8.0);
+    // Рамка мотора/генератора.
+    m_motor.setCoil(100, 0.02);
+    m_motor.setField(0.6);
+    m_motor.setInertia(0.02);
+}
+
+// Рамка в поле, видимая «с торца»: два полюса (N слева, S справа) и диаметр-рамка,
+// повёрнутый на angle; концы рамки — точки (ток втекает/вытекает). brightness>=0 —
+// подсветка (для генератора), иначе серая.
+void MagnetismPanel::drawRotatingLoop(const void* drawList, float cx, float cy, float r,
+                                      float angle, int brightness, bool warm) {
+    ImDrawList* dl = (ImDrawList*)drawList;
+    // Полюса поля.
+    dl->AddRectFilled(ImVec2(cx - r * 2.0f, cy - r), ImVec2(cx - r * 1.5f, cy + r), IM_COL32(200, 70, 70, 255));
+    dl->AddRectFilled(ImVec2(cx + r * 1.5f, cy - r), ImVec2(cx + r * 2.0f, cy + r), IM_COL32(70, 110, 220, 255));
+    dl->AddText(ImVec2(cx - r * 1.9f, cy - 8), IM_COL32(255, 255, 255, 230), "N");
+    dl->AddText(ImVec2(cx + r * 1.6f, cy - 8), IM_COL32(255, 255, 255, 230), "S");
+    // Ось/корпус ротора.
+    dl->AddCircle(ImVec2(cx, cy), r, IM_COL32(120, 130, 145, 200), 28, 1.5f);
+    // Рамка (диаметр под углом).
+    float ca = std::cos(angle), sa = std::sin(angle);
+    ImVec2 e0(cx - r * ca, cy - r * sa), e1(cx + r * ca, cy + r * sa);
+    dl->AddLine(e0, e1, IM_COL32(210, 180, 90, 255), 3.0f);
+    dl->AddCircleFilled(e0, 5.0f, IM_COL32(230, 90, 90, 255));   // одна сторона (ток сюда)
+    dl->AddCircleFilled(e1, 5.0f, IM_COL32(90, 150, 230, 255));  // другая (ток оттуда)
+    (void)brightness; (void)warm;
 }
 
 void MagnetismPanel::drawFaraday() {
@@ -138,13 +164,162 @@ void MagnetismPanel::drawFaraday() {
                         m_lastEmf, brightness * 100.0f, m_magPos, v);
 }
 
+void MagnetismPanel::drawGenerator() {
+    float dt = ImGui::GetIO().DeltaTime;
+    if (dt <= 0.0f || dt > 0.1f) dt = 1.0f / 60.0f;
+
+    ImGui::Checkbox("крутить самому (авто)", &m_genAuto);
+    if (!m_genAuto) {
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(240);
+        ImGui::SliderFloat("скорость кручения", &m_crankOmega, 0.0f, 14.0f, "%.1f рад/с");
+    }
+    float omega = m_genAuto ? 8.0f : m_crankOmega;
+    m_motor.stepGenerator(omega, dt);
+    float emf = static_cast<float>(m_motor.lastEmf());
+    float brightness = std::clamp(std::fabs(emf) / (std::fabs(emf) + 1.0f), 0.0f, 1.0f);
+    m_genHist[m_genHead] = emf;
+    m_genHead = (m_genHead + 1) % 240;
+
+    ImGui::Dummy(ImVec2(0, 2));
+    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 210, 120, 255));
+    ImGui::SetWindowFontScale(1.55f);
+    ImGui::TextWrapped("Крутишь рамку — лампочка горит.");
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::PopStyleColor();
+
+    float avail = ImGui::GetContentRegionAvail().x, gap = 12.0f;
+    float side = std::min((avail - gap) * 0.5f, 380.0f);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    ImGui::BeginGroup();
+    ImGui::TextDisabled("СЛЕВА: честно — рамка в поле + ЭДС");
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(ImVec2(side, side));
+    dl->AddRectFilled(p, ImVec2(p.x + side, p.y + side), IM_COL32(16, 20, 26, 255));
+    drawRotatingLoop(dl, p.x + side * 0.5f, p.y + side * 0.30f, side * 0.16f,
+                     static_cast<float>(m_motor.angle()), -1, true);
+    // График ЭДС (синус).
+    float gMid = p.y + side * 0.72f, gH = side * 0.34f;
+    dl->AddLine(ImVec2(p.x + 8, gMid), ImVec2(p.x + side - 8, gMid), IM_COL32(60, 70, 84, 200));
+    float emax = 1e-6f;
+    for (float e : m_genHist) emax = std::max(emax, std::fabs(e));
+    for (int k = 0; k + 1 < 240; ++k) {
+        int i0 = (m_genHead + k) % 240, i1 = (m_genHead + k + 1) % 240;
+        float x0 = p.x + 8 + (side - 16) * k / 239.0f, x1 = p.x + 8 + (side - 16) * (k + 1) / 239.0f;
+        dl->AddLine(ImVec2(x0, gMid - m_genHist[i0] / emax * gH * 0.45f),
+                    ImVec2(x1, gMid - m_genHist[i1] / emax * gH * 0.45f), IM_COL32(120, 210, 255, 255), 1.8f);
+    }
+    dl->AddText(ImVec2(p.x + 8, gMid - gH * 0.5f - 16), IM_COL32(150, 160, 170, 220), "ЭДС ~ sin (переменный ток)");
+    ImGui::EndGroup();
+
+    ImGui::SameLine(0.0f, gap);
+    ImGui::BeginGroup();
+    ImGui::TextDisabled("СПРАВА: динамо → лампочка");
+    ImVec2 q = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(ImVec2(side, side));
+    dl->AddRectFilled(q, ImVec2(q.x + side, q.y + side), IM_COL32(14, 16, 22, 255));
+    // ручка-кривошип крутится
+    ImVec2 hub(q.x + side * 0.34f, q.y + side * 0.42f);
+    float hr = side * 0.16f, ang = static_cast<float>(m_motor.angle());
+    dl->AddCircle(hub, hr, IM_COL32(150, 160, 175, 220), 24, 2.0f);
+    ImVec2 handle(hub.x + hr * std::cos(ang), hub.y + hr * std::sin(ang));
+    dl->AddLine(hub, handle, IM_COL32(210, 180, 90, 255), 3.0f);
+    dl->AddCircleFilled(handle, 6.0f, IM_COL32(230, 200, 120, 255));
+    dl->AddText(ImVec2(hub.x - 20, hub.y + hr + 6), IM_COL32(200, 205, 215, 220), "крути");
+    // лампа
+    ImVec2 lamp(q.x + side * 0.78f, q.y + side * 0.42f);
+    float lr = side * 0.12f; int a = static_cast<int>(40 + 215 * brightness);
+    for (int g = 3; g >= 1; --g)
+        dl->AddCircleFilled(lamp, lr * (1.0f + 0.5f * g), IM_COL32(255, 220, 90, static_cast<int>(a * 0.12f)));
+    dl->AddCircleFilled(lamp, lr, IM_COL32(255, 220, 90, a));
+    dl->AddCircle(lamp, lr, IM_COL32(230, 230, 235, 200), 24, 2.0f);
+    ImGui::EndGroup();
+
+    ImGui::Dummy(ImVec2(0, 3));
+    ImGui::TextWrapped("Главное: вращение рамки в поле наводит переменную ЭДС (ε=N·B·A·ω·sin). "
+                       "Это генератор: динамо фонарика, велогенератор, все электростанции.");
+    ImGui::TextDisabled("ЭДС = %.2f В, яркость %.0f%%, ω = %.1f рад/с", emf, brightness * 100.0f, omega);
+}
+
+void MagnetismPanel::drawMotor() {
+    float dt = ImGui::GetIO().DeltaTime;
+    if (dt <= 0.0f || dt > 0.1f) dt = 1.0f / 60.0f;
+
+    ImGui::Checkbox("батарейка включена (ток)", &m_batteryOn);
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(200);
+    ImGui::SliderFloat("ток", &m_motorCurrent, 0.0f, 5.0f, "%.1f А");
+    float current = m_batteryOn ? m_motorCurrent : 0.0f;
+
+    // Кинематика: целевая скорость ∝ току, плавный разгон/торможение (как с трением).
+    float targetOmega = current * 2.2f;
+    m_motorOmega += (targetOmega - m_motorOmega) * std::min(1.0f, dt * 2.5f);
+    m_motorAngle += m_motorOmega * dt;
+    float tq = static_cast<float>(m_motor.torque(current, m_motorAngle));
+
+    ImGui::Dummy(ImVec2(0, 2));
+    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 210, 120, 255));
+    ImGui::SetWindowFontScale(1.55f);
+    ImGui::TextWrapped("Дашь ток — рамка крутится.");
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::PopStyleColor();
+
+    float avail = ImGui::GetContentRegionAvail().x, gap = 12.0f;
+    float side = std::min((avail - gap) * 0.5f, 380.0f);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    ImGui::BeginGroup();
+    ImGui::TextDisabled("СЛЕВА: честно — ток в рамке → момент");
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(ImVec2(side, side));
+    dl->AddRectFilled(p, ImVec2(p.x + side, p.y + side), IM_COL32(16, 20, 26, 255));
+    drawRotatingLoop(dl, p.x + side * 0.5f, p.y + side * 0.42f, side * 0.18f, m_motorAngle, -1, true);
+    dl->AddText(ImVec2(p.x + 8, p.y + side - 24), IM_COL32(150, 160, 170, 220), "момент tau = N*I*A*B*sin(theta)");
+    ImGui::EndGroup();
+
+    ImGui::SameLine(0.0f, gap);
+    ImGui::BeginGroup();
+    ImGui::TextDisabled("СПРАВА: батарейка → вентилятор");
+    ImVec2 q = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(ImVec2(side, side));
+    dl->AddRectFilled(q, ImVec2(q.x + side, q.y + side), IM_COL32(14, 16, 22, 255));
+    // батарейка
+    ImVec2 bat(q.x + side * 0.20f, q.y + side * 0.42f);
+    ImU32 batCol = m_batteryOn ? IM_COL32(90, 200, 110, 255) : IM_COL32(90, 100, 110, 255);
+    dl->AddRectFilled(ImVec2(bat.x - 14, bat.y - 22), ImVec2(bat.x + 14, bat.y + 22), batCol, 3.0f);
+    dl->AddText(ImVec2(bat.x - 6, bat.y - 8), IM_COL32(20, 24, 30, 255), m_batteryOn ? "+" : "o");
+    dl->AddText(ImVec2(bat.x - 28, bat.y + 26), IM_COL32(200, 205, 215, 220), "батарейка");
+    // вентилятор-крыльчатка крутится с m_motorOmega
+    ImVec2 fan(q.x + side * 0.66f, q.y + side * 0.42f);
+    float fr = side * 0.20f;
+    for (int b = 0; b < 4; ++b) {
+        float a = m_motorAngle + b * 1.5707963f;
+        dl->AddLine(fan, ImVec2(fan.x + fr * std::cos(a), fan.y + fr * std::sin(a)),
+                    IM_COL32(120, 190, 240, 255), 5.0f);
+    }
+    dl->AddCircleFilled(fan, 6.0f, IM_COL32(200, 210, 220, 255));
+    dl->AddText(ImVec2(fan.x - 28, fan.y + fr + 6), IM_COL32(200, 205, 215, 220), "вентилятор");
+    ImGui::EndGroup();
+
+    ImGui::Dummy(ImVec2(0, 3));
+    ImGui::TextWrapped("Главное: ток в рамке в поле даёт момент (tau=N·I·A·B·sin) — рамка крутится. "
+                       "Это мотор: вентилятор, дрель, электромобиль. То же устройство, что генератор, наоборот.");
+    ImGui::TextDisabled("ток = %.1f А, момент = %.3f, ω = %.1f рад/с", current, tq, m_motorOmega);
+}
+
 void MagnetismPanel::draw(bool* open) {
-    ImGui::SetNextWindowSize(ImVec2(820, 560), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(840, 600), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Магнетизм (live)", open)) {
         ImGui::End();
         return;
     }
-    drawFaraday();   // позже — вкладки: Фарадей | Мотор/генератор
+    if (ImGui::BeginTabBar("magmodes")) {
+        if (ImGui::BeginTabItem("Индукция (магнит)")) { drawFaraday();   ImGui::EndTabItem(); }
+        if (ImGui::BeginTabItem("Генератор")) { drawGenerator(); ImGui::EndTabItem(); }
+        if (ImGui::BeginTabItem("Мотор")) { drawMotor();     ImGui::EndTabItem(); }
+        ImGui::EndTabBar();
+    }
     ImGui::End();
 }
 
