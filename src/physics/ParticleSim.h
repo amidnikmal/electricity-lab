@@ -30,6 +30,13 @@ struct ChannelSpec {
     // physically (no teleporting); packing is dense and the per-channel drive
     // becomes a weak assist — the pump impeller does the actual pushing.
     bool connected = false;
+    // Capacitor tank channel: a bowed elastic membrane collider sits across the
+    // channel centre (water never crosses it). membraneBow is the signed axial
+    // displacement of the membrane apex (from Vc), updated every frame; the sim
+    // rebuilds the membrane fixtures when it changes. The two half-chambers stay
+    // filled from the mainline through the lead channels at the shared nodes.
+    bool membrane = false;
+    double membraneBow = 0.0;
 };
 
 struct SimParticle {
