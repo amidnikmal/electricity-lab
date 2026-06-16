@@ -166,11 +166,15 @@ void EmPanel::drawWaterPane(float side) {
     // Нормировка по 95-му перцентилю |высоты|, а НЕ по максимуму: у источника
     // (капля/диполь) амплитуда на порядки больше ряби и «съела» бы палитру —
     // тогда круги не видны. Перцентиль насыщает источник, проявляет волны.
+    // Для ДВУХ ЩЕЛЕЙ нормируем по ПРОШЕДШЕЙ за барьер области: иначе яркая входная
+    // волна слева забивает контраст, и интерференция (главное в опыте!) бледная.
+    int j0 = 0;
+    if (m_analogyScene == EmDemo::DoubleSlit) j0 = static_cast<int>(N * 0.42) + 3;
     static std::vector<float> mags;
     mags.clear();
     mags.reserve(static_cast<size_t>(N) * N);
     for (int i = 0; i < N; ++i)
-        for (int j = 0; j < N; ++j) mags.push_back(std::fabs(m_ripple->height(i, j)));
+        for (int j = j0; j < N; ++j) mags.push_back(std::fabs(m_ripple->height(i, j)));
     double target = 1e-6;
     if (!mags.empty()) {
         size_t q = static_cast<size_t>(0.95 * (mags.size() - 1));
