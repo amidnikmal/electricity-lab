@@ -69,6 +69,13 @@ int sceneIndex(EmDemo d) {
 }
 Analogy analogyOf(EmDemo d) { return kScenes[sceneIndex(d)].analogy; }
 
+// Геометрия водяных сцен — ОДНО место (значения из тюнинга галереи); используется
+// и при построении (configureAnalogy), и при отрисовке стен (drawWaterPane).
+constexpr double kSlitBarrierFrac = 0.42;  // позиция стенки (доля ширины)
+constexpr int kSlitSep = 16;               // полураздвиг щелей
+constexpr int kSlitHalf = 2;               // полуширина щели
+constexpr int kWaveguideHalfCh = 16;       // полуширина канала волновода
+
 // Цвет воды: знаковая высота t∈[-1,1] → впадина (тёмно-синий) … гладь … гребень (пена).
 // Общий «цветовой словарь» с полем слева (синее = в одну сторону).
 uint32_t waterColor(float t) {
@@ -126,11 +133,11 @@ void EmPanel::configureAnalogy(EmDemo scene) {
                 break;
             case EmDemo::DoubleSlit: {
                 for (int i = 1; i < N - 1; ++i) m_ripple->addDrivenSource(i, 6, 0.06, 1.0);
-                const int jb = static_cast<int>(N * 0.42);   // стенка поперёк потока
-                const int c = N / 2, sep = 13, half = 3;
+                const int jb = static_cast<int>(N * kSlitBarrierFrac);  // стенка поперёк потока
+                const int c = N / 2;
                 for (int i = 0; i < N; ++i) {
-                    bool slitA = std::abs(i - (c - sep)) <= half;
-                    bool slitB = std::abs(i - (c + sep)) <= half;
+                    bool slitA = std::abs(i - (c - kSlitSep)) <= kSlitHalf;
+                    bool slitB = std::abs(i - (c + kSlitSep)) <= kSlitHalf;
                     if (!slitA && !slitB) m_ripple->setBarrier(i, jb, true);
                 }
                 break;
@@ -141,22 +148,25 @@ void EmPanel::configureAnalogy(EmDemo scene) {
                     for (int j = N / 2; j < N; ++j) m_ripple->setSpeedScale(i, j, 0.5f);
                 break;
             case EmDemo::Waveguide: {
-                const int c = N / 2, halfCh = 10;            // канал между двумя стенками
+                const int c = N / 2, halfCh = kWaveguideHalfCh;
                 for (int j = 0; j < N; ++j) {
                     m_ripple->setBarrier(c - halfCh, j, true);
                     m_ripple->setBarrier(c + halfCh, j, true);
                 }
-                m_ripple->addDrivenSource(c, 6, 0.07, 1.0);
+                m_ripple->addDrivenSource(c, 4, 0.04, 1.0);  // ниже частота → чёткие гребни
                 break;
             }
             default: break;
         }
     } else {
         m_ripple.reset();
-        m_string = std::make_unique<StringWave>(220);
-        m_string->setDrive(0.05, 1.0);
+        // Тюнинг галереи: резонанс f_m=m·c/(2L) на укороченной струне (m=5) — крупные,
+        // ясно различимые узлы (4 шт), а не смазанные 44 полуволны.
+        const int n = 160;
+        m_string = std::make_unique<StringWave>(n);
+        m_string->setDrive(0.00786, 1.0);
         m_string->setFarEnd(StringWave::FarEnd::Fixed); // зеркало: жёсткая стена → стоячая
-        m_ropeEnv.assign(220, 0.0f);
+        m_ropeEnv.assign(n, 0.0f);
     }
 }
 
@@ -169,7 +179,7 @@ void EmPanel::drawWaterPane(float side) {
     // Для ДВУХ ЩЕЛЕЙ нормируем по ПРОШЕДШЕЙ за барьер области: иначе яркая входная
     // волна слева забивает контраст, и интерференция (главное в опыте!) бледная.
     int j0 = 0;
-    if (m_analogyScene == EmDemo::DoubleSlit) j0 = static_cast<int>(N * 0.42) + 3;
+    if (m_analogyScene == EmDemo::DoubleSlit) j0 = static_cast<int>(N * kSlitBarrierFrac) + 3;
     static std::vector<float> mags;
     mags.clear();
     mags.reserve(static_cast<size_t>(N) * N);
@@ -203,18 +213,18 @@ void EmPanel::drawWaterPane(float side) {
     const ImU32 wall = IM_COL32(20, 24, 30, 235);
     EmDemo s = m_analogyScene;
     if (s == EmDemo::DoubleSlit) {
-        const int jb = static_cast<int>(N * 0.42);
-        const int c = N / 2, sep = 13, half = 3;
+        const int jb = static_cast<int>(N * kSlitBarrierFrac);
+        const int c = N / 2;
         float x = sx(jb);
         dl->AddRectFilled(ImVec2(x - 2, p.y), ImVec2(x + 2, p.y + side), wall);
         // прорезаем две щели прозрачностью (рисуем стену сегментами)
         for (int i = 0; i < N; ++i) {
-            bool slit = std::abs(i - (c - sep)) <= half || std::abs(i - (c + sep)) <= half;
+            bool slit = std::abs(i - (c - kSlitSep)) <= kSlitHalf || std::abs(i - (c + kSlitSep)) <= kSlitHalf;
             if (slit) dl->AddRectFilled(ImVec2(x - 2.5f, sy(i) - side / N), ImVec2(x + 2.5f, sy(i) + side / N),
                                         IM_COL32(34, 102, 168, 255));
         }
     } else if (s == EmDemo::Waveguide) {
-        const int c = N / 2, halfCh = 10;
+        const int c = N / 2, halfCh = kWaveguideHalfCh;
         dl->AddRectFilled(ImVec2(p.x, sy(c - halfCh) - 2), ImVec2(p.x + side, sy(c - halfCh) + 2), wall);
         dl->AddRectFilled(ImVec2(p.x, sy(c + halfCh) - 2), ImVec2(p.x + side, sy(c + halfCh) + 2), wall);
     } else if (s == EmDemo::DielectricInterface) {
