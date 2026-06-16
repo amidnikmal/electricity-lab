@@ -308,6 +308,113 @@ void MagnetismPanel::drawMotor() {
     ImGui::TextDisabled("ток = %.1f А, момент = %.3f, ω = %.1f рад/с", current, tq, m_motorOmega);
 }
 
+void MagnetismPanel::drawLorentz() {
+    using current_lab::physics::borisStep;
+    float dt = ImGui::GetIO().DeltaTime;
+    if (dt <= 0.0f || dt > 0.1f) dt = 1.0f / 60.0f;
+
+    bool reset = false;
+    ImGui::SetNextItemWidth(180);
+    ImGui::SliderFloat("поле B", &m_lorB, 0.3f, 3.0f, "%.1f");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(160);
+    if (ImGui::SliderFloat("эл. поле E", &m_lorE, 0.0f, 1.5f, "%.2f")) {}
+    ImGui::SameLine();
+    if (ImGui::Button("Сброс")) reset = true;
+
+    if (!m_lorInit || reset) {
+        m_lor.pos = Vec2(2.0, 0.0);
+        m_lor.vel = Vec2(0.0, 2.0);
+        m_lorTrailHead = 0; m_lorTrailCount = 0;
+        m_lorInit = true;
+    }
+    // Несколько подшагов Boris для гладкой орбиты (q=1, m=1).
+    for (int s = 0; s < 5; ++s) {
+        m_lor = borisStep(m_lor, 1.0, 1.0, Vec2(m_lorE, 0.0), m_lorB, 0.02);
+        m_lorTrail[m_lorTrailHead] = m_lor.pos;
+        m_lorTrailHead = (m_lorTrailHead + 1) % 160;
+        if (m_lorTrailCount < 160) ++m_lorTrailCount;
+    }
+
+    ImGui::Dummy(ImVec2(0, 2));
+    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 210, 120, 255));
+    ImGui::SetWindowFontScale(1.55f);
+    ImGui::TextWrapped("Тянет вбок — шарик кружит.");
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::PopStyleColor();
+
+    float avail = ImGui::GetContentRegionAvail().x, gap = 12.0f;
+    float side = std::min((avail - gap) * 0.5f, 380.0f);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    float scale = side * 0.16f;
+
+    // СЛЕВА: честно — заряд в поле B, скорость и сила.
+    ImGui::BeginGroup();
+    ImGui::TextDisabled("СЛЕВА: честно — заряд в поле B");
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(ImVec2(side, side));
+    dl->AddRectFilled(p, ImVec2(p.x + side, p.y + side), IM_COL32(16, 20, 26, 255));
+    float cx = p.x + side * 0.5f, cy = p.y + side * 0.5f;
+    auto W2S = [&](Vec2 w) { return ImVec2(cx + static_cast<float>(w.x) * scale,
+                                           cy + static_cast<float>(w.y) * scale); };
+    // Поле B «в плоскость» — сетка крестиков.
+    for (int gx = -2; gx <= 2; ++gx)
+        for (int gy = -2; gy <= 2; ++gy) {
+            ImVec2 c(cx + gx * side * 0.18f, cy + gy * side * 0.18f);
+            dl->AddLine(ImVec2(c.x - 3, c.y - 3), ImVec2(c.x + 3, c.y + 3), IM_COL32(70, 80, 95, 160));
+            dl->AddLine(ImVec2(c.x - 3, c.y + 3), ImVec2(c.x + 3, c.y - 3), IM_COL32(70, 80, 95, 160));
+        }
+    // След.
+    for (int k = 1; k < m_lorTrailCount; ++k) {
+        int i0 = (m_lorTrailHead - m_lorTrailCount + k - 1 + 320) % 160;
+        int i1 = (m_lorTrailHead - m_lorTrailCount + k + 320) % 160;
+        int a = 40 + 180 * k / m_lorTrailCount;
+        dl->AddLine(W2S(m_lorTrail[i0]), W2S(m_lorTrail[i1]), IM_COL32(120, 200, 255, a), 1.5f);
+    }
+    // Частица + стрелки скорости (синяя) и силы Лоренца F=q·v×B (красная, ⟂ скорости).
+    ImVec2 pp = W2S(m_lor.pos);
+    Vec2 vel = m_lor.vel;
+    Vec2 force(vel.y * m_lorB, -vel.x * m_lorB); // q=1
+    auto arrow = [&](ImVec2 from, Vec2 d, float len, ImU32 col) {
+        double n = std::sqrt(d.x * d.x + d.y * d.y); if (n < 1e-6) return;
+        ImVec2 to(from.x + static_cast<float>(d.x / n) * len, from.y + static_cast<float>(d.y / n) * len);
+        dl->AddLine(from, to, col, 2.5f);
+        dl->AddCircleFilled(to, 3.0f, col);
+    };
+    arrow(pp, vel, side * 0.14f, IM_COL32(110, 200, 255, 255));   // скорость
+    arrow(pp, force, side * 0.14f, IM_COL32(240, 110, 110, 255)); // сила (вбок)
+    dl->AddCircleFilled(pp, 6.0f, IM_COL32(255, 230, 120, 255));
+    dl->AddText(ImVec2(p.x + 8, p.y + side - 22), IM_COL32(150, 160, 170, 220), "x x x  B (в плоскость)");
+    ImGui::EndGroup();
+
+    ImGui::SameLine(0.0f, gap);
+    // СПРАВА: аналогия — шарик на верёвочке вокруг колышка.
+    ImGui::BeginGroup();
+    ImGui::TextDisabled("СПРАВА: шарик на верёвочке");
+    ImVec2 q = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(ImVec2(side, side));
+    dl->AddRectFilled(q, ImVec2(q.x + side, q.y + side), IM_COL32(14, 16, 22, 255));
+    ImVec2 peg(q.x + side * 0.5f, q.y + side * 0.5f);
+    // угол шарика берём из положения частицы (для синхронности с левой).
+    float ang = std::atan2(static_cast<float>(m_lor.pos.y), static_cast<float>(m_lor.pos.x));
+    float rr = side * 0.30f;
+    ImVec2 ball(peg.x + rr * std::cos(ang), peg.y + rr * std::sin(ang));
+    dl->AddCircle(peg, rr, IM_COL32(60, 70, 84, 160), 40, 1.0f);   // траектория-круг
+    dl->AddCircleFilled(peg, 5.0f, IM_COL32(150, 160, 175, 255));  // колышек
+    dl->AddLine(peg, ball, IM_COL32(210, 180, 90, 255), 2.5f);     // верёвочка (сила к центру)
+    dl->AddCircleFilled(ball, 9.0f, IM_COL32(255, 230, 120, 255)); // шарик
+    dl->AddText(ImVec2(peg.x - 24, peg.y + 8), IM_COL32(200, 205, 215, 210), "тянет к центру");
+    ImGui::EndGroup();
+
+    ImGui::Dummy(ImVec2(0, 3));
+    ImGui::TextWrapped("Главное: магнитная сила всегда ⟂ скорости (F=q·v×B) — не разгоняет, а "
+                       "закручивает. Радиус r=mv/(qB): сильнее поле → круг меньше. Так работают "
+                       "циклотрон, масс-спектрометр, удержание плазмы в токамаке.");
+    double speed = std::sqrt(vel.x * vel.x + vel.y * vel.y);
+    ImGui::TextDisabled("|v| = %.2f, B = %.1f, радиус r=mv/(qB) ≈ %.2f", speed, m_lorB,
+                        m_lorB > 1e-3 ? speed / m_lorB : 0.0);
+}
+
 void MagnetismPanel::draw(bool* open) {
     ImGui::SetNextWindowSize(ImVec2(840, 600), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Магнетизм (live)", open)) {
@@ -318,6 +425,7 @@ void MagnetismPanel::draw(bool* open) {
         if (ImGui::BeginTabItem("Индукция (магнит)")) { drawFaraday();   ImGui::EndTabItem(); }
         if (ImGui::BeginTabItem("Генератор")) { drawGenerator(); ImGui::EndTabItem(); }
         if (ImGui::BeginTabItem("Мотор")) { drawMotor();     ImGui::EndTabItem(); }
+        if (ImGui::BeginTabItem("Лоренц")) { drawLorentz();  ImGui::EndTabItem(); }
         ImGui::EndTabBar();
     }
     ImGui::End();

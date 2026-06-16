@@ -9,6 +9,8 @@
 
 #include "physics/InductionModel.h"
 #include "physics/MotorGenerator.h"
+#include "physics/ChargedParticle.h"
+#include "circuit/Circuit.h"   // Vec2
 
 namespace current_lab::ui {
 
@@ -21,6 +23,7 @@ private:
     void drawFaraday();
     void drawGenerator();   // крутишь рамку → горит лампа
     void drawMotor();       // подаёшь ток → рамка крутится
+    void drawLorentz();     // заряд кружит в поле (сила вбок)
     void drawRotatingLoop(const void* drawList, float cx, float cy, float r,
                           float angle, int brightness, bool warm);
 
@@ -39,6 +42,14 @@ private:
     // Бегущий график для генератора (ЭДС синус).
     float m_genHist[240] = {};
     int   m_genHead = 0;
+    // Лоренц: заряд в поле B (Boris pusher). Орбита + след.
+    current_lab::physics::ParticleState m_lor;
+    float m_lorB = 1.0f;
+    float m_lorE = 0.0f;        // E_x (для дрейфа E×B, бонус)
+    bool  m_lorInit = false;
+    Vec2  m_lorTrail[160];
+    int   m_lorTrailHead = 0;
+    int   m_lorTrailCount = 0;
     // Позиция магнита вдоль оси (катушка в 0). Скорость берём из изменения позиции.
     float m_magPos = 2.5f;
     float m_magPrev = 2.5f;
