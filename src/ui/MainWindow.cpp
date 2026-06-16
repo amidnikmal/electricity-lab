@@ -634,6 +634,12 @@ void MainWindow::render() {
     ImGui::End();
     ImGui::PopStyleColor(6);
     ImGui::PopStyleVar(4);
+
+    // Живой ЭМ-режим — отдельное плавающее окно поверх рабочей области.
+    if (m_showEmPanel) {
+        if (!m_emPanel) m_emPanel = std::make_unique<current_lab::ui::EmPanel>();
+        m_emPanel->draw(&m_showEmPanel);
+    }
 }
 
 void MainWindow::configureCanvasForCircuitView(CircuitCanvas& canvas) {
@@ -849,6 +855,13 @@ void MainWindow::renderTopBar() {
     if (ImGui::Combo("##VisualizationPreset", &m_visualPreset, presetLabels, IM_ARRAYSIZE(presetLabels)))
         applyVisualizationPreset(m_visualPreset);
     current_lab::ui::tooltipIfTruncated(presetLabels[m_visualPreset], 150.0f);
+
+    // Тумблер живого ЭМ-режима (поле | аналогия).
+    ImGui::SameLine();
+    if (ImGui::Button(tr("EM waves")))
+        m_showEmPanel = !m_showEmPanel;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("%s", tr("Live Maxwell field (FDTD): wave + analogy"));
 
     // Единый живой режим: цепь всегда идёт во времени, «стационар» — предел
     // процесса, а не отдельный режим. Пауза останавливает всё (цепь + миры).

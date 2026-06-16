@@ -7,6 +7,7 @@
 #include "solver/CircuitSolver.h"
 #include "ui/CircuitCanvas.h"
 #include "ui/DualViewState.h"
+#include "ui/EmPanel.h"
 #include "ui/InspectorPanel.h"
 #include "ui/LearningPanel.h"
 #include "ui/PaneLayout.h"
@@ -122,6 +123,10 @@ private:
     bool m_showDebugLog = false;
     bool m_showRightInspector = true;
     bool m_fitDualViewsRequested = false;
+    // Живой ЭМ-режим (отдельное окно): создаётся лениво при первом открытии,
+    // чтобы 64³ FDTD не строился, пока пользователь его не позвал.
+    bool m_showEmPanel = false;
+    std::unique_ptr<current_lab::ui::EmPanel> m_emPanel;
     float m_wireThickness = 8.0f;
     float m_uiScale = 1.0f;
     // Сглаженные тайминги кадра (EMA): внешние профилировщики в типичной
