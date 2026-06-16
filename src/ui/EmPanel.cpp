@@ -5,6 +5,7 @@
 #include "physics/EmScene.h"
 #include "render/ColorMaps.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <vector>
@@ -110,6 +111,7 @@ void EmPanel::uploadRGBA(unsigned int& tex, int& tw, int& th,
 // Построить рябь/верёвку под конкретную сцену (вызывается при смене сцены).
 void EmPanel::configureAnalogy(EmDemo scene) {
     m_analogyScene = scene;
+    m_waterNorm = 0.0;  // новая сцена — пересчитать нормировку цвета воды
     if (analogyOf(scene) == Analogy::Water) {
         m_string.reset();
         const int N = 130;
@@ -161,8 +163,23 @@ void EmPanel::configureAnalogy(EmDemo scene) {
 void EmPanel::drawWaterPane(float side) {
     if (!m_ripple) return;
     const int N = m_ripple->grid();
-    float norm = m_ripple->maxAbsHeight();
-    if (norm < 1e-6f) norm = 1e-6f;
+    // Нормировка по 95-му перцентилю |высоты|, а НЕ по максимуму: у источника
+    // (капля/диполь) амплитуда на порядки больше ряби и «съела» бы палитру —
+    // тогда круги не видны. Перцентиль насыщает источник, проявляет волны.
+    static std::vector<float> mags;
+    mags.clear();
+    mags.reserve(static_cast<size_t>(N) * N);
+    for (int i = 0; i < N; ++i)
+        for (int j = 0; j < N; ++j) mags.push_back(std::fabs(m_ripple->height(i, j)));
+    double target = 1e-6;
+    if (!mags.empty()) {
+        size_t q = static_cast<size_t>(0.95 * (mags.size() - 1));
+        std::nth_element(mags.begin(), mags.begin() + q, mags.end());
+        target = std::max(1e-6f, mags[q]);
+    }
+    if (m_waterNorm <= 0.0) m_waterNorm = target;
+    else m_waterNorm += ((target > m_waterNorm) ? 0.5 : 0.05) * (target - m_waterNorm);
+    float norm = static_cast<float>(std::max(1e-6, m_waterNorm));
     static std::vector<uint32_t> px;
     px.resize(static_cast<size_t>(N) * N);
     for (int i = 0; i < N; ++i)

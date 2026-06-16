@@ -49,6 +49,7 @@ private:
     std::unique_ptr<current_lab::physics::StringWave> m_string;  // для «верёвочных» сцен
     unsigned int m_waterTex = 0;     // GLuint ряби
     int m_waterW = 0, m_waterH = 0;
+    double m_waterNorm = 0.0;        // сглаженная нормировка цвета воды (перцентиль)
     std::vector<float> m_ropeEnv;    // огибающая |y| по верёвке — для показа узлов
     current_lab::physics::EmDemo m_analogyScene = current_lab::physics::EmDemo::Count; // настроено под
 };
