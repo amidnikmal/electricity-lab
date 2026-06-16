@@ -186,11 +186,17 @@ inline Circuit buildDemo(DemoCircuit demo) {
             break;
         }
         case DemoCircuit::PeakDetector: {
+            // C и R — параллельная RC-нагрузка; разводим на ДВЕ вертикали, иначе их
+            // глифы рисуются один на другом (один узел-пара). C на x=480, R на x=600.
             int n2 = c.addNode(Vec2(480, 140), "N2");
             int corner = c.addNode(Vec2(480, 320));
+            int rTop = c.addNode(Vec2(600, 140));
+            int rBot = c.addNode(Vec2(600, 320));
             c.addComponent(ComponentType::Diode, n1, n2, 0.0);
             c.addComponent(ComponentType::Capacitor, n2, corner, 1e-3);
-            c.addComponent(ComponentType::Resistor, n2, corner, 100000.0); // slow bleed
+            c.addComponent(ComponentType::Wire, n2, rTop, 0.0);
+            c.addComponent(ComponentType::Resistor, rTop, rBot, 100000.0); // slow bleed
+            c.addComponent(ComponentType::Wire, rBot, corner, 0.0);
             c.addComponent(ComponentType::Wire, corner, gnd, 0.0);
             break;
         }
@@ -203,11 +209,17 @@ inline Circuit buildDemo(DemoCircuit demo) {
             c.components[1].value = 5.0;       // amplitude, V
             c.components[1].frequency = 2.0;   // Hz — наглядно для учебной анимации
             c.components[1].phase = 0.0;
+            // C и R — параллельная нагрузка; разводим на две вертикали (C x=480, R x=600),
+            // иначе глифы накладываются (одна узел-пара).
             int n2 = c.addNode(Vec2(480, 140), "N2");
             int corner = c.addNode(Vec2(480, 320));
+            int rTop = c.addNode(Vec2(600, 140));
+            int rBot = c.addNode(Vec2(600, 320));
             c.addComponent(ComponentType::Diode, n1, n2, 0.0);
             c.addComponent(ComponentType::Capacitor, n2, corner, 10e-6); // 10 μF
-            c.addComponent(ComponentType::Resistor, n2, corner, 1000.0);  // 1 kΩ load
+            c.addComponent(ComponentType::Wire, n2, rTop, 0.0);
+            c.addComponent(ComponentType::Resistor, rTop, rBot, 1000.0);  // 1 kΩ load
+            c.addComponent(ComponentType::Wire, rBot, corner, 0.0);
             c.addComponent(ComponentType::Wire, corner, gnd, 0.0);
             break;
         }
@@ -216,12 +228,14 @@ inline Circuit buildDemo(DemoCircuit demo) {
             // R_g между средними точками. При R1·R4 ≠ R2·R3 мост разбалансирован
             // → через R_g течёт ток. Здесь R4 = 2к (остальные 1к) → небаланс.
             // Раскладка прямоугольная (рейки-провода), все резисторы вертикальны.
-            int tL = c.addNode(Vec2(120, 140));
-            int tR = c.addNode(Vec2(280, 140));
-            int mL = c.addNode(Vec2(120, 230), "L");
-            int mR = c.addNode(Vec2(280, 230), "R");
-            int bL = c.addNode(Vec2(120, 320));
-            int bR = c.addNode(Vec2(280, 320));
+            // Мост сдвинут вправо (x=360/520): иначе горизонтальный R_g (y=230)
+            // прошёл бы прямо сквозь источник в (200,230).
+            int tL = c.addNode(Vec2(360, 140));
+            int tR = c.addNode(Vec2(520, 140));
+            int mL = c.addNode(Vec2(360, 230), "L");
+            int mR = c.addNode(Vec2(520, 230), "R");
+            int bL = c.addNode(Vec2(360, 320));
+            int bR = c.addNode(Vec2(520, 320));
             c.addComponent(ComponentType::Wire, n1, tL, 0.0);          // верхняя рейка
             c.addComponent(ComponentType::Wire, n1, tR, 0.0);
             c.addComponent(ComponentType::Resistor, tL, mL, 1000.0);   // R1
