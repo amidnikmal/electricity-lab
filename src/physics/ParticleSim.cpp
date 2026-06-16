@@ -40,6 +40,8 @@ struct Channel {
     double trimA = 0.0, trimB = 0.0; // wall trim where a junction chamber begins
     std::vector<b2Body*> bodies; // particles of this channel
     b2Body* paddleBody = nullptr;
+    b2Body* membraneBody = nullptr; // capacitor: bowed elastic membrane collider
+    double membraneBowBuilt = 1e30;  // last bow baked into membraneBody (force first build)
 };
 
 // A node where pipe mouths meet; the chamber walls close the gaps between
@@ -236,6 +238,13 @@ struct ParticleSim::Impl {
                 double localUsable = std::max(0.0, th.halfWidthAt(t) - particleRadius - 0.3);
                 if (std::abs(lateral) > localUsable) continue;
             }
+            // Не сеять гранулы в плоскость мембраны (центр бака): пропуск по
+            // ЦЕНТРУ, а не по выгнутой линии — чтобы число гранул камеры НЕ
+            // зависело от заряда (вода несжимаема). Выгиб мембраны затем
+            // пересобирается каждый кадр; разовый сдвиг пары при реконфиге мал.
+            if (spec.membrane &&
+                std::abs(t - channel.length * 0.5) < particleRadius * 1.6)
+                continue;
             Vec2 pos = spec.a + channel.unit * t + channel.perp * lateral;
 
             b2Body* body;
@@ -280,6 +289,47 @@ struct ParticleSim::Impl {
         }
 
         channels.push_back(std::move(channel));
+        if (spec.membrane)
+            rebuildMembrane(channels.back());
+    }
+
+    // Capacitor membrane: a bowed polyline of static edges across the tank
+    // channel centre — a solid elastic barrier the water can never cross. The
+    // bow follows Vc (spec.membraneBow), so the membrane is rebuilt whenever the
+    // charge moves it. Endpoints reach the channel walls (±halfWidth) so no ball
+    // sneaks around the rim.
+    void rebuildMembrane(Channel& channel) {
+        const ChannelSpec& spec = channel.spec;
+        if (!channel.membraneBody) {
+            b2BodyDef def;
+            channel.membraneBody = world->CreateBody(&def);
+            scratchBodies.push_back(channel.membraneBody);
+        }
+        // Снять старые рёбра.
+        b2Fixture* f = channel.membraneBody->GetFixtureList();
+        while (f) { b2Fixture* n = f->GetNext(); channel.membraneBody->DestroyFixture(f); f = n; }
+
+        const int seg = 10;
+        double tc = channel.length * 0.5;
+        double halfW = spec.halfWidth;
+        Vec2 prev;
+        for (int s = 0; s <= seg; ++s) {
+            double frac = -1.0 + 2.0 * static_cast<double>(s) / seg; // [-1,1]
+            double axial = tc + spec.membraneBow * (1.0 - frac * frac);
+            Vec2 p = spec.a + channel.unit * axial + channel.perp * (frac * halfW);
+            if (s > 0) {
+                b2EdgeShape edge;
+                edge.SetTwoSided(toSim(prev), toSim(p));
+                b2FixtureDef fixture;
+                fixture.shape = &edge;
+                fixture.friction = 0.0f;
+                fixture.restitution = 0.05f;
+                fixture.userData.pointer = tagFor(0); // connected: shared domain
+                channel.membraneBody->CreateFixture(&fixture);
+            }
+            prev = p;
+        }
+        channel.membraneBowBuilt = spec.membraneBow;
     }
 
     // --- water-network plumbing -------------------------------------------------
@@ -871,6 +921,7 @@ uint64_t ParticleSim::layoutSignature(const std::vector<ChannelSpec>& channels) 
         mix(spec.scatterers ? 7u : 3u);
         mix(spec.paddle ? 13u : 5u);
         mix(spec.connected ? 17u : 11u);
+        mix(spec.membrane ? 19u : 23u); // membraneBow НЕ в сигнатуре (меняется каждый кадр)
         // Junction plumbing depends on which nodes the pipes share.
         mix(static_cast<uint64_t>(static_cast<int64_t>(spec.nodeA) + 1));
         mix(static_cast<uint64_t>(static_cast<int64_t>(spec.nodeB) + 1));
@@ -923,6 +974,13 @@ void ParticleSim::setTargets(const std::vector<ChannelSpec>& channels, double pa
         if (i >= m_impl->channels.size()) break;
         m_impl->channels[i].spec.targetSpeed = spec.targetSpeed;
         m_impl->channels[i].spec.paddleSpeed = spec.paddleSpeed;
+        // Мембрана конденсатора едет с зарядом: пересобрать коллайдер при
+        // заметном изменении выгиба (порог ~0.2 wu — без дрожания каждый кадр).
+        if (m_impl->channels[i].spec.membrane) {
+            m_impl->channels[i].spec.membraneBow = spec.membraneBow;
+            if (std::abs(spec.membraneBow - m_impl->channels[i].membraneBowBuilt) > 0.2)
+                m_impl->rebuildMembrane(m_impl->channels[i]);
+        }
         ++i;
     }
 }

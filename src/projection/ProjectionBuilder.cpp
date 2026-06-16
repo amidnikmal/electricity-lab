@@ -2210,24 +2210,43 @@ void emitTank(BuildContext& ctx, const Component& comp, Vec2 a, Vec2 b,
     uint32_t plain = packColor(96, 170, 255, 185);
     uint32_t charged = packColor(140, static_cast<unsigned>(205 + 40 * chargeI), 255, 215);
 
-    // Полнопролётная решётка (число гранул НЕ зависит от заряда — вода несжимаема),
-    // но с осевым ДРЕЙФОМ (сдвиг со скоростью тока, кольцевой) — столб воды течёт.
-    // Тинт по стороне мембраны: A-камера «заряженная», B — обычная.
-    double lo = -tankHalfAxis + r, hi = tankHalfAxis - r;
-    double span = std::max(pitch, hi - lo);
-    double off = std::fmod(ctx.p.time * drive, pitch);
-    if (off < 0) off += pitch;
-    int nAx = std::max(2, static_cast<int>(std::floor(span / pitch)) + 1);
-    int nPp = std::max(2, static_cast<int>(std::floor((2.0 * ph - r) / pitch)));
-    for (int j = 0; j < nPp; ++j) {
-        double pp = -ph + r + (2.0 * ph - 2.0 * r) * (nPp > 1 ? double(j) / (nPp - 1) : 0.5);
-        double f = pp / std::max(ph, 1e-9);
-        double m = membraneAxial(f); // ось мембраны на этом лейне
-        for (int i = 0; i < nAx; ++i) {
-            double ax = lo + std::fmod(i * pitch + off, span); // кольцевой дрейф
-            bool aSide = ax < m;
-            ctx.out.particles.push_back({g.mid + unit * ax + perp * pp, r,
-                                         aSide ? charged : plain, false});
+    // Тинт гранулы по стороне мембраны (A-камера «заряженная», B — обычная).
+    // axial/перп берём относительно центра бака g.mid вдоль оси конденсатора.
+    auto tintForChamberPos = [&](Vec2 pos) -> uint32_t {
+        Vec2 rel = pos - g.mid;
+        double axial = rel.x * unit.x + rel.y * unit.y;
+        double lat = rel.x * perp.x + rel.y * perp.y;
+        double f = lat / std::max(ph, 1e-9);
+        return axial < membraneAxial(f) ? charged : plain;
+    };
+
+    if (ctx.p.simParticles) {
+        // ИНВАРИАНТ: вода бака — РЕАЛЬНЫЕ гранулы из общего водопровода (ParticleSim,
+        // componentId==capId: узкие лиды + широкий бак), а не отдельная решётка. Они
+        // дошли до мембраны по магистрали и упираются в выгнутый коллайдер мембраны.
+        for (const auto& sp : *ctx.p.simParticles)
+            if (sp.componentId == comp.id)
+                ctx.out.particles.push_back({sp.pos, r, tintForChamberPos(sp.pos), false});
+    } else {
+        // Тест/семплинг-путь (без живого ParticleSim): полнопролётная решётка с
+        // осевым кольцевым дрейфом — число гранул НЕ зависит от заряда (вода
+        // несжимаема). Живое приложение всегда идёт верхней веткой.
+        double lo = -tankHalfAxis + r, hi = tankHalfAxis - r;
+        double span = std::max(pitch, hi - lo);
+        double off = std::fmod(ctx.p.time * drive, pitch);
+        if (off < 0) off += pitch;
+        int nAx = std::max(2, static_cast<int>(std::floor(span / pitch)) + 1);
+        int nPp = std::max(2, static_cast<int>(std::floor((2.0 * ph - r) / pitch)));
+        for (int j = 0; j < nPp; ++j) {
+            double pp = -ph + r + (2.0 * ph - 2.0 * r) * (nPp > 1 ? double(j) / (nPp - 1) : 0.5);
+            double f = pp / std::max(ph, 1e-9);
+            double m = membraneAxial(f); // ось мембраны на этом лейне
+            for (int i = 0; i < nAx; ++i) {
+                double ax = lo + std::fmod(i * pitch + off, span); // кольцевой дрейф
+                bool aSide = ax < m;
+                ctx.out.particles.push_back({g.mid + unit * ax + perp * pp, r,
+                                             aSide ? charged : plain, false});
+            }
         }
     }
 

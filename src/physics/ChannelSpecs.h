@@ -45,13 +45,67 @@ inline double pumpOmegaForFlow(double current) {
     return -std::clamp(current * 400.0, -6.0, 6.0);
 }
 
+// --- shared capacitor-tank geometry (sim AND renderer use these) -------------
+// Гидравлический конденсатор = герметичный бак с упругой мембраной. В водяном
+// мире он — ЧАСТЬ той же общей сети: узкие подводящие лиды от каждого терминала
+// питают широкую камеру, разделённую мембраной (вода через мембрану НЕ проходит).
+// Формулы дублируют projection::capacitorGeometry, чтобы коллайдер сети и
+// отрисованный бак совпадали (физика не зависит от слоя проекции).
+
+inline double capacitorTankPlateHalf(double wireThickness) {
+    return std::max(wireThickness * 1.6, 14.0);
+}
+
+inline double capacitorTankHalfAxis(double wireThickness, double len) {
+    double gap = std::clamp(wireThickness * 1.2, 6.0, len * 0.4);
+    double plateHalf = capacitorTankPlateHalf(wireThickness);
+    return std::max(plateHalf * 0.9, gap * 0.5);
+}
+
+// Осевое смещение апекса мембраны от Vc (та же формула, что в emitTank):
+// плоская при Vc=0, выгибается к терминалу B при Vc>0. tankHalfAxis — полупролёт
+// бака вдоль оси, range — глобальный размах потенциалов цепи.
+inline double capacitorMembraneBow(double vc, double range, double tankHalfAxis) {
+    double disp = std::clamp(vc / std::max(range, 1e-9), -1.0, 1.0);
+    return disp * tankHalfAxis * 0.82;
+}
+
+// Синтетические узлы мембранного бака: устья камеры (lead<->tank). База большая,
+// чтобы не пересечься с реальными id узлов; по 2 на конденсатор (capId уникален).
+inline constexpr int kCapTankNodeBase = 1 << 20;
+
 inline std::vector<ChannelSpec> makeChannelSpecs(const Circuit& circuit,
                                                  const CircuitSolution* solution,
                                                  double wireThickness,
                                                  bool waterWorld) {
     std::vector<ChannelSpec> specs;
+
+    // Глобальный размах потенциалов и потенциал узла — для выгиба мембраны.
+    double vLo = 0.0, vHi = 0.0;
+    bool haveV = false;
+    if (solution) {
+        for (const auto& sp : solution->nodePotentials) {
+            if (!haveV) { vLo = vHi = sp.potential; haveV = true; }
+            vLo = std::min(vLo, sp.potential);
+            vHi = std::max(vHi, sp.potential);
+        }
+    }
+    double vRange = haveV ? (vHi - vLo) : 1.0;
+    auto nodeV = [&](int nodeId) -> double {
+        if (solution)
+            for (const auto& sp : solution->nodePotentials)
+                if (sp.nodeId == nodeId) return sp.potential;
+        return 0.0;
+    };
+    auto currentOf = [&](int compId) -> double {
+        if (solution)
+            for (const auto& br : solution->branches)
+                if (br.componentId == compId) return br.current;
+        return 0.0;
+    };
+
     for (const auto& comp : circuit.components) {
-        if (comp.type == ComponentType::Ground || comp.type == ComponentType::Capacitor)
+        if (comp.type == ComponentType::Ground)
             continue;
         if (comp.type == ComponentType::Switch && comp.value < 0.5)
             continue; // open: no flow path
@@ -59,11 +113,62 @@ inline std::vector<ChannelSpec> makeChannelSpecs(const Circuit& circuit,
         const Node* b = circuit.findNode(comp.nodeB);
         if (!a || !b) continue;
 
-        double current = 0.0;
-        if (solution) {
-            for (const auto& br : solution->branches)
-                if (br.componentId == comp.id) { current = br.current; break; }
+        // Конденсатор: в водяном мире — три однородных канала (узкий лид →
+        // широкий бак с мембраной → узкий лид), все с componentId=capId и
+        // connected, подключённые к магистрали по реальным узлам терминалов.
+        // Однородная ширина каждого канала сохраняет всю транзитную логику
+        // ParticleSim. В электронном мире заряды через зазор не текут — пропуск.
+        if (comp.type == ComponentType::Capacitor) {
+            if (!waterWorld) continue;
+            Vec2 pa = a->position, pb = b->position;
+            Vec2 ab = pb - pa;
+            double len = ab.length();
+            if (len < 1.0) continue;
+            Vec2 unit = ab / len;
+            Vec2 mid = pa + ab * 0.5;
+            double tankHalfAxis = capacitorTankHalfAxis(wireThickness, len);
+            double plateHalf = capacitorTankPlateHalf(wireThickness);
+            Vec2 mouthA = mid - unit * tankHalfAxis;
+            Vec2 mouthB = mid + unit * tankHalfAxis;
+            double current = currentOf(comp.id);
+            double drive = std::clamp(current * 4000.0, -120.0, 120.0);
+            double vc = nodeV(comp.nodeA) - nodeV(comp.nodeB);
+            double bow = capacitorMembraneBow(vc, vRange, tankHalfAxis);
+            int mNodeA = kCapTankNodeBase + comp.id * 2;
+            int mNodeB = kCapTankNodeBase + comp.id * 2 + 1;
+
+            ChannelSpec leadA;
+            leadA.componentId = comp.id;
+            leadA.a = pa; leadA.b = mouthA;
+            leadA.nodeA = comp.nodeA; leadA.nodeB = mNodeA;
+            leadA.halfWidth = wireThickness * 0.5;
+            leadA.targetSpeed = drive;
+            leadA.connected = true;
+            specs.push_back(leadA);
+
+            ChannelSpec tank;
+            tank.componentId = comp.id;
+            tank.a = mouthA; tank.b = mouthB;
+            tank.nodeA = mNodeA; tank.nodeB = mNodeB;
+            tank.halfWidth = plateHalf;
+            tank.targetSpeed = drive;
+            tank.connected = true;
+            tank.membrane = true;
+            tank.membraneBow = bow;
+            specs.push_back(tank);
+
+            ChannelSpec leadB;
+            leadB.componentId = comp.id;
+            leadB.a = mouthB; leadB.b = pb;
+            leadB.nodeA = mNodeB; leadB.nodeB = comp.nodeB;
+            leadB.halfWidth = wireThickness * 0.5;
+            leadB.targetSpeed = drive;
+            leadB.connected = true;
+            specs.push_back(leadB);
+            continue;
         }
+
+        double current = currentOf(comp.id);
 
         ChannelSpec spec;
         spec.componentId = comp.id;
